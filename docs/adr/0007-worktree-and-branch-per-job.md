@@ -30,8 +30,8 @@ Agent's working directory set to it. Work lands on a **named branch**.
 - The worktree and branch belong to the **Job**, not to a single Run, so a Job
   that takes several nights accumulates its work in one place and is reviewed
   as one branch.
-- Concurrency later is a scheduling decision, not a correctness problem - two
-  Jobs in two worktrees do not contend. (MVP still runs one Run at a time.)
+- Concurrency is a scheduling decision, not a correctness problem - two Jobs in
+  two worktrees do not contend. ADR-0021 sets the caps.
 - Costs disk per Job. Reclaiming it is ADR-0015.
 - Projects whose builds need untracked local files - `.env`, caches, installed
   dependencies - will not work in a fresh worktree without per-Project setup

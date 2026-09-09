@@ -18,12 +18,11 @@ container fix gets made three times.
 Two orthogonal interfaces, in the sense of ADR-0005.
 
 **`Driver`** knows one coding tool: how to build its argv, parse its output
-stream, resume its Session, inject the unattended contract (ADR-0017), and cap
-its spend. Each Driver declares its **capabilities**:
+stream, inject the unattended contract (ADR-0017), and cap its spend. Each Driver declares its **capabilities**:
 
 ```
-Capabilities{ resumable_session, streaming_output,
-              budget_cap, permission_modes, usage_reporting }
+Capabilities{ streaming_output, budget_cap,
+              permission_modes, usage_reporting }
 ```
 
 **`Executor`** knows one placement: host process now, container later. It starts
@@ -43,9 +42,8 @@ MVP.
 - `usage_reporting` is what ADR-0020's ceiling depends on. A Driver that cannot
   report utilization cannot be scheduled under a ceiling, only under a
   reactive limit.
-- Claude-specific mechanics move behind the Driver: `--resume`,
-  `--append-system-prompt`, `--permission-prompts none`, `--max-budget-usd`,
-  `CLAUDE_CONFIG_DIR`. Nothing outside `internal/driver/claudecode` names them.
+- Claude-specific mechanics move behind the Driver: `--append-system-prompt`,
+  `--permission-prompts none`, `--max-budget-usd`, `CLAUDE_CONFIG_DIR`. Nothing outside `internal/driver/claudecode` names them.
 - The `Driver` interface is wide, and widening it later is a change to every
   implementation. Capabilities exist so it can stay wide without forcing every
   Driver to implement everything.

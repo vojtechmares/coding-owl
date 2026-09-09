@@ -31,7 +31,7 @@ implementations:
 the failure attached, and waits for the user. There is no automatic retry and
 no fixer loop.
 
-Job states are `pending`, `active`, `blocked`, `done`, `cancelled`.
+Job states are enumerated in ADR-0027.
 
 ## Consequences
 

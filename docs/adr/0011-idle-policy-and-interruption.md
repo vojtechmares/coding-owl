@@ -41,8 +41,8 @@ which caps it globally, per Project and per Account.
 2. If the machine becomes idle again within a **grace window (default 15
    minutes)**, Owl sends `SIGCONT` and the same Run carries on where it was.
 3. If the grace window expires, Owl escalates to **`SIGTERM`** on the process
-   group. The Run ends with outcome `interrupted`, the Session is already
-   persisted, and the next idle window starts a fresh Run with `--resume`.
+   group. The Run ends with outcome `interrupted`, and the next idle window
+   starts a fresh Run that orients from the handoff document (ADR-0026).
 
 **On daemon restart, in-flight Runs end as `interrupted`** and their Job returns
 to pending. The Job's worktree and branch are preserved, so the next Run

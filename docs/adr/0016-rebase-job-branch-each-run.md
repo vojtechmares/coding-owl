@@ -29,10 +29,10 @@ base.
 - A green Job is green against today's base, which is the only claim worth
   making.
 - The review diff is linear and against current `main`.
-- Rebasing rewrites the commits the Agent made, so a resumed Session's memory of
-  its own shas goes stale. Claude Code orients from the working tree rather than
-  from commit ids, so it recovers - but a prompt that names a sha will not
-  resolve after a rebase.
+- Rebasing rewrites the commits the Agent made. Since ADR-0026 gives every Run a
+  fresh context, nothing carries a memory of the old shas; the next Run reads the
+  handoff document and the rebased log as it finds them. A handoff that names a
+  sha will not resolve after a rebase, so it should describe work in prose.
 - The daemon rewrites git history unattended. That is bounded by the fact that
   the branch is Owl's own, exists only for this Job, and is never pushed
   (ADR-0015). Owl must never rebase anything else.
@@ -44,11 +44,10 @@ base.
 
 ## Alternatives considered
 
-**Merge the base in instead of rebasing.** Does not rewrite the Agent's
-commits, which is a genuine advantage for a resumed Session. Rejected because
-Claude Code re-reads the tree rather than relying on shas, so the advantage is
-mostly theoretical, and merge commits clutter a short-lived branch that exists
-only to be reviewed once.
+**Merge the base in instead of rebasing.** Does not rewrite the Agent's commits,
+which mattered while Sessions were resumed across nights. ADR-0026 removed that
+concern entirely, leaving only the objection that merge commits clutter a
+short-lived branch that exists to be reviewed once.
 
 **Leave the branch alone.** Perfectly predictable, and no unattended git
 operation can surprise anyone. Rejected because it makes Verification a claim
