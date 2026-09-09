@@ -54,3 +54,4 @@ What else was on the table and why it lost.
 | [0022](0022-desktop-chat.md) | Desktop chat is a daemon service with consent-gated, shell-free commands | Accepted |
 | [0023](0023-job-account-binding.md) | A Job runs on its Project's Account | Accepted |
 | [0024](0024-skills-declared-per-project.md) | Skills are declared per Project and managed by Owl | Accepted |
+| [0025](0025-queue-order-and-job-ttl.md) | Queue order and Job attempt limits | Accepted |
