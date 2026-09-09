@@ -58,8 +58,9 @@ Unfinished work is reported through `owl status` and shown in the desktop app.
 - The desktop app gains a surface for "you have three Jobs waiting and one
   worktree with stray changes". This is not a notification in the system sense;
   ADR-scope still excludes those for the MVP.
-- `review` is a fifth Job state, and the state set becomes `pending`, `active`,
-  `blocked`, `review`, `done`, `cancelled`.
+- `review` is a fifth Job state. ADR-0025 later adds `exhausted`; the full set
+  is `pending`, `active`, `blocked`, `review`, `done`, `cancelled`,
+  `exhausted`.
 - Merge detection needs a per-Project poll against the base branch, which is
   cheap but is a scheduled task the daemon did not otherwise need.
 
