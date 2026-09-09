@@ -57,3 +57,4 @@ What else was on the table and why it lost.
 | [0025](0025-queue-order-and-job-ttl.md) | Queue order and Job attempt limits | Accepted |
 | [0026](0026-phases-and-handoff-continuity.md) | Plan then execute, each Run in a fresh context, continuity by handoff document | Accepted |
 | [0027](0027-job-and-run.md) | A Job is a standing intent; a Run is one attempt at it | Accepted |
+| [0028](0028-model-and-effort-selection.md) | Model and effort are chosen per phase | Accepted |
