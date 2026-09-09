@@ -24,8 +24,9 @@ before its Job is finished. A Run is not a Session - several Runs share one.
 _Avoid_: execution, attempt, invocation
 
 **Session**:
-The conversation an Agent holds, persisted by Claude Code and reused across
-every Run of the same Job, so work continues where it stopped.
+The conversation an Agent holds, persisted by its tool and reused across every
+Run of a Job, so work continues where it stopped. Only Drivers that declare the
+capability have one.
 _Avoid_: context, history, thread
 
 **Idle**:
@@ -43,16 +44,34 @@ The daemon's periodic reconciliation of worktrees on disk against Jobs in the
 database - reclaiming what is finished and reporting what looks unfinished.
 _Avoid_: cleanup, pruning, sweeping
 
+### Capacity
+
+**Account**:
+A subscription Owl can run Agents as, with its own isolated tool configuration,
+its own credential, and its own rate limits.
+_Avoid_: profile, identity, login
+
+**Ceiling**:
+The share of an Account's rate-limit window that Owl will not schedule past,
+measured against the account's total usage rather than Owl's alone.
+_Avoid_: quota, budget, cap, allowance
+
 ### Doing the work
 
 **Agent**:
-A Claude Code instance doing coding work on the user's behalf.
+A running instance of a coding tool, doing work on the user's behalf. Claude
+Code is the first, not the only one.
 _Avoid_: bot, instance, assistant, worker
 
+**Driver**:
+A plugin that knows how to operate one coding tool: how to build its command,
+read its output, resume its Session, and what it is capable of.
+_Avoid_: backend, adapter, provider, tool
+
 **Executor**:
-The strategy by which an Agent is run - as a host process now, in a container
-later. One of the project's plugin interfaces.
-_Avoid_: runner, launcher, driver
+Where an Agent runs - as a host process now, in a container later. Orthogonal
+to the Driver: any Driver composes with any Executor.
+_Avoid_: runner, launcher, sandbox
 
 **Verifier**:
 A plugin that performs Verification - by running a Project's own checks, or by

@@ -31,7 +31,8 @@ Agent does not destroy its conversation; the next Run continues it with
 **Manual override exists in both directions.** `owl start` begins work
 regardless of idle state; `owl pause` stops it regardless.
 
-**Concurrency is one Run at a time** in the MVP.
+**Concurrency was one Run at a time** in the MVP. Superseded by ADR-0021,
+which caps it globally, per Project and per Account.
 
 ### Returning to the machine: freeze, then release
 
@@ -68,8 +69,8 @@ continues in place rather than starting from the Project's base branch.
   see in `git status`.
 - "Configurable" means an idle policy needs a config schema in the first
   release, not retrofitted.
-- Concurrency of one means ADR-0007's worktree-per-Job design is not yet
-  exercised for parallelism, though it is built to allow it.
+- Freeze-on-return applies to every Run in flight, not just one, now that
+  ADR-0021 permits several.
 
 ## Alternatives considered
 

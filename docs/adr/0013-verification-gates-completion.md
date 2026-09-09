@@ -23,8 +23,8 @@ implementations:
 
 - **Command verifier** - runs the Project's own checks: tests, linters,
   formatters. This is the default.
-- **Agent verifier** - starts a **fresh** Claude Code Session to review the
-  diff. Fresh is the whole point: the reviewer must not carry the context that
+- **Agent verifier** - starts a **fresh** Agent Session to review the diff.
+  Fresh is the whole point: the reviewer must not carry the context that
   produced the work.
 
 **In the MVP, a failed Verification stops.** The Job moves to `blocked` with

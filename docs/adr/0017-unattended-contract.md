@@ -16,8 +16,9 @@ outcomes is recoverable.
 
 ## Decision
 
-Every Run is invoked with `--append-system-prompt` carrying Owl's standing
-**unattended contract**:
+Every Run carries Owl's standing **unattended contract**, injected by the
+Driver in whatever way its tool supports - `--append-system-prompt` for
+`claude-code` (ADR-0018):
 
 - you are running unattended; nobody can answer a question
 - make reasonable assumptions rather than stalling, and write them down

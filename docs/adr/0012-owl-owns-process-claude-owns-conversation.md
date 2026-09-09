@@ -32,6 +32,10 @@ on the Job. A later Run continues that conversation with `--resume
 Owl does **not** use `claude --bg`, `claude agents`, `claude logs`, `claude
 stop` or `claude rm`.
 
+ADR-0018 generalises this: everything Claude-specific below is the contract of
+the `claude-code` **Driver**, not of Owl. Other Drivers answer the same
+questions differently, and declare which of them they can answer at all.
+
 ## Consequences
 
 - ADR-0007 stands unchanged. The worktree and branch are Owl's, created per Job.

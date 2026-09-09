@@ -24,7 +24,9 @@ no WASM runtime.
 The first interfaces are:
 
 - `Source` - where queued work comes from (see ADR-0008)
-- `Executor` - how an agent process is run (see ADR-0006)
+- `Driver` - which coding tool an Agent is (see ADR-0018)
+- `Executor` - where an Agent runs (see ADR-0006, ADR-0018)
+- `Verifier` - what decides a Run's work is acceptable (see ADR-0013)
 - the idle `Detector` - platform-specific, selected by build tag
 
 ## Consequences

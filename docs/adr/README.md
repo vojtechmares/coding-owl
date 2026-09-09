@@ -47,3 +47,8 @@ What else was on the table and why it lost.
 | [0015](0015-job-disposal-and-garbage-collection.md) | Job disposal and worktree garbage collection | Accepted |
 | [0016](0016-rebase-job-branch-each-run.md) | Rebase the Job branch onto its base at the start of every Run | Accepted |
 | [0017](0017-unattended-contract.md) | Owl appends a standing unattended contract to every Run | Accepted |
+| [0018](0018-driver-and-executor-axes.md) | Driver and Executor are separate plugin axes | Accepted |
+| [0019](0019-accounts.md) | Accounts are first-class, with isolated tool configuration | Accepted |
+| [0020](0020-account-utilization-ceiling.md) | Scheduling respects a per-Account utilization ceiling | Accepted |
+| [0021](0021-concurrency-caps.md) | Concurrency is capped globally, per Project and per Account | Accepted |
+| [0022](0022-desktop-chat.md) | Desktop chat is a daemon service with consent-gated, shell-free commands | Accepted |
