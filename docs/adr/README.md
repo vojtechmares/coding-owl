@@ -38,7 +38,7 @@ What else was on the table and why it lost.
 | [0006](0006-host-execution-for-mvp.md) | MVP agents run as host processes, not containers | Accepted |
 | [0007](0007-worktree-and-branch-per-job.md) | One git worktree and one branch per job | Accepted |
 | [0008](0008-sqlite-queue-behind-source-interface.md) | Work queue is local SQLite behind a `Source` interface | Accepted |
-| [0009](0009-wails-react-desktop.md) | Desktop app is Wails with a React frontend | Accepted |
+| [0009](0009-wails-react-desktop.md) | Desktop app is Wails with a React frontend | Partly superseded by 0029 |
 | [0010](0010-homebrew-formula-and-cask-naming.md) | Homebrew ships a `coding-owl` formula and a `coding-owl-desktop` cask | Accepted |
 | [0011](0011-idle-policy-and-interruption.md) | Idle policy and interruption semantics | Accepted |
 | [0012](0012-owl-owns-process-claude-owns-conversation.md) | Coding Owl owns the process, Claude Code owns the conversation | Partly superseded by 0026 |
@@ -58,3 +58,4 @@ What else was on the table and why it lost.
 | [0026](0026-phases-and-handoff-continuity.md) | Plan then execute, each Run in a fresh context, continuity by handoff document | Accepted |
 | [0027](0027-job-and-run.md) | A Job is a standing intent; a Run is one attempt at it | Accepted |
 | [0028](0028-model-and-effort-selection.md) | Model and effort are chosen per phase | Accepted |
+| [0029](0029-build-order.md) | The core loop ships first; features land across daemon and Desktop together | Accepted |

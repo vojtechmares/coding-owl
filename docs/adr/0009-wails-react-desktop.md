@@ -20,9 +20,10 @@ truth. The app is a client of the daemon like any other.
 
 Visual direction: liquid glass, night-sky and navy blues.
 
-Day-one surface: queue management, a live stream of the running job's output,
-pause and resume, and job history with status and branch name. Diff review is
-explicitly out - that is what ADR-0007's branches are for.
+> **Superseded by ADR-0029.** This ADR originally fixed a day-one feature set
+> for the app. There is no longer one: the core loop ships first in the daemon,
+> and features land across daemon, API and desktop app together thereafter. Diff
+> review remains explicitly out - that is what ADR-0007's branches are for.
 
 ## Consequences
 
