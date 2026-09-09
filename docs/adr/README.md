@@ -60,3 +60,4 @@ What else was on the table and why it lost.
 | [0028](0028-model-and-effort-selection.md) | Model and effort are chosen per phase | Accepted |
 | [0029](0029-build-order.md) | The core loop ships first; features land across daemon and Desktop together | Accepted |
 | [0030](0030-verification-check-specification.md) | Verification checks are shell commands with optional expectations | Accepted |
+| [0031](0031-project-identity.md) | A Project is identified by a name, not by its path | Accepted |

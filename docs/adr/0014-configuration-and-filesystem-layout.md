@@ -76,8 +76,7 @@ guessing.
 - Four discovery locations is more than one, and a config that is not being
   picked up is a support question. `owl project show <slug>` must print which
   file was loaded.
-- `<project-slug>` needs deriving from the Project path with collision handling,
-  and must be stable, because it names a directory.
+- `<project-slug>` is the Project's name, resolved by ADR-0031.
 
 ## Alternatives considered
 
