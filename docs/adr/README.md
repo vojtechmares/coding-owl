@@ -59,3 +59,4 @@ What else was on the table and why it lost.
 | [0027](0027-job-and-run.md) | A Job is a standing intent; a Run is one attempt at it | Accepted |
 | [0028](0028-model-and-effort-selection.md) | Model and effort are chosen per phase | Accepted |
 | [0029](0029-build-order.md) | The core loop ships first; features land across daemon and Desktop together | Accepted |
+| [0030](0030-verification-check-specification.md) | Verification checks are shell commands with optional expectations | Accepted |
