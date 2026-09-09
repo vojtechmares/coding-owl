@@ -27,8 +27,11 @@ skills:
     auto_update: true
 ```
 
-Owl materialises them into a cache and hands them to the Driver in whatever form
-its tool takes (`--plugin-dir` for `claude-code`).
+Owl materialises them into a cache and places them in the Driver's skills
+directory. **Correction:** an earlier version of this ADR said `--plugin-dir` for
+`claude-code`; that is wrong. Claude Code loads skills from `.claude/skills/`,
+which is distinct from its plugins directory. ADR-0033 covers fetching and
+placement.
 
 **Pinned is the default.** `owl skills update` resolves new refs deliberately.
 `auto_update` is opt-in per skill. The resolved version of every skill is
