@@ -24,10 +24,19 @@ before its Job is finished. A Run is not a Session - several Runs share one.
 _Avoid_: execution, attempt, invocation
 
 **Session**:
-The conversation an Agent holds, persisted by its tool and reused across every
-Run of a Job, so work continues where it stopped. Only Drivers that declare the
-capability have one.
+The conversation a single Run holds. It does not outlive that Run - what carries
+between Runs is the Handoff.
 _Avoid_: context, history, thread
+
+**Plan**:
+What a Job's first Run decides it will do. It becomes the execution prompt and
+the first Handoff, and is never continued conversationally.
+_Avoid_: spec, design, proposal
+
+**Handoff**:
+The document on a Job's branch carrying intent and progress from one Run to the
+next, since no conversation survives between them.
+_Avoid_: notes, state, scratchpad, summary
 
 **Idle**:
 The state in which Coding Owl is allowed to work: by default no keyboard or

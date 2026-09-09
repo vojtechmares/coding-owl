@@ -1,6 +1,6 @@
 # ADR-0012: Coding Owl owns the process, Claude Code owns the conversation
 
-- **Status:** Accepted
+- **Status:** Accepted; the conversation-reuse half is superseded by ADR-0026
 - **Date:** 2026-09-09
 
 ## Context
@@ -28,6 +28,11 @@ claude -p --output-format stream-json ...
 **Claude Code owns conversation state.** Owl stores the Claude Code session id
 on the Job. A later Run continues that conversation with `--resume
 <session-id>` instead of re-prompting from scratch.
+
+> **Superseded by ADR-0026.** Owl no longer reuses Sessions at all. Every Run
+> starts in a fresh context and continuity comes from a committed handoff
+> document. The process-ownership decision above stands unchanged; only the
+> conversation-reuse half is void.
 
 Owl does **not** use `claude --bg`, `claude agents`, `claude logs`, `claude
 stop` or `claude rm`.

@@ -36,10 +36,10 @@ MVP.
 
 - Containerisation gets written once, against `Executor`, and every Driver
   inherits it.
-- Owl must degrade honestly on capability. A Driver without
-  `resumable_session` cannot carry a Job across nights (ADR-0011), so such a Job
-  either completes in one Run or restarts; the scheduler needs to know which and
-  say so.
+- Owl must degrade honestly on capability. Since ADR-0026 removed Session reuse,
+  `resumable_session` is no longer required of anything - a Driver without one is
+  first-class, because continuity is a committed handoff document rather than a
+  conversation.
 - `usage_reporting` is what ADR-0020's ceiling depends on. A Driver that cannot
   report utilization cannot be scheduled under a ceiling, only under a
   reactive limit.

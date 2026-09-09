@@ -9,14 +9,17 @@ Accounts (ADR-0019) isolate tool configuration by relocating it with
 `CLAUDE_CONFIG_DIR`. Claude Code stores session transcripts *inside* that tree,
 at `~/.claude/projects/<slugified-cwd>/<session-id>.jsonl`.
 
-So a Session belongs to exactly one Account. Since a Job carries its Session
-across nights (ADR-0012), a Job that changed Account between Runs would find
-`--resume` unable to locate its conversation. Binding is therefore not a
-preference, it is a constraint - the only question is where the binding is
-declared.
+So a Session belongs to exactly one Account. When this was decided that made
+binding a hard constraint, because a Job carried its Session across nights.
+**ADR-0026 removed Session reuse entirely, so that justification is void** - a
+Job could now move Accounts freely without losing anything.
 
-Separately, not all work should draw on the same subscription. Client work kept
-on a designated account is a billing and policy matter, not an optimisation.
+The decision below stands on its remaining reason, which was always the stronger
+one.
+
+That reason is this: not all work should draw on the same subscription. Client
+work kept on a designated account is a billing and policy matter, not an
+optimisation.
 
 ## Decision
 
@@ -32,7 +35,7 @@ account: work
 - Which subscription a repository's work draws on is knowable by reading its
   config, which is what makes client separation enforceable rather than
   incidental.
-- `--resume` always resolves, because a Job never changes Account.
+- Which Account a Job used is stable and auditable for its whole life.
 - **Capacity does not pool.** A Project whose Account sits at its ceiling
   (ADR-0020) waits all night while another Account has headroom going spare.
   This is the accepted cost.

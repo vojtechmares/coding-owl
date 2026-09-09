@@ -19,9 +19,9 @@ executes many tool calls before it returns. There is no "step" boundary an
 outside process can stop at, so graceful interruption has to be built from
 signals rather than from cooperation.
 
-What makes that tolerable is that Claude Code persists the Session. Killing an
-Agent does not destroy its conversation; the next Run continues it with
-`--resume`.
+What makes that tolerable is that progress is durable outside the Agent: commits
+on the Job's branch, and a handoff document kept current as the work proceeds
+(ADR-0026). Killing an Agent loses its train of thought, not its work.
 
 ## Decision
 
@@ -63,10 +63,10 @@ continues in place rather than starting from the Project's base branch.
   parent would leave those pegging the CPU, defeating the entire point.
 - Two mechanisms live in one code path, and the grace window is a new tunable.
   That is the price of the above and it is worth it.
-- `SIGTERM` can land mid-tool-call. Claude Code's Session persistence covers the
-  conversation, and the Job's worktree is a throwaway branch, so the blast
-  radius is a possibly-untidy working tree that the next Run inherits and can
-  see in `git status`.
+- `SIGTERM` can land mid-tool-call. Commits and the handoff document cover what
+  matters, and the Job's worktree is a throwaway branch, so the blast radius is a
+  possibly-untidy working tree that the next Run inherits and can see in
+  `git status`.
 - "Configurable" means an idle policy needs a config schema in the first
   release, not retrofitted.
 - Freeze-on-return applies to every Run in flight, not just one, now that

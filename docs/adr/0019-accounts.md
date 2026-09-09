@@ -19,6 +19,13 @@ There also has to be *something* for a rate-limit budget to attach to
 
 ## Decision
 
+An Account is always a **subscription** in the MVP - authenticated with
+`claude setup-token`, and governed solely by the utilization ceiling of
+ADR-0020. API-key Accounts, whose scarcity is money rather than rate and whose
+control would be `--max-budget-usd` and a rolling cap, are a second `kind` for
+later. The desktop chat's Anthropic and OpenRouter keys (ADR-0022) are model
+credentials, not Accounts, and stay in separate configuration.
+
 **Account** is a first-class entity: a name, the Driver it belongs to, an
 Owl-owned configuration directory, a credential reference, its limit ceilings,
 and an optional parallelism cap.

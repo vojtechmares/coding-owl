@@ -23,6 +23,8 @@ Driver in whatever way its tool supports - `--append-system-prompt` for
 - you are running unattended; nobody can answer a question
 - make reasonable assumptions rather than stalling, and write them down
 - commit incrementally, with messages that explain the reasoning
+- keep `.coding-owl/HANDOFF.md` current as you go, not at the end - the next
+  Run starts with no memory of this one (ADR-0026)
 - when genuinely blocked, stop and state the blocker plainly
 - never guess at anything destructive or irreversible
 

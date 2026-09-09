@@ -41,7 +41,7 @@ What else was on the table and why it lost.
 | [0009](0009-wails-react-desktop.md) | Desktop app is Wails with a React frontend | Accepted |
 | [0010](0010-homebrew-formula-and-cask-naming.md) | Homebrew ships a `coding-owl` formula and a `coding-owl-desktop` cask | Accepted |
 | [0011](0011-idle-policy-and-interruption.md) | Idle policy and interruption semantics | Accepted |
-| [0012](0012-owl-owns-process-claude-owns-conversation.md) | Coding Owl owns the process, Claude Code owns the conversation | Accepted |
+| [0012](0012-owl-owns-process-claude-owns-conversation.md) | Coding Owl owns the process, Claude Code owns the conversation | Partly superseded by 0026 |
 | [0013](0013-verification-gates-completion.md) | Verification gates Job completion, and does not retry | Accepted |
 | [0014](0014-configuration-and-filesystem-layout.md) | Configuration discovery and filesystem layout | Accepted |
 | [0015](0015-job-disposal-and-garbage-collection.md) | Job disposal and worktree garbage collection | Accepted |
@@ -55,3 +55,4 @@ What else was on the table and why it lost.
 | [0023](0023-job-account-binding.md) | A Job runs on its Project's Account | Accepted |
 | [0024](0024-skills-declared-per-project.md) | Skills are declared per Project and managed by Owl | Accepted |
 | [0025](0025-queue-order-and-job-ttl.md) | Queue order and Job attempt limits | Accepted |
+| [0026](0026-phases-and-handoff-continuity.md) | Plan then execute, each Run in a fresh context, continuity by handoff document | Accepted |
