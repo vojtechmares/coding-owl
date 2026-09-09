@@ -47,6 +47,7 @@ Honouring `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME` and
     owl.db                       Jobs, Runs, Projects, Accounts
     worktrees/<job-id>/          one per Job (ADR-0007)
     accounts/<name>/             per-Account tool config (ADR-0019)
+    skills/<content-hash>/       materialised skills (ADR-0024)
 
 ~/.local/state/coding-owl/
     owld.sock                    or $XDG_RUNTIME_DIR/coding-owl/owld.sock

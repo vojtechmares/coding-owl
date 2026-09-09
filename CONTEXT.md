@@ -44,6 +44,11 @@ The daemon's periodic reconciliation of worktrees on disk against Jobs in the
 database - reclaiming what is finished and reporting what looks unfinished.
 _Avoid_: cleanup, pruning, sweeping
 
+**Skill**:
+A reusable bundle of instructions or tools that Owl installs for an Agent,
+declared per Project and pinned to a version.
+_Avoid_: plugin, extension, pack
+
 ### Capacity
 
 **Account**:

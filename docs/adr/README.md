@@ -52,3 +52,5 @@ What else was on the table and why it lost.
 | [0020](0020-account-utilization-ceiling.md) | Scheduling respects a per-Account utilization ceiling | Accepted |
 | [0021](0021-concurrency-caps.md) | Concurrency is capped globally, per Project and per Account | Accepted |
 | [0022](0022-desktop-chat.md) | Desktop chat is a daemon service with consent-gated, shell-free commands | Accepted |
+| [0023](0023-job-account-binding.md) | A Job runs on its Project's Account | Accepted |
+| [0024](0024-skills-declared-per-project.md) | Skills are declared per Project and managed by Owl | Accepted |
