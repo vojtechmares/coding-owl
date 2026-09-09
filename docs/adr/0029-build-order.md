@@ -26,6 +26,29 @@ daemon does it, the API exposes it, and the desktop app shows it.
 There is no "desktop v1 feature set". The desktop app is whatever the features
 shipped so far have put in it.
 
+### What the core loop is
+
+The first milestone proves the mechanism **and** that its output is worth
+having. Concretely:
+
+- `owl project add`, reading `.coding-owl.yaml` from the base branch (ADR-0014)
+- `owl add`, queueing a Job into SQLite (ADR-0008, ADR-0027)
+- `owl start` as a manual trigger
+- a worktree and branch per Job (ADR-0007)
+- Driver × Executor running an Agent on the host (ADR-0006, ADR-0018)
+- the planning phase writing `.coding-owl/HANDOFF.md`, then execution in a fresh
+  context (ADR-0026), at the models in ADR-0028
+- Verification against the Project's checks, deciding `review` versus `blocked`
+  (ADR-0013)
+- `stream-json` captured and streamed to `owl logs -f` over ConnectRPC
+  (ADR-0004, ADR-0012)
+- `owl jobs accept` / `owl jobs drop` (ADR-0015)
+
+Deliberately **not** in the first milestone: idle detection, Accounts and
+utilization ceilings, concurrency above one, rebase-on-Run, garbage collection,
+skills, chat, and the desktop app. Each is an addition to a working loop rather
+than a rework of it, which is the property that made this the right cut.
+
 ## Consequences
 
 - The proto contract is **grown per feature rather than designed up front**.
