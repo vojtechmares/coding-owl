@@ -40,4 +40,10 @@ What else was on the table and why it lost.
 | [0008](0008-sqlite-queue-behind-source-interface.md) | Work queue is local SQLite behind a `Source` interface | Accepted |
 | [0009](0009-wails-react-desktop.md) | Desktop app is Wails with a React frontend | Accepted |
 | [0010](0010-homebrew-formula-and-cask-naming.md) | Homebrew ships a `coding-owl` formula and a `coding-owl-desktop` cask | Accepted |
-| [0011](0011-idle-policy-and-interruption.md) | Idle policy and interruption semantics | Proposed |
+| [0011](0011-idle-policy-and-interruption.md) | Idle policy and interruption semantics | Accepted |
+| [0012](0012-owl-owns-process-claude-owns-conversation.md) | Coding Owl owns the process, Claude Code owns the conversation | Accepted |
+| [0013](0013-verification-gates-completion.md) | Verification gates Job completion, and does not retry | Accepted |
+| [0014](0014-configuration-and-filesystem-layout.md) | Configuration discovery and filesystem layout | Accepted |
+| [0015](0015-job-disposal-and-garbage-collection.md) | Job disposal and worktree garbage collection | Accepted |
+| [0016](0016-rebase-job-branch-each-run.md) | Rebase the Job branch onto its base at the start of every Run | Accepted |
+| [0017](0017-unattended-contract.md) | Owl appends a standing unattended contract to every Run | Accepted |

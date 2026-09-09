@@ -16,8 +16,8 @@ parallel execution path bolted onto the scheduler.
 
 ## Decision
 
-A local **SQLite** database holds queued prompts and job history. `Source` is
-an interface from day one, and the local queue is simply its first
+A local **SQLite** database holds Jobs and their Run history. `Source` is an
+interface from day one, and the local queue is simply its first
 implementation.
 
 Future producers are **queue producers** - they feed the same queue rather than
@@ -27,8 +27,8 @@ introducing a second path into the scheduler.
 
 - No external service, no daemon dependency to install, and the queue survives
   restarts.
-- Job history, status, and the data behind `owl jobs list` come for free from
-  the same store rather than needing separate bookkeeping.
+- Run history, Job status, and the data behind `owl jobs list` come for free
+  from the same store rather than needing separate bookkeeping.
 - Single-writer access matches the daemon's shape exactly; the CLI and GUI
   reach it through the API, never by opening the database.
 - A schema migration strategy is needed from the very first release, because

@@ -6,8 +6,8 @@
 ## Context
 
 Coding Owl has three headless components: the daemon that detects idle time and
-runs agents, the user-facing CLI that controls it, and (later) an agent that
-runs on a remote VM and calls home. All three are Go, and they share most of
+runs Agents, the user-facing CLI that controls it, and (later) a Runner that
+executes work on a remote VM and calls home. All three are Go, and they share most of
 their dependency graph - the protocol types, the client, the config loader.
 
 The obvious prior art splits the daemon out into its own binary: `docker` and
@@ -20,7 +20,7 @@ One cobra entrypoint at `cmd/owl`, producing one binary:
 
 - `owl daemon run` - runs the daemon in the foreground
 - `owl daemon install` - writes and loads a launchd plist or systemd unit
-- `owl agent run --server=...` - future remote-VM agent mode
+- `owl runner run --server=...` - future remote-Runner mode
 - everything else (`owl status`, `owl add`, `owl logs`, ...) acts as a client
   of the daemon
 
@@ -33,8 +33,8 @@ One cobra entrypoint at `cmd/owl`, producing one binary:
 - The command tree has to stay disciplined: daemon-only flags must not leak
   into user-facing commands, and `owl --help` must not read like a server
   manual.
-- If a stripped-down agent artifact is ever genuinely needed, adding
-  `cmd/owl-agent` as a thin `main` importing `internal/agent` costs nothing and
+- If a stripped-down Runner artifact is ever genuinely needed, adding
+  `cmd/owl-runner` as a thin `main` importing `internal/runner` costs nothing and
   changes no other code. Do not pre-split for it.
 
 ## Alternatives considered

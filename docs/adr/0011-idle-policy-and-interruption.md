@@ -1,52 +1,74 @@
 # ADR-0011: Idle policy and interruption semantics
 
-- **Status:** Proposed - the behaviour is accepted, the pause *mechanism* below
-  is not yet ratified
+- **Status:** Accepted
 - **Date:** 2026-09-09
 
 ## Context
 
 The product premise is doing work while the machine is otherwise idle, which
 makes two questions load-bearing rather than incidental: what counts as idle,
-and what happens when the user comes back while a job is running.
+and what happens when the user comes back while a Run is in flight.
 
-Host execution (ADR-0006) sharpens the first one. There is no VM to blame - the
-agent burns real CPU on the user's laptop, so an idle policy that ignores power
+Host execution (ADR-0006) sharpens the first. There is no VM to blame - the
+Agent burns real CPU on the user's laptop, so an idle policy that ignores power
 state will happily flatten a battery in a bag.
+
+The second question turns on a detail of how Agents are actually run. Owl
+invokes `claude -p` as a child process (ADR-0012), and a single invocation
+executes many tool calls before it returns. There is no "step" boundary an
+outside process can stop at, so graceful interruption has to be built from
+signals rather than from cooperation.
+
+What makes that tolerable is that Claude Code persists the Session. Killing an
+Agent does not destroy its conversation; the next Run continues it with
+`--resume`.
 
 ## Decision
 
-**Idle policy is configurable**, with the default being: no keyboard or mouse
-input for **10 minutes** *and* the machine is **on AC power**.
+**Idle policy is configurable**, defaulting to: no keyboard or mouse input for
+**10 minutes** *and* the machine **on AC power**.
 
-**Manual override exists in both directions.** `owl run` starts work regardless
-of idle state; `owl pause` stops it regardless.
+**Manual override exists in both directions.** `owl start` begins work
+regardless of idle state; `owl pause` stops it regardless.
 
-**On user return, the daemon drains gracefully** - the running job finishes its
-current step and no new jobs start. An explicit `owl pause` is the escape
-hatch for users who do not want to wait for that.
+**Concurrency is one Run at a time** in the MVP.
 
-**Concurrency is one job at a time** in the MVP.
+### Returning to the machine: freeze, then release
 
-**On daemon restart, in-flight jobs are marked interrupted and requeued**, with
-their worktree preserved for inspection.
+1. On the first input event, Owl sends **`SIGSTOP`** to the Agent's process
+   group. The machine is immediately the user's again and nothing is lost.
+2. If the machine becomes idle again within a **grace window (default 15
+   minutes)**, Owl sends `SIGCONT` and the same Run carries on where it was.
+3. If the grace window expires, Owl escalates to **`SIGTERM`** on the process
+   group. The Run ends with outcome `interrupted`, the Session is already
+   persisted, and the next idle window starts a fresh Run with `--resume`.
 
-### Proposed mechanism, pending ratification
-
-Immediate pause is `SIGSTOP` to the agent process, resumed with `SIGCONT`.
+**On daemon restart, in-flight Runs end as `interrupted`** and their Job returns
+to pending. The Job's worktree and branch are preserved, so the next Run
+continues in place rather than starting from the Project's base branch.
 
 ## Consequences
 
 - Requiring AC power means Coding Owl never quietly drains a battery, at the
   cost of never running on a train.
-- `SIGSTOP` buys instant pause with no session-state machinery at all, and
-  because the process stays alive it naturally spans several idle windows.
-  Its limit is that it does not survive a daemon restart or a reboot.
-- Durable mid-job resume across restarts would need Claude Code's own session
-  resume. Deferred; the requeue-on-restart rule above is the stand-in.
-- "Configurable" means a config schema for the idle policy is needed in the
-  first release, not retrofitted.
-- Concurrency of one means ADR-0007's worktree-per-job design is not yet
+- The freeze step is what makes the product tolerable to live with. Without it,
+  sitting down at the laptop means either waiting out a Run that may have
+  another half hour in it, or paying a resume cycle for every ten-second visit.
+- The escalation step is what makes it durable. A frozen process holds dead
+  sockets, and holds them across a lid close; ending the Run cleanly within
+  fifteen minutes keeps that window short.
+- Signals go to the **process group**, not the Agent's PID. Claude Code spawns
+  children - test runners, compilers, package managers - and freezing only the
+  parent would leave those pegging the CPU, defeating the entire point.
+- Two mechanisms live in one code path, and the grace window is a new tunable.
+  That is the price of the above and it is worth it.
+- `SIGTERM` can land mid-tool-call. Claude Code's Session persistence covers the
+  conversation, and the Job's worktree is a throwaway branch, so the blast
+  radius is a possibly-untidy working tree that the next Run inherits and can
+  see in `git status`.
+- "Configurable" means an idle policy needs a config schema in the first
+  release, not retrofitted.
+- Concurrency of one means ADR-0007's worktree-per-Job design is not yet
   exercised for parallelism, though it is built to allow it.
 
 ## Alternatives considered
@@ -58,11 +80,16 @@ laptop on battery does unattended compile-heavy work until it dies.
 the user has actually left, but it misses the common case of stepping away
 without locking.
 
-**Kill the agent immediately on user return.** Frees the machine fastest, but
-leaves half-applied edits and a dirty worktree.
+**Let the Run finish; idle gates only whether a new Run starts.** The simplest
+rule, and the one the original phrasing of this ADR implied. Rejected because a
+Run has no predictable length, so returning to the machine can mean sharing it
+with a compile for an unbounded time.
 
-**Full pause/resume via session serialisation.** The nicest behaviour, and real
-work. Deferred rather than rejected.
+**`SIGTERM` immediately on every return.** One mechanism, no grace timer, no
+frozen processes. Rejected because it pays a full stop-and-resume cycle every
+time the user touches the laptop, however briefly.
 
-**Manual trigger only for the MVP.** Would prove the queue and worktree loop
-sooner, but it postpones the one feature that defines the product.
+**Cooperative stop by driving the session turn by turn** over
+`--input-format stream-json`, so that "between turns" becomes a real boundary.
+Rejected for the MVP: it only helps if Jobs are naturally multi-turn, and it
+makes the prompt something Owl has to decompose rather than hand over.

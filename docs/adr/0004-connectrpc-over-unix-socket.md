@@ -6,7 +6,7 @@
 ## Context
 
 Three consumers need to talk to the daemon: the CLI, the desktop app, and
-eventually a remote agent. The API needs to be type-safe across a Go server and
+eventually a remote Runner. The API needs to be type-safe across a Go server and
 Go clients, and it needs **streaming** - tailing a running job's output is a
 core interaction, not an extra.
 
@@ -22,7 +22,9 @@ one.
 
 **ConnectRPC** (connectrpc.com) with **Buf** for code generation, linting, and
 breaking-change detection. Service definitions live in `proto/`. The daemon
-listens on `~/.coding-owl/owld.sock`.
+listens on a unix socket under the state directory -
+`~/.local/state/coding-owl/owld.sock`, or `$XDG_RUNTIME_DIR/coding-owl/owld.sock`
+where that is set (see ADR-0014).
 
 All client-side logic lives in one shared `internal/client` package, so the CLI
 and the GUI can never diverge in how they talk to the daemon.
