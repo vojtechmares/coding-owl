@@ -32,16 +32,42 @@ func rebasingJob(t *testing.T, files map[string]string) *rebasing {
 	return rebasingJobOn(t, files, nil)
 }
 
+// rebasingJobHeld is rebasingJob whose next Agent waits before it does
+// anything, so a scenario can look at a worktree only the rebase has touched.
+func rebasingJobHeld(t *testing.T, files map[string]string) *rebasing {
+	t.Helper()
+	rb := rebasingJobOn(t, files, nil, "OWL_FAKE_CLAUDE_HOLD=1")
+	// The planning Run was let go; the next one is not.
+	if err := os.Remove(rb.stub.release); err != nil {
+		t.Fatal(err)
+	}
+	return rb
+}
+
+// heldAgent waits until the Agent of the Run just started is holding, so what
+// a scenario reads is the rebase's work and nothing else.
+func (rb *rebasing) heldAgent(t *testing.T) {
+	t.Helper()
+	waitFor(t, "the agent to be holding", func() bool {
+		return len(rb.stub.invocations(t)) >= 2
+	})
+}
+
 // rebasingJobOn is rebasingJob with files committed to the base branch before
 // the Job's branch is cut from it, so that a later change to them is a change
 // to something the two sides share.
-func rebasingJobOn(t *testing.T, files, base map[string]string) *rebasing {
+func rebasingJobOn(t *testing.T, files, base map[string]string, env ...string) *rebasing {
 	t.Helper()
 	all := map[string]string{handoffPath: "# Handoff\n\nstep one done\n"}
 	for path, body := range files {
 		all[path] = body
 	}
 	l, s := writingLayout(t, all, true, agentScript)
+	l = l.withEnv(env...)
+	if len(env) > 0 {
+		// Held from the start, and let go for the planning Run below.
+		s.let(t)
+	}
 	daemonUp(t, l)
 	r := newRepo(t, l, "api")
 	for path, body := range base {
@@ -108,11 +134,15 @@ func TestS1RebaseBringsTheMovedBaseIntoTheWorktree(t *testing.T) {
 }
 
 func TestS2RebaseReplaysWhatTheAgentCommitted(t *testing.T) {
-	rb := rebasingJob(t, map[string]string{"work.txt": agentWork})
+	// Held before it does anything: the second Run's Agent writes the same
+	// file with the same bytes, so a worktree it had touched would say nothing
+	// about what the rebase replayed.
+	rb := rebasingJobHeld(t, map[string]string{"work.txt": agentWork})
 	rb.moveBase(t, "from-base.txt", "added while the job was waiting\n")
 	worktree := rb.worktree(t)
 
 	mustOwl(t, rb.l, "start")
+	rb.heldAgent(t)
 
 	if body, err := os.ReadFile(filepath.Join(worktree, "work.txt")); err != nil {
 		t.Errorf("what the agent committed is gone: %v", err)
@@ -467,12 +497,12 @@ func TestS17ARebaseThatCannotBeCarriedOutBlocksTheJob(t *testing.T) {
 	rb := rebasingJob(t, map[string]string{"work.txt": agentWork})
 	worktree := rb.worktree(t)
 	before := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "HEAD"))
+	// A file nobody put in git's hands, which the base branch then commits:
+	// git refuses to overwrite it and stops before the rebase has begun.
+	if err := os.WriteFile(filepath.Join(worktree, "from-base.txt"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	rb.moveBase(t, "from-base.txt", "added while the job was waiting\n")
-	// Signing that cannot work, which is what a daemon with no terminal gets
-	// from an ordinary developer's configuration. Set after the fixture's own
-	// commits, which would not be able to sign either.
-	rb.repo.git("config", "commit.gpgsign", "true")
-	rb.repo.git("config", "gpg.program", filepath.Join(rb.l.root, "no-such-gpg"))
 
 	res := runOwl(t, rb.l, "start")
 
@@ -495,4 +525,32 @@ func TestS17ARebaseThatCannotBeCarriedOutBlocksTheJob(t *testing.T) {
 	if got := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "--abbrev-ref", "HEAD")); got != rb.branch(t) {
 		t.Errorf("the worktree is on %q, want the job's own branch", got)
 	}
+}
+
+func TestS18AWorktreeThatIsGoneBlocksTheJobNotTheQueue(t *testing.T) {
+	rb := rebasingJob(t, nil)
+	// A second Job, so that the queue can be seen to carry on.
+	addJob(t, rb.l, rb.repo.dir, "the next one", "--no-plan")
+	if err := os.RemoveAll(rb.worktree(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	res := runOwl(t, rb.l, "start")
+
+	if res.code == 0 {
+		t.Fatalf("owl start ran a job whose worktree is gone\nstdout:\n%s", res.stdout)
+	}
+	out := mustOwl(t, rb.l, "jobs", "show", rb.job).stdout
+	if got := line(t, out, "state"); got != "blocked" {
+		t.Errorf("state = %q, want blocked", got)
+	}
+	if reason := line(t, out, "reason"); !strings.Contains(reason, "worktree") {
+		t.Errorf("the reason does not mention the worktree: %q", reason)
+	}
+	// And the queue is not held by it.
+	_, next := startRun(t, rb.l)
+	if next == rb.job {
+		t.Errorf("owl start ran job %s again, want the next one in the queue", next)
+	}
+	rb.stub.let(t)
 }

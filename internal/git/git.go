@@ -685,7 +685,9 @@ func (c Conflict) Conflicted() bool { return len(c.Paths) > 0 }
 // Changes nobody committed are stashed and put back afterwards: an interrupted
 // Run leaves a possibly untidy worktree behind (ADR-0011), and that is not a
 // reason to leave a Job unrebased.
-func Rebase(path, base string) (Conflict, error) {
+func Rebase(ctx context.Context, path, base string) (Conflict, error) {
+	ctx, cancel := context.WithTimeout(ctx, rebaseTimeout)
+	defer cancel()
 	// The identity is Owl's own: a rebase can need one, and it must not depend
 	// on the user having configured one. The base is named as a ref rather
 	// than by its bare name, because a tag of the same name would otherwise
@@ -696,15 +698,20 @@ func Rebase(path, base string) (Conflict, error) {
 	// Owl rebases its own Job branch and nothing else (ADR-0016).
 	// --no-verify: a pre-rebase hook is somebody else's code, and this runs
 	// unattended, exactly as the commit below does.
+	// commit.gpgsign=false: replaying Owl's own Job branch is not the user's
+	// signature to give, and a signing program that wants a passphrase would
+	// wait for somebody who is not there.
 	args := append(append([]string{}, owlIdentity...),
+		"-c", "commit.gpgsign=false",
 		"rebase", "--no-update-refs", "--no-verify", "--autostash", "--", branchRef(base))
-	_, stderr, code, err := run(path, args...)
+	_, stderr, code, err := runWithin(ctx, path, args...)
 	if err != nil {
 		return Conflict{}, err
 	}
 	if code == 0 {
 		// A rebase that went through can still leave the worktree in conflict:
-		// git puts back what it stashed afterwards, says so, and exits zero.
+		// git puts back what it stashed afterwards, says so, and exits zero -
+		// which is why this asks rather than trusting the status.
 		stashed, err := unmergedPaths(path)
 		if err != nil {
 			return Conflict{}, err
@@ -750,7 +757,9 @@ func abortRebase(path string) error {
 
 // unmergedPaths are the paths a rebase left with conflicts to resolve.
 func unmergedPaths(path string) ([]string, error) {
-	out, stderr, code, err := run(path, "diff", "--name-only", "--diff-filter=U")
+	// -z: a path with a space or a byte outside ASCII would otherwise arrive
+	// in git's quoted form, and these are read rather than parsed.
+	out, stderr, code, err := run(path, "diff", "--name-only", "-z", "--diff-filter=U")
 	if err != nil {
 		return nil, err
 	}
@@ -758,9 +767,9 @@ func unmergedPaths(path string) ([]string, error) {
 		return nil, fmt.Errorf("reading the conflicts in %s: %s", path, message(stderr))
 	}
 	var paths []string
-	for _, line := range strings.Split(string(out), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			paths = append(paths, line)
+	for _, name := range strings.Split(string(out), "\x00") {
+		if name != "" {
+			paths = append(paths, name)
 		}
 	}
 	slices.Sort(paths)
@@ -791,6 +800,11 @@ func FetchBase(ctx context.Context, dir, base string) error {
 	}
 	return nil
 }
+
+// rebaseTimeout bounds a rebase. Replaying a short-lived branch is quick; this
+// only has to be long enough for a large one and short enough that a daemon
+// never waits on git for ever.
+const rebaseTimeout = 10 * time.Minute
 
 // fetchTimeout bounds a fetch. A remote that is slow or gone is not a reason to
 // leave a Job unstarted, so this only has to be short enough to notice.

@@ -11,6 +11,10 @@
 //	                         per line, so several runs each leave a record
 //	OWL_FAKE_CLAUDE_SCRIPT   file of lines to emit on stdout, one per line
 //	OWL_FAKE_CLAUDE_WAIT     file whose appearance releases a `#wait` line
+//	OWL_FAKE_CLAUDE_HOLD     when set, records the invocation and then waits
+//	                         for that same file before touching anything, so a
+//	                         scenario can see a working directory the agent has
+//	                         started in and not yet touched
 //	OWL_FAKE_CLAUDE_EXIT     exit status, default 0
 //	OWL_FAKE_CLAUDE_WRITE    JSON object of path to contents, written into the
 //	                         working directory before the script is emitted
@@ -93,6 +97,15 @@ func main() {
 		if err := record(path); err != nil {
 			fmt.Fprintln(os.Stderr, "fakeclaude:", err)
 			os.Exit(90)
+		}
+	}
+	// Held after recording that it was called and before touching anything:
+	// a scenario can then see that the Agent has started and that the working
+	// directory is still as somebody else left it.
+	if os.Getenv("OWL_FAKE_CLAUDE_HOLD") != "" {
+		if err := waitForRelease(); err != nil {
+			fmt.Fprintln(os.Stderr, "fakeclaude:", err)
+			os.Exit(96)
 		}
 	}
 	if judging() {
