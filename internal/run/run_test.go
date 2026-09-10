@@ -821,3 +821,48 @@ func TestStartRefusesOnceTheDaemonsContextIsDone(t *testing.T) {
 		t.Errorf("state = %q, want the job untouched and still waiting", after.State)
 	}
 }
+
+func TestSetupStoppedByTheDaemonLeavesTheJobWhereItWas(t *testing.T) {
+	ctx := context.Background()
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{},
+		"apiVersion: codingowl.dev/v1\nsetup:\n  - sleep 60\n")
+	j := queueJob(t, st, "work")
+
+	failed := make(chan error, 1)
+	go func() {
+		_, _, _, err := svc.Start(ctx)
+		failed <- err
+	}()
+	// Give Start time to reach the setup command it will be stopped in.
+	time.Sleep(200 * time.Millisecond)
+
+	closed := make(chan error, 1)
+	go func() { closed <- svc.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("Close waited for a setup command it should have stopped")
+	}
+
+	select {
+	case err := <-failed:
+		if err == nil {
+			t.Error("Start reported success although its setup was stopped")
+		} else if !strings.Contains(err.Error(), "stopped") {
+			t.Errorf("Start = %v, want it to say the setup was stopped", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("Start did not return after its setup was stopped")
+	}
+	after, err := st.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	// Nothing failed at anything: the Job is still waiting its turn.
+	if queue.State(after.State) != queue.StatePending || after.Reason != "" {
+		t.Errorf("job = %+v, want it pending with nothing held against it", after)
+	}
+}

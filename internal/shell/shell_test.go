@@ -91,3 +91,19 @@ func TestRunRefusesACommandWithNowhereToRun(t *testing.T) {
 		t.Errorf("error %q does not say what is missing", err)
 	}
 }
+
+func TestRunTreatsACommandThatOutlivesItsOutputAsFinished(t *testing.T) {
+	// The command exits, but what it started in the background still holds the
+	// pipe open - which is what a `docker compose up -d` looks like.
+	res, err := shell.Run(context.Background(), t.TempDir(), "sh -c 'sleep 30' & exit 0", time.Minute)
+
+	if err != nil {
+		t.Fatalf("Run: %v; a command that exited is not a command that could not be run", err)
+	}
+	if res.ExitCode != 0 {
+		t.Errorf("exit status = %d, want the 0 it exited with", res.ExitCode)
+	}
+	if res.TimedOut || res.Cancelled {
+		t.Errorf("result = %+v, want neither timed out nor stopped", res)
+	}
+}

@@ -107,6 +107,13 @@ func Run(ctx context.Context, dir, command string, timeout time.Duration) (Resul
 		res.ExitCode = exitErr.ExitCode()
 		return res, nil
 	}
+	// A command that exits while something it started still holds its output -
+	// `docker compose up -d`, say - is a command that finished, and its own
+	// status is what it said.
+	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil {
+		res.ExitCode = cmd.ProcessState.ExitCode()
+		return res, nil
+	}
 	res.ExitCode = NoExitCode
 	return res, fmt.Errorf("running %s: %w", command, err)
 }
