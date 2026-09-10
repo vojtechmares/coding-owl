@@ -110,7 +110,7 @@ func globalConfig(t *testing.T, l *layout, body string) {
 }
 
 // committedHandoff is the handoff as it stands on the Job's branch.
-func committedHandoff(t *testing.T, r *repo, job, branch string) string {
+func committedHandoff(t *testing.T, r *repo, branch string) string {
 	t.Helper()
 	return r.git("show", branch+":"+handoffPath)
 }
@@ -181,7 +181,7 @@ func TestS4PlanIsCommittedAsTheHandoffAndPrinted(t *testing.T) {
 	_, job := phase(t, l)
 
 	branch := line(t, mustOwl(t, l, "jobs", "show", job).stdout, "branch")
-	if got := committedHandoff(t, r, job, branch); got != planText {
+	if got := committedHandoff(t, r, branch); got != planText {
 		t.Errorf("the handoff on %s = %q, want %q", branch, got, planText)
 	}
 	out := mustOwl(t, l, "jobs", "show", job).stdout
@@ -203,7 +203,7 @@ func TestS5PlanOwlCommitsAHandoffTheAgentLeftBehind(t *testing.T) {
 
 	out := mustOwl(t, l, "jobs", "show", job).stdout
 	branch := line(t, out, "branch")
-	if got := committedHandoff(t, r, job, branch); got != planText {
+	if got := committedHandoff(t, r, branch); got != planText {
 		t.Errorf("the handoff on %s = %q, want the plan owl committed for it", branch, got)
 	}
 	worktree := line(t, out, "worktree")
@@ -259,8 +259,12 @@ func TestS7PlanExecutionCarriesTheHandoffInAFreshInvocation(t *testing.T) {
 			}
 		}
 	}
-	if out := mustOwl(t, l, "jobs", "show", "1").stdout; strings.Contains(strings.ToLower(out), "session") {
-		t.Errorf("owl jobs show reports a session, which nothing should keep:\n%s", out)
+	// A session would be reported as a field of the Job, not somewhere in the
+	// plan an Agent wrote.
+	for _, ln := range strings.Split(mustOwl(t, l, "jobs", "show", "1").stdout, "\n") {
+		if strings.HasPrefix(strings.ToLower(ln), "session") {
+			t.Errorf("owl jobs show reports %q; nothing should keep a session", ln)
+		}
 	}
 }
 
@@ -486,8 +490,8 @@ func TestS16PlanABadModelIsRefusedBeforeAnAgentStarts(t *testing.T) {
 	if res.code == 0 {
 		t.Fatalf("owl start exited 0 with an unusable model\nstdout:\n%s", res.stdout)
 	}
-	if !strings.Contains(res.stderr, "--oops") {
-		t.Errorf("stderr does not name the model it refused:\n%s", res.stderr)
+	if !strings.Contains(res.stderr, "--oops") || !strings.Contains(res.stderr, "not usable") {
+		t.Errorf("stderr does not say the model it refused is not usable:\n%s", res.stderr)
 	}
 	out := mustOwl(t, l, "jobs", "show", "1").stdout
 	if got := line(t, out, "state"); got != "pending" {
