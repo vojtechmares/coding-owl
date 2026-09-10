@@ -127,9 +127,24 @@ func (s *Store) RenameProject(ctx context.Context, from, to string) error {
 	return nil
 }
 
-// RemoveProject deletes a Project, or returns ErrNotFound.
+// RemoveProject deletes a Project, or returns ErrNotFound. The Jobs queued
+// against it go with it - a Job whose Project is gone has nowhere to run - and
+// the queue is renumbered so the Jobs left in it still count from one.
 func (s *Store) RemoveProject(ctx context.Context, name string) error {
-	return s.affectOne(ctx, name, `DELETE FROM projects WHERE name = ?`, name)
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE name = ?`, name)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("%w: %s", ErrNotFound, name)
+		}
+		return renumber(ctx, tx)
+	})
 }
 
 // affectOne runs a statement that must touch exactly one Project and turns

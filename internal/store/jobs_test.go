@@ -210,3 +210,37 @@ func TestCountQueuedCountsOnlyTheQueue(t *testing.T) {
 		t.Errorf("CountQueued = %d, want 2", n)
 	}
 }
+
+func TestRemoveProjectTakesItsJobsAndClosesTheGaps(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	if err := s.AddProject(ctx, store.Project{
+		Name: "web", Path: "/repos/web", BaseBranch: "main", Registered: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("AddProject: %v", err)
+	}
+	for i, prompt := range []string{"first", "second", "third"} {
+		j := job(prompt, string(rune('a'+i)))
+		if prompt == "second" {
+			j.Project = "web"
+		}
+		if _, err := s.UpsertJob(ctx, j); err != nil {
+			t.Fatalf("UpsertJob: %v", err)
+		}
+	}
+
+	if err := s.RemoveProject(ctx, "api"); err != nil {
+		t.Fatalf("RemoveProject: %v", err)
+	}
+
+	jobs, err := s.ListJobs(ctx, true)
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].Prompt != "second" {
+		t.Fatalf("jobs = %+v, want only web's", jobs)
+	}
+	if jobs[0].Position != 1 {
+		t.Errorf("the remaining job is at position %d, want 1", jobs[0].Position)
+	}
+}
