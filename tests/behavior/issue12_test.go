@@ -493,21 +493,22 @@ func TestS16AConflictInWhatNobodyCommittedKeepsIt(t *testing.T) {
 	}
 }
 
-func TestS17ARebaseThatCannotBeCarriedOutBlocksTheJob(t *testing.T) {
-	rb := rebasingJob(t, map[string]string{"work.txt": agentWork})
+func TestS17ARebaseThatStopsPartWayBlocksTheJob(t *testing.T) {
+	rb := rebasingJobOn(t,
+		map[string]string{"work.txt": agentWork},
+		map[string]string{".gitattributes": "shared.txt filter=owlstop\n", "shared.txt": "one\n"})
 	worktree := rb.worktree(t)
 	before := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "HEAD"))
-	// A file nobody put in git's hands, which the base branch then commits:
-	// git refuses to overwrite it and stops before the rebase has begun.
-	if err := os.WriteFile(filepath.Join(worktree, "from-base.txt"), []byte("mine\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rb.moveBase(t, "from-base.txt", "added while the job was waiting\n")
+	rb.moveBase(t, "shared.txt", "one\ntwo\n")
+	// A filter that fails once, after the rebase has begun: somebody else's
+	// program, named by configuration an Agent can write. Set last, because
+	// the fixture's own commits would trip it too.
+	rb.stopsPartWay(t)
 
 	res := runOwl(t, rb.l, "start")
 
 	if res.code == 0 {
-		t.Fatalf("owl start ran a job whose rebase could not be carried out\nstdout:\n%s", res.stdout)
+		t.Fatalf("owl start ran a job whose rebase stopped part way\nstdout:\n%s", res.stdout)
 	}
 	out := mustOwl(t, rb.l, "jobs", "show", rb.job).stdout
 	if got := line(t, out, "state"); got != "blocked" {
@@ -525,6 +526,23 @@ func TestS17ARebaseThatCannotBeCarriedOutBlocksTheJob(t *testing.T) {
 	if got := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "--abbrev-ref", "HEAD")); got != rb.branch(t) {
 		t.Errorf("the worktree is on %q, want the job's own branch", got)
 	}
+}
+
+// stopsPartWay makes the Project require a filter that fails the second thing
+// git filters and lets everything after it through, which stops a rebase after
+// it has begun rather than before it starts.
+func (rb *rebasing) stopsPartWay(t *testing.T) {
+	t.Helper()
+	count := filepath.Join(rb.l.root, "filter-count")
+	filter := filepath.Join(rb.l.root, "filter.sh")
+	script := "#!/bin/sh\nc=0\n[ -f " + count + " ] && c=$(cat " + count + ")\n" +
+		"c=$((c+1))\necho \"$c\" > " + count + "\n[ \"$c\" = 2 ] && exit 1\ncat\n"
+	if err := os.WriteFile(filter, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rb.repo.git("config", "filter.owlstop.clean", filter)
+	rb.repo.git("config", "filter.owlstop.smudge", filter)
+	rb.repo.git("config", "filter.owlstop.required", "true")
 }
 
 func TestS18AWorktreeThatIsGoneBlocksTheJobNotTheQueue(t *testing.T) {
