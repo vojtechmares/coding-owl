@@ -142,7 +142,7 @@ func printJob(env Env, d client.JobDetails) {
 	} {
 		_, _ = fmt.Fprintf(env.Stdout, "%s: %s\n", kv[0], kv[1])
 	}
-	if reason := lastFailure(d.Runs); reason != "" {
+	if reason := whyHere(d); reason != "" {
 		_, _ = fmt.Fprintf(env.Stdout, "reason: %s\n", reason)
 	}
 	if len(d.Runs) == 0 {
@@ -160,6 +160,7 @@ func printJob(env Env, d client.JobDetails) {
 		}
 		_ = w.Flush()
 	}
+	printChecks(env, d.Checks)
 	printPhases(env, d.Phases)
 	if plan := strings.TrimRight(d.Job.Plan, "\n"); plan != "" {
 		_, _ = fmt.Fprintf(env.Stdout, "\nplan:\n%s\n", plan)
@@ -186,13 +187,46 @@ func printPhases(env Env, phases []client.PhaseSettings) {
 	_ = w.Flush()
 }
 
-// lastFailure is why the most recent Run did not succeed, which is what a
-// blocked Job is waiting on.
-func lastFailure(runs []client.Run) string {
-	if len(runs) == 0 {
+// whyHere is why the Job is where it is: what the Job itself records - a setup
+// command that failed, or the checks that refused the work - and otherwise why
+// its most recent Run did not succeed.
+func whyHere(d client.JobDetails) string {
+	if d.Job.Note != "" {
+		return d.Job.Note
+	}
+	if len(d.Runs) == 0 {
 		return ""
 	}
-	return runs[len(runs)-1].Error
+	return d.Runs[len(d.Runs)-1].Error
+}
+
+// printChecks reports what Verification said, every check of it: a Job that
+// was refused says everything that is wrong at once (ADR-0030). A failing
+// check's output follows it, indented.
+func printChecks(env Env, checks []client.CheckResult) {
+	if len(checks) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(env.Stdout, "\nchecks:")
+	for _, c := range checks {
+		verdict := "passed"
+		if !c.Passed {
+			verdict = "failed"
+			if c.Reason != "" {
+				verdict += " (" + c.Reason + ")"
+			}
+		}
+		_, _ = fmt.Fprintf(env.Stdout, "- %s: %s\n", c.Name, verdict)
+		if c.Passed {
+			continue
+		}
+		for _, ln := range strings.Split(strings.TrimRight(c.Output, "\n"), "\n") {
+			if ln == "" {
+				continue
+			}
+			_, _ = fmt.Fprintf(env.Stdout, "    %s\n", ln)
+		}
+	}
 }
 
 // yesNo renders a flag the way a person reads one.

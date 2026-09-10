@@ -92,6 +92,16 @@ func (s *jobService) GetJob(ctx context.Context, req *connect.Request[codingowlv
 	for _, r := range d.Runs {
 		res.Runs = append(res.Runs, toRunProto(r))
 	}
+	for _, c := range d.Checks {
+		res.Checks = append(res.Checks, &codingowlv1.CheckResult{
+			Name:     c.Name,
+			Command:  c.Command,
+			Passed:   c.Passed,
+			ExitCode: int32(c.ExitCode),
+			Output:   c.Output,
+			Reason:   c.Reason,
+		})
+	}
 	for _, p := range d.Phases {
 		res.Phases = append(res.Phases, &codingowlv1.PhaseSettings{
 			Phase:      string(p.Phase),
@@ -168,6 +178,7 @@ func toJobProto(j queue.Job) *codingowlv1.Job {
 		Worktree:  j.Worktree,
 		Planned:   j.Planned,
 		Plan:      j.Plan,
+		Note:      j.Note,
 		Position:  int32(j.Position),
 		Created:   timestamppb.New(j.Created),
 	}

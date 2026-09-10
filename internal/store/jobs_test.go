@@ -135,7 +135,7 @@ func TestDequeueJobClosesTheGapBehindIt(t *testing.T) {
 	s := jobStore(t)
 	jobs := threeQueued(t, s)
 
-	if err := s.DequeueJob(ctx, jobs[0].ID, "cancelled"); err != nil {
+	if err := s.DequeueJob(ctx, jobs[0].ID, "cancelled", ""); err != nil {
 		t.Fatalf("DequeueJob: %v", err)
 	}
 
@@ -165,16 +165,16 @@ func TestDequeueJobRefusesAJobThatIsNotQueued(t *testing.T) {
 	ctx := context.Background()
 	s := jobStore(t)
 	jobs := threeQueued(t, s)
-	if err := s.DequeueJob(ctx, jobs[0].ID, "cancelled"); err != nil {
+	if err := s.DequeueJob(ctx, jobs[0].ID, "cancelled", ""); err != nil {
 		t.Fatalf("DequeueJob: %v", err)
 	}
 
-	err := s.DequeueJob(ctx, jobs[0].ID, "cancelled")
+	err := s.DequeueJob(ctx, jobs[0].ID, "cancelled", "")
 
 	if !errors.Is(err, store.ErrNotQueued) {
 		t.Errorf("dequeuing twice = %v, want ErrNotQueued", err)
 	}
-	if err := s.DequeueJob(ctx, 999, "cancelled"); !errors.Is(err, store.ErrJobNotFound) {
+	if err := s.DequeueJob(ctx, 999, "cancelled", ""); !errors.Is(err, store.ErrJobNotFound) {
 		t.Errorf("dequeuing an unknown job = %v, want ErrJobNotFound", err)
 	}
 }
@@ -203,7 +203,7 @@ func TestCountQueuedCountsOnlyTheQueue(t *testing.T) {
 	ctx := context.Background()
 	s := jobStore(t)
 	jobs := threeQueued(t, s)
-	if err := s.DequeueJob(ctx, jobs[1].ID, "cancelled"); err != nil {
+	if err := s.DequeueJob(ctx, jobs[1].ID, "cancelled", ""); err != nil {
 		t.Fatalf("DequeueJob: %v", err)
 	}
 
@@ -241,7 +241,7 @@ func TestRemoveProjectTakesItsJobsAndClosesTheGaps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
-	if err := s.DequeueJob(ctx, left[0].ID, "cancelled"); err != nil {
+	if err := s.DequeueJob(ctx, left[0].ID, "cancelled", ""); err != nil {
 		t.Fatalf("DequeueJob: %v", err)
 	}
 

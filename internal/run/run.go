@@ -29,7 +29,9 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/git"
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
+	"github.com/vojtechmares/coding-owl/internal/shell"
 	"github.com/vojtechmares/coding-owl/internal/store"
+	"github.com/vojtechmares/coding-owl/internal/verifier"
 )
 
 // logSuffix names a Run's captured output under the state directory
@@ -51,6 +53,11 @@ const stderrTail = 500
 // bookkeepingTimeout bounds the writes that record how a Run ended, which
 // happen while the daemon may already be stopping.
 const bookkeepingTimeout = 10 * time.Second
+
+// setupTimeout bounds one of a Project's setup commands. Fetching
+// dependencies is slow, and a Run that never starts is worse than one that
+// waits.
+const setupTimeout = 15 * time.Minute
 
 // Outcome is how a Run ended (ADR-0027).
 type Outcome string
@@ -98,6 +105,9 @@ type Details struct {
 	// Phases is what each phase runs at and where each setting came from, in
 	// the order a Job passes through them (ADR-0028).
 	Phases []Settings
+	// Checks is what Verification said about the Job's most recent Run that
+	// was verified, in the order the checks were configured.
+	Checks []verifier.Result
 }
 
 // Line is one line of an Agent's structured output, numbered from one so a
@@ -128,6 +138,8 @@ type Options struct {
 	Driver driver.Driver
 	// Executor is where they run.
 	Executor executor.Executor
+	// Verifier decides whether what a Run produced is acceptable (ADR-0013).
+	Verifier verifier.Verifier
 	// WorktreeDir holds one worktree per Job (ADR-0014).
 	WorktreeDir string
 	// LogDir holds one captured stream per Run.
@@ -269,6 +281,14 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 		j.Branch, j.Worktree = branch, worktree
 	}
 
+	// A fresh worktree does not have the untracked things a build needs, so
+	// the Project's setup commands run before the Agent does (ADR-0007). A Job
+	// that cannot be prepared has not attempted anything, so it is blocked
+	// without a Run to its name.
+	if err := s.prepare(ctx, j, details.Config.Setup); err != nil {
+		return queue.Job{}, Run{}, false, err
+	}
+
 	// The prompt is built after the worktree exists, because an execution Run
 	// reads the handoff that is in it.
 	prompt, err := s.promptFor(phase, j)
@@ -406,7 +426,8 @@ func (s *Service) abandon(runID, jobID int64, cause error) {
 		string(OutcomeFailed), cause.Error(), store.NoExitCode); err != nil {
 		s.opts.Logger.Error("ending a run that never started", "run", runID, "error", err)
 	}
-	if err := s.opts.Store.DequeueJob(ctx, jobID, string(queue.StateBlocked)); err != nil {
+	// The Run carries the reason, so the Job needs no note of its own.
+	if err := s.opts.Store.DequeueJob(ctx, jobID, string(queue.StateBlocked), ""); err != nil {
 		s.opts.Logger.Error("blocking a job whose run never started", "job", jobID, "error", err)
 	}
 }
@@ -441,11 +462,24 @@ func (s *Service) Show(ctx context.Context, jobID int64) (Details, error) {
 		resolved, _ := resolve(phase, global, details.Config, j)
 		settings = append(settings, resolved)
 	}
+	// The checks of the most recent Run that was verified are the ones that
+	// say where the Job stands.
+	var results []verifier.Result
+	for i := len(runs) - 1; i >= 0 && results == nil; i-- {
+		rows, err := s.opts.Store.ListCheckResults(ctx, runs[i].ID)
+		if err != nil {
+			return Details{}, err
+		}
+		for _, r := range rows {
+			results = append(results, verifier.Result(r))
+		}
+	}
 	return Details{
 		Job:          queue.FromStore(j),
 		Runs:         runs,
 		SystemPrompt: SystemPrompt(details.Config.UnattendedClauses),
 		Phases:       settings,
+		Checks:       results,
 	}, nil
 }
 
@@ -539,6 +573,14 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 			outcome, reason = OutcomeFailed, err.Error()
 		}
 	}
+	// An Agent exiting cleanly says nothing about whether its work is any
+	// good, so the Project's own checks decide (ADR-0013). The Run itself
+	// still succeeded: the Agent did its part, and Verification is what
+	// refused it.
+	refused := ""
+	if outcome == OutcomeSucceeded && phase == PhaseExecute {
+		refused = s.verify(ctx, j, r.ID)
+	}
 
 	if err := s.opts.Store.FinishRun(ctx, r.ID, s.now().UTC(), string(outcome), reason, code); err != nil {
 		s.opts.Logger.Error("recording the end of a run", "run", r.ID, "error", err)
@@ -554,7 +596,7 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 			s.opts.Logger.Error("returning an interrupted job to the queue", "job", r.JobID, "error", err)
 		}
 	case outcome == OutcomeFailed:
-		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateBlocked)); err != nil {
+		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateBlocked), ""); err != nil {
 			s.opts.Logger.Error("blocking a job", "job", r.JobID, "error", err)
 		}
 	case phase == PhasePlan:
@@ -563,11 +605,85 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 		if err := s.opts.Store.SetJobState(ctx, r.JobID, string(queue.StatePending)); err != nil {
 			s.opts.Logger.Error("returning a planned job to the queue", "job", r.JobID, "error", err)
 		}
+	case refused != "":
+		// Verification refused the work. There is no retry: the Job waits for
+		// the user with everything that is wrong attached (ADR-0013).
+		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateBlocked), refused); err != nil {
+			s.opts.Logger.Error("blocking a job verification refused", "job", r.JobID, "error", err)
+		}
 	default:
-		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateReview)); err != nil {
+		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateReview), ""); err != nil {
 			s.opts.Logger.Error("recording where a job got to", "job", r.JobID, "error", err)
 		}
 	}
+}
+
+// prepare runs the Project's setup commands in the Job's worktree. A command
+// that fails blocks the Job and says which one it was: nothing an Agent could
+// do would help.
+func (s *Service) prepare(ctx context.Context, j store.Job, setup []string) error {
+	for _, cmd := range setup {
+		res, err := shell.Run(ctx, j.Worktree, cmd, setupTimeout)
+		failure := ""
+		switch {
+		case err != nil:
+			failure = fmt.Sprintf("the setup command %q could not be run: %v", cmd, err)
+		case res.TimedOut:
+			failure = fmt.Sprintf("the setup command %q timed out after %s", cmd, setupTimeout)
+		case res.ExitCode != 0:
+			failure = fmt.Sprintf("the setup command %q exited %d%s", cmd, res.ExitCode, quote(res.Output))
+		default:
+			continue
+		}
+		if err := s.opts.Store.DequeueJob(ctx, j.ID, string(queue.StateBlocked), failure); err != nil {
+			s.opts.Logger.Error("blocking a job whose setup failed", "job", j.ID, "error", err)
+		}
+		return errors.New(failure)
+	}
+	return nil
+}
+
+// verify runs the Project's checks over what the Run left in the worktree and
+// records what each of them said. It returns the summary a blocked Job carries,
+// or an empty string when nothing refused the work.
+func (s *Service) verify(ctx context.Context, j store.Job, runID int64) string {
+	// The checks come from the base branch, so an Agent editing them in its
+	// worktree changes nothing about the Verification it is being judged by
+	// (ADR-0014, ADR-0030).
+	details, err := s.opts.Projects.Show(ctx, j.Project)
+	if err != nil {
+		return fmt.Sprintf("verification could not read the project's checks: %v", err)
+	}
+	if len(details.Config.Checks) == 0 {
+		return ""
+	}
+	if s.opts.Verifier == nil {
+		// A Job must not reach review because nobody was asked (ADR-0013).
+		return "verification could not be carried out: this daemon has no verifier"
+	}
+	results, err := s.opts.Verifier.Verify(ctx, verifier.Request{
+		WorkingDir: j.Worktree, Checks: details.Config.Checks,
+	})
+	if err != nil {
+		return fmt.Sprintf("verification could not be carried out: %v", err)
+	}
+	rows := make([]store.CheckResult, 0, len(results))
+	for _, r := range results {
+		rows = append(rows, store.CheckResult(r))
+	}
+	if err := s.opts.Store.SaveCheckResults(ctx, runID, rows); err != nil {
+		s.opts.Logger.Error("recording what verification said", "run", runID, "error", err)
+	}
+	failed := verifier.Failed(results)
+	if len(failed) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(failed))
+	for _, r := range failed {
+		names = append(names, r.Name)
+	}
+	s.opts.Logger.Info("verification refused a run", "run", runID, "job", j.ID, "checks", strings.Join(names, ", "))
+	return "verification failed: " + strings.Join(names, ", ")
 }
 
 // global reads the daemon's own configuration, so an edit takes effect on the

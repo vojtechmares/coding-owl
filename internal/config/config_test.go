@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/config"
 )
@@ -148,5 +149,58 @@ func TestLoadGlobalReportsAMissingFileAsAbsentRatherThanBroken(t *testing.T) {
 	}
 	if got := cfg.Phases[config.PhasePlan].Model; got != "sonnet" {
 		t.Errorf("plan model = %q, want sonnet", got)
+	}
+}
+
+func TestParseReadsChecksAndSetup(t *testing.T) {
+	cfg, err := config.Parse("main:.coding-owl.yaml", []byte(`apiVersion: codingowl.dev/v1
+setup:
+  - npm ci
+checks:
+  - name: build
+    run: go build ./...
+  - name: fmt
+    run: gofmt -l .
+    expect: empty_output
+  - name: test
+    run: go test ./...
+    timeout: 10m
+`))
+
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(cfg.Setup) != 1 || cfg.Setup[0] != "npm ci" {
+		t.Errorf("setup = %v, want the command the file carries", cfg.Setup)
+	}
+	if len(cfg.Checks) != 3 {
+		t.Fatalf("checks = %+v, want three", cfg.Checks)
+	}
+	if cfg.Checks[0] != (config.Check{Name: "build", Run: "go build ./..."}) {
+		t.Errorf("build = %+v, want no expectation and no timeout of its own", cfg.Checks[0])
+	}
+	if cfg.Checks[1].Expect != config.ExpectEmptyOutput {
+		t.Errorf("fmt expects %q, want %q", cfg.Checks[1].Expect, config.ExpectEmptyOutput)
+	}
+	if cfg.Checks[2].Timeout != 10*time.Minute {
+		t.Errorf("test's timeout = %s, want 10m", cfg.Checks[2].Timeout)
+	}
+}
+
+func TestParseRefusesACheckOwlCouldNotRunOrJudge(t *testing.T) {
+	for name, body := range map[string]string{
+		"no name":        "apiVersion: codingowl.dev/v1\nchecks:\n  - run: \"true\"\n",
+		"no command":     "apiVersion: codingowl.dev/v1\nchecks:\n  - name: build\n",
+		"unknown expect": "apiVersion: codingowl.dev/v1\nchecks:\n  - name: build\n    run: \"true\"\n    expect: no_warnings\n",
+		"bad timeout":    "apiVersion: codingowl.dev/v1\nchecks:\n  - name: build\n    run: \"true\"\n    timeout: soon\n",
+		"zero timeout":   "apiVersion: codingowl.dev/v1\nchecks:\n  - name: build\n    run: \"true\"\n    timeout: 0s\n",
+		"same name":      "apiVersion: codingowl.dev/v1\nchecks:\n  - name: build\n    run: \"true\"\n  - name: build\n    run: \"false\"\n",
+		"empty setup":    "apiVersion: codingowl.dev/v1\nsetup:\n  - \"\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := config.Parse("main:.coding-owl.yaml", []byte(body)); err == nil {
+				t.Errorf("Parse accepted %s", name)
+			}
+		})
 	}
 }

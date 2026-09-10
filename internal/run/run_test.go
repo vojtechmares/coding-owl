@@ -19,6 +19,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/run"
 	"github.com/vojtechmares/coding-owl/internal/store"
+	"github.com/vojtechmares/coding-owl/internal/verifier"
 )
 
 // fakeDriver is the Driver seam: it records the Request it was given and
@@ -102,12 +103,47 @@ func (p *fakeProcess) Signal(os.Signal) error { return nil }
 func (p *fakeProcess) Stderr() string         { return "" }
 func (p *fakeProcess) Wait() (int, error)     { <-p.done; return p.code, nil }
 
+// fakeVerifier answers with what a scenario scripted rather than running
+// anything.
+type fakeVerifier struct {
+	results []verifier.Result
+	err     error
+	mu      sync.Mutex
+	asked   verifier.Request
+}
+
+func (*fakeVerifier) Name() string { return "fake" }
+
+func (v *fakeVerifier) Verify(_ context.Context, req verifier.Request) ([]verifier.Result, error) {
+	v.mu.Lock()
+	v.asked = req
+	v.mu.Unlock()
+	return v.results, v.err
+}
+
+func (v *fakeVerifier) request() verifier.Request {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.asked
+}
+
 // newFixture registers one Project and returns a Service driving fakes.
 func newFixture(t *testing.T, d driver.Driver, e *fakeExecutor) (*run.Service, *store.Store, string) {
+	t.Helper()
+	svc, st, repo, _ := newVerifiedFixture(t, d, e, &fakeVerifier{})
+	return svc, st, repo
+}
+
+// newVerifiedFixture is newFixture with a Verifier of the caller's choosing
+// and the Project's configuration written on its base branch.
+func newVerifiedFixture(t *testing.T, d driver.Driver, e *fakeExecutor, v verifier.Verifier, config ...string) (*run.Service, *store.Store, string, string) {
 	t.Helper()
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
 	gitInit(t, repo)
+	for _, body := range config {
+		commitFile(t, repo, ".coding-owl.yaml", body)
+	}
 
 	st, _, err := store.Open(filepath.Join(root, "owl.db"))
 	if err != nil {
@@ -124,11 +160,22 @@ func newFixture(t *testing.T, d driver.Driver, e *fakeExecutor) (*run.Service, *
 		Projects:    projects,
 		Driver:      d,
 		Executor:    e,
+		Verifier:    v,
 		WorktreeDir: filepath.Join(root, "worktrees"),
 		LogDir:      filepath.Join(root, "logs"),
 	})
 	t.Cleanup(func() { _ = svc.Close() })
-	return svc, st, repo
+	return svc, st, repo, root
+}
+
+// commitFile writes a file in a repository and commits it.
+func commitFile(t *testing.T, dir, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, path), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, dir, "add", "--", path)
+	gitIn(t, dir, "commit", "-m", "configure owl")
 }
 
 func gitInit(t *testing.T, dir string) {
@@ -136,25 +183,26 @@ func gitInit(t *testing.T, dir string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{
-		{"init", "-b", "main"},
-		{"add", "--", "README.md"},
-		{"commit", "-m", "initial commit"},
-	} {
-		if args[0] == "add" {
-			if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# repo\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=Owl Test", "GIT_AUTHOR_EMAIL=owl@example.com",
-			"GIT_COMMITTER_NAME=Owl Test", "GIT_COMMITTER_EMAIL=owl@example.com",
-			"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
+	gitIn(t, dir, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# repo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, dir, "add", "--", "README.md")
+	gitIn(t, dir, "commit", "-m", "initial commit")
+}
+
+// gitIn runs git in a repository with an identity of its own, since the test
+// environment deliberately has no git configuration.
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Owl Test", "GIT_AUTHOR_EMAIL=owl@example.com",
+		"GIT_COMMITTER_NAME=Owl Test", "GIT_COMMITTER_EMAIL=owl@example.com",
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
 
@@ -549,5 +597,138 @@ func TestExecutionFallsBackToThePlanWhenTheWorktreeLostItsHandoff(t *testing.T) 
 
 	if got := d.given().Prompt; !strings.Contains(got, "step one: read the tests") {
 		t.Errorf("the execution prompt lost the plan when the worktree had no handoff:\n%s", got)
+	}
+}
+
+func TestVerificationRefusingTheWorkBlocksTheJobAndKeepsTheRun(t *testing.T) {
+	ctx := context.Background()
+	v := &fakeVerifier{results: []verifier.Result{
+		{Name: "build", Passed: true},
+		{Name: "test", Passed: false, Reason: "exited 1", Output: "--- FAIL\n"},
+	}}
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, v,
+		"apiVersion: codingowl.dev/v1\nchecks:\n  - name: test\n    run: \"false\"\n")
+	j := queueJob(t, st, "work")
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	blocked := awaitState(t, st, j.ID, queue.StateBlocked)
+	if !strings.Contains(blocked.Note, "test") {
+		t.Errorf("note = %q, does not name the check that refused the work", blocked.Note)
+	}
+	runs, err := st.ListRuns(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	// The Agent did its part; Verification is what refused it.
+	if len(runs) != 1 || runs[0].Outcome != string(run.OutcomeSucceeded) {
+		t.Fatalf("runs = %+v, want one succeeded run", runs)
+	}
+	results, err := st.ListCheckResults(ctx, runs[0].ID)
+	if err != nil {
+		t.Fatalf("ListCheckResults: %v", err)
+	}
+	if len(results) != 2 || results[0].Name != "build" || results[1].Name != "test" {
+		t.Fatalf("results = %+v, want what every check said, in order", results)
+	}
+	if results[1].Output != "--- FAIL\n" {
+		t.Errorf("the failing check's output was not kept: %q", results[1].Output)
+	}
+	if got := v.request(); got.WorkingDir != blocked.Worktree {
+		t.Errorf("verification ran in %s, want the job's worktree %s", got.WorkingDir, blocked.Worktree)
+	}
+}
+
+func TestVerificationPassingLeavesTheJobInReview(t *testing.T) {
+	ctx := context.Background()
+	v := &fakeVerifier{results: []verifier.Result{{Name: "build", Passed: true}}}
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, v,
+		"apiVersion: codingowl.dev/v1\nchecks:\n  - name: build\n    run: \"true\"\n")
+	j := queueJob(t, st, "work")
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	reviewed := awaitState(t, st, j.ID, queue.StateReview)
+	if reviewed.Note != "" {
+		t.Errorf("note = %q, want none on a job nothing refused", reviewed.Note)
+	}
+}
+
+func TestSetupFailingBlocksTheJobBeforeAnyRun(t *testing.T) {
+	ctx := context.Background()
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{},
+		"apiVersion: codingowl.dev/v1\nsetup:\n  - echo cannot prepare >&2; exit 2\n")
+	j := queueJob(t, st, "work")
+
+	_, _, started, err := svc.Start(ctx)
+
+	if started {
+		t.Error("a run started although setup failed")
+	}
+	if err == nil || !strings.Contains(err.Error(), "cannot prepare") {
+		t.Fatalf("Start = %v, want the setup command's own words", err)
+	}
+	blocked, getErr := st.GetJob(ctx, j.ID)
+	if getErr != nil {
+		t.Fatalf("GetJob: %v", getErr)
+	}
+	if queue.State(blocked.State) != queue.StateBlocked {
+		t.Errorf("state = %q, want blocked", blocked.State)
+	}
+	if !strings.Contains(blocked.Note, "exited 2") {
+		t.Errorf("note = %q, does not say what setup did", blocked.Note)
+	}
+	runs, err := st.ListRuns(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Errorf("runs = %+v, want none: setup failed before any run", runs)
+	}
+}
+
+func TestSetupRunsInTheWorktreeBeforeTheAgent(t *testing.T) {
+	ctx := context.Background()
+	d := &fakeDriver{}
+	svc, st, _, _ := newVerifiedFixture(t, d, &fakeExecutor{}, &fakeVerifier{},
+		"apiVersion: codingowl.dev/v1\nsetup:\n  - touch prepared.txt\n")
+	j := queueJob(t, st, "work")
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	done := awaitState(t, st, j.ID, queue.StateReview)
+	if _, err := os.Stat(filepath.Join(done.Worktree, "prepared.txt")); err != nil {
+		t.Errorf("setup did not run in the job's worktree: %v", err)
+	}
+}
+
+func TestVerificationIsNotRunAfterAPlanningRun(t *testing.T) {
+	ctx := context.Background()
+	v := &fakeVerifier{results: []verifier.Result{{Name: "guard", Passed: false, Reason: "exited 1"}}}
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, v,
+		"apiVersion: codingowl.dev/v1\nchecks:\n  - name: guard\n    run: \"false\"\n")
+	j, err := st.UpsertJob(ctx, store.Job{
+		Source: "local", SourceRef: "planned", Project: "repo", Prompt: "work",
+		State: string(queue.StatePending), Planned: true, Created: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// The planning Run fails for want of a handoff, which is beside the point:
+	// what matters is that nothing was verified.
+	awaitState(t, st, j.ID, queue.StateBlocked)
+	if got := v.request(); got.WorkingDir != "" {
+		t.Errorf("verification ran after a planning run, in %s", got.WorkingDir)
 	}
 }

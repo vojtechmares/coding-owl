@@ -35,6 +35,22 @@ type Run struct {
 	Phase string
 }
 
+// CheckResult is what one Verification check said about a Run.
+type CheckResult struct {
+	// Name identifies the check.
+	Name string
+	// Command is what it ran.
+	Command string
+	// Passed is whether it was satisfied.
+	Passed bool
+	// ExitCode is what the command exited with.
+	ExitCode int
+	// Output is what it printed.
+	Output string
+	// Reason says why it failed, empty for a check that passed.
+	Reason string
+}
+
 // PhaseSettings is what one phase of a Job runs at, and where each setting
 // came from.
 type PhaseSettings struct {
@@ -55,6 +71,9 @@ type JobDetails struct {
 	// Phases is what each phase of the Job runs at, in the order it passes
 	// through them.
 	Phases []PhaseSettings
+	// Checks is what Verification said about the Job's most recent verified
+	// Run.
+	Checks []CheckResult
 }
 
 // StartRun runs the Job at the head of the queue. started is false when the
@@ -83,6 +102,16 @@ func (c *Client) GetJob(ctx context.Context, id int64) (JobDetails, error) {
 	}
 	for _, r := range res.Msg.GetRuns() {
 		d.Runs = append(d.Runs, runFromProto(r))
+	}
+	for _, c := range res.Msg.GetChecks() {
+		d.Checks = append(d.Checks, CheckResult{
+			Name:     c.GetName(),
+			Command:  c.GetCommand(),
+			Passed:   c.GetPassed(),
+			ExitCode: int(c.GetExitCode()),
+			Output:   c.GetOutput(),
+			Reason:   c.GetReason(),
+		})
 	}
 	for _, p := range res.Msg.GetPhases() {
 		d.Phases = append(d.Phases, PhaseSettings{

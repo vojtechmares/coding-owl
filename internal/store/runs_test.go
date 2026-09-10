@@ -156,7 +156,7 @@ func TestSetJobStateKeepsThePositionAndDequeueDropsIt(t *testing.T) {
 	if running.State != "active" || running.Position != 1 {
 		t.Errorf("job = %+v, want an active job holding position 1", running)
 	}
-	if err := s.DequeueJob(ctx, j.ID, "review"); err != nil {
+	if err := s.DequeueJob(ctx, j.ID, "review", ""); err != nil {
 		t.Fatalf("DequeueJob: %v", err)
 	}
 	reviewed, err := s.GetJob(ctx, j.ID)
