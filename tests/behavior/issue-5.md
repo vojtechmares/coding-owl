@@ -143,7 +143,7 @@ And the second Job is still pending
 Given the finished Run of S4
 When `owl jobs show <job-id>` runs
 Then it prints the Job's id, Project, state, branch and worktree
-And a Runs section naming the Run's id, its attempt number `1`, its outcome and the path of its log
+And a Runs section naming the Run's id, its attempt number `1`, its outcome, the status the Agent exited with, and the path of its log
 And `owl jobs show` for an unknown Job exits with a non-zero code naming the id
 
 ### S19 - owl logs on an unknown Run fails clearly

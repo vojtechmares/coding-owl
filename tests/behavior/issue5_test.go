@@ -200,14 +200,32 @@ func TestS1RunStartsTheOldestPendingJobInItsOwnWorktree(t *testing.T) {
 		t.Error("owl start reported no run id")
 	}
 	worktree := worktreeDir(l, job)
-	if worktrees := r.git("worktree", "list"); !strings.Contains(worktrees, worktree) {
-		t.Errorf("git worktree list does not report %s:\n%s", worktree, worktrees)
+	if !listsWorktree(t, r, worktree) {
+		t.Errorf("git worktree list does not report %s:\n%s", worktree, r.git("worktree", "list"))
 	}
 	branch := strings.TrimSpace(gitIn(t, r, worktree, "rev-parse", "--abbrev-ref", "HEAD"))
 	if want := "owl/job-" + job; branch != want {
 		t.Errorf("the worktree is on branch %q, want %q", branch, want)
 	}
 	wantQueue(t, l, "1|api|pending|second")
+	second := jobID(t, queueList(t, l), "second")
+	if got := line(t, mustOwl(t, l, "jobs", "show", second).stdout, "runs"); got != "none" {
+		t.Errorf("job %s reports runs %q, want none started for it", second, got)
+	}
+}
+
+// listsWorktree reports whether git knows about a worktree at that path,
+// comparing through symlinks: git prints the resolved path and a temporary
+// directory is reached by more than one spelling.
+func listsWorktree(t *testing.T, r *repo, worktree string) bool {
+	t.Helper()
+	for _, ln := range strings.Split(r.git("worktree", "list"), "\n") {
+		fields := strings.Fields(ln)
+		if len(fields) > 0 && samePath(fields[0], worktree) {
+			return true
+		}
+	}
+	return false
 }
 
 // gitIn runs git inside a directory that is not the Project's own root, such
@@ -273,18 +291,18 @@ func TestS4RunCleanExitLandsTheJobInReview(t *testing.T) {
 	if len(runs) != 1 {
 		t.Fatalf("owl jobs show reports %d runs, want 1:\n%s", len(runs), out)
 	}
-	if runs[0].outcome != "succeeded" {
-		t.Errorf("run outcome = %q, want succeeded", runs[0].outcome)
+	if runs[0].outcome != "succeeded" || runs[0].exit != "0" {
+		t.Errorf("run = %+v, want it succeeded with exit status 0", runs[0])
 	}
 	wantEmptyQueue(t, l)
 }
 
 // runRow is one row of the runs table owl jobs show prints.
 type runRow struct {
-	id, attempt, outcome, log string
+	id, attempt, outcome, exit, log string
 }
 
-var runRowRE = regexp.MustCompile(`^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)$`)
+var runRowRE = regexp.MustCompile(`^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)$`)
 
 // runRows parses the runs table out of owl jobs show output.
 func runRows(t *testing.T, out string) []runRow {
@@ -305,7 +323,7 @@ func runRows(t *testing.T, out string) []runRow {
 		if m == nil {
 			t.Fatalf("cannot parse run row %q in:\n%s", ln, out)
 		}
-		rows = append(rows, runRow{id: m[1], attempt: m[2], outcome: m[3], log: m[6]})
+		rows = append(rows, runRow{id: m[1], attempt: m[2], outcome: m[3], exit: m[4], log: m[7]})
 	}
 	return rows
 }
@@ -322,8 +340,8 @@ func TestS5RunNonZeroExitBlocksTheJobWithTheReason(t *testing.T) {
 		t.Errorf("state = %q, want blocked", got)
 	}
 	runs := runRows(t, out)
-	if len(runs) != 1 || runs[0].outcome != "failed" {
-		t.Fatalf("runs = %+v, want one failed run:\n%s", runs, out)
+	if len(runs) != 1 || runs[0].outcome != "failed" || runs[0].exit != "3" {
+		t.Fatalf("runs = %+v, want one failed run that exited 3:\n%s", runs, out)
 	}
 	if reason := line(t, out, "reason"); !strings.Contains(reason, "3") {
 		t.Errorf("reason = %q, does not name the exit status", reason)
@@ -572,6 +590,9 @@ func TestS14RunRefusesAnUnsupportedClaudeCode(t *testing.T) {
 	if !strings.Contains(res.stderr, "1.9.0") {
 		t.Errorf("stderr does not name the version it found:\n%s", res.stderr)
 	}
+	if !strings.Contains(res.stderr, "2.1.0") || !strings.Contains(res.stderr, "3.0.0") {
+		t.Errorf("stderr does not name the range Owl supports:\n%s", res.stderr)
+	}
 	out := mustOwl(t, l, "jobs", "show", "1").stdout
 	if got := line(t, out, "state"); got != "pending" {
 		t.Errorf("state = %q, want the job still pending", got)
@@ -617,6 +638,9 @@ func TestS16RunStartWithNothingPendingSaysSo(t *testing.T) {
 	}
 	if !strings.Contains(res.stdout, "nothing pending") {
 		t.Errorf("owl start does not say the queue holds nothing to run:\n%s", res.stdout)
+	}
+	if logs, err := os.ReadDir(filepath.Join(l.state, "coding-owl", "logs")); err == nil && len(logs) > 0 {
+		t.Errorf("owl start recorded %d run logs with an empty queue", len(logs))
 	}
 }
 
@@ -794,8 +818,14 @@ func TestS23RunAnUnfinishedRunDoesNotHoldTheQueue(t *testing.T) {
 	if len(rows) != 1 || rows[0].id != run || rows[0].outcome != "interrupted" {
 		t.Fatalf("runs = %+v, want run %s reported as interrupted:\n%s", rows, run, out)
 	}
-	second, _ := startRun(t, l)
-	if second == run {
-		t.Errorf("owl start reported run %s again, want a new one", second)
+	secondRun, secondJob := startRun(t, l)
+	if secondRun == run {
+		t.Errorf("owl start reported run %s again, want a new one", secondRun)
+	}
+	if secondJob == job {
+		t.Errorf("owl start ran job %s again, want the second job", secondJob)
+	}
+	if got := line(t, mustOwl(t, l, "jobs", "show", secondJob).stdout, "prompt"); got != "second" {
+		t.Errorf("owl start ran the job prompted %q, want second", got)
 	}
 }

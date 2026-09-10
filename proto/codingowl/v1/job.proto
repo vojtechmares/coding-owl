@@ -103,6 +103,9 @@ message Run {
   string error = 7;
   // LogPath is where its structured output was captured.
   string log_path = 8;
+  // ExitCode is what the Agent exited with, and -1 when it never got far
+  // enough to have one.
+  int32 exit_code = 9;
 }
 
 message AddJobRequest {

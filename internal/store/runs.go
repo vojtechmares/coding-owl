@@ -28,12 +28,19 @@ type Run struct {
 	Outcome string
 	// Error is why a Run did not succeed, in the words the user reads.
 	Error string
+	// ExitCode is what the Agent exited with, and NoExitCode when it never got
+	// far enough to have one.
+	ExitCode int
 	// LogPath is the file the Run's structured output was captured to.
 	LogPath string
 }
 
+// NoExitCode is the exit status of a Run whose Agent never exited: one that
+// could not be started, or one that was stopped.
+const NoExitCode = -1
+
 // runColumns is the select list every Run read shares, in scanRun's order.
-const runColumns = `id, job_id, attempt, started, ended, outcome, error, log_path`
+const runColumns = `id, job_id, attempt, started, ended, outcome, error, exit_code, log_path`
 
 // StartRun records the beginning of an attempt at a Job, numbering it after
 // the attempts already made.
@@ -41,10 +48,10 @@ func (s *Store) StartRun(ctx context.Context, r Run) (Run, error) {
 	var out Run
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		row := tx.QueryRowContext(ctx,
-			`INSERT INTO runs (job_id, attempt, started, log_path)
-			 VALUES (?, (SELECT COUNT(*) + 1 FROM runs WHERE job_id = ?), ?, ?)
+			`INSERT INTO runs (job_id, attempt, started, log_path, exit_code)
+			 VALUES (?, (SELECT COUNT(*) + 1 FROM runs WHERE job_id = ?), ?, ?, ?)
 			 RETURNING `+runColumns,
-			r.JobID, r.JobID, r.Started.UTC().Format(timeFormat), r.LogPath)
+			r.JobID, r.JobID, r.Started.UTC().Format(timeFormat), r.LogPath, NoExitCode)
 		var err error
 		out, err = scanRun(row)
 		return err
@@ -52,11 +59,11 @@ func (s *Store) StartRun(ctx context.Context, r Run) (Run, error) {
 	return out, err
 }
 
-// FinishRun records how an attempt ended.
-func (s *Store) FinishRun(ctx context.Context, id int64, ended time.Time, outcome, reason string) error {
+// FinishRun records how an attempt ended, and what the Agent exited with.
+func (s *Store) FinishRun(ctx context.Context, id int64, ended time.Time, outcome, reason string, exitCode int) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE runs SET ended = ?, outcome = ?, error = ? WHERE id = ?`,
-		ended.UTC().Format(timeFormat), outcome, reason, id)
+		`UPDATE runs SET ended = ?, outcome = ?, error = ?, exit_code = ? WHERE id = ?`,
+		ended.UTC().Format(timeFormat), outcome, reason, exitCode, id)
 	if err != nil {
 		return err
 	}
@@ -149,7 +156,8 @@ func (s *Store) RunInProgress(ctx context.Context) (Run, bool, error) {
 func scanRun(sc scanner) (Run, error) {
 	var r Run
 	var started, ended string
-	if err := sc.Scan(&r.ID, &r.JobID, &r.Attempt, &started, &ended, &r.Outcome, &r.Error, &r.LogPath); err != nil {
+	if err := sc.Scan(&r.ID, &r.JobID, &r.Attempt, &started, &ended, &r.Outcome, &r.Error,
+		&r.ExitCode, &r.LogPath); err != nil {
 		return Run{}, err
 	}
 	t, err := time.Parse(timeFormat, started)

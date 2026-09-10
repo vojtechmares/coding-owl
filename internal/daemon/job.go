@@ -114,13 +114,14 @@ var runOutcomes = map[run.Outcome]codingowlv1.RunOutcome{
 
 func toRunProto(r run.Run) *codingowlv1.Run {
 	out := &codingowlv1.Run{
-		Id:      r.ID,
-		JobId:   r.JobID,
-		Attempt: int32(r.Attempt),
-		Started: timestamppb.New(r.Started),
-		Outcome: runOutcomes[r.Outcome],
-		Error:   r.Error,
-		LogPath: r.LogPath,
+		Id:       r.ID,
+		JobId:    r.JobID,
+		Attempt:  int32(r.Attempt),
+		Started:  timestamppb.New(r.Started),
+		Outcome:  runOutcomes[r.Outcome],
+		Error:    r.Error,
+		ExitCode: int32(r.ExitCode),
+		LogPath:  r.LogPath,
 	}
 	if !r.Ended.IsZero() {
 		out.Ended = timestamppb.New(r.Ended)
