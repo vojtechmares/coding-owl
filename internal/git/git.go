@@ -615,6 +615,136 @@ func DeleteBranch(dir, branch string) error {
 	return nil
 }
 
+// RebaseInProgress reports whether a worktree is in the middle of a rebase
+// nobody finished. Such a worktree is not Owl's to take over (ADR-0016).
+func RebaseInProgress(path string) (bool, error) {
+	for _, name := range []string{"rebase-merge", "rebase-apply"} {
+		out, stderr, code, err := run(path, "rev-parse", "--git-path", name)
+		if err != nil {
+			return false, err
+		}
+		if code != 0 {
+			return false, fmt.Errorf("reading the state of %s: %s", path, message(stderr))
+		}
+		dir := strings.TrimSpace(string(out))
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(path, dir)
+		}
+		if _, err := os.Stat(dir); err == nil {
+			return true, nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+// Rebase replays the branch checked out in a worktree onto base. A rebase that
+// conflicts is aborted and the conflicting paths are returned, so that whoever
+// asked can say what is in the way; the worktree is left exactly as it was
+// (ADR-0016).
+//
+// Changes nobody committed are stashed and put back afterwards: an interrupted
+// Run leaves a possibly untidy worktree behind (ADR-0011), and that is not a
+// reason to leave a Job unrebased.
+func Rebase(path, base string) (conflicts []string, err error) {
+	// The identity is Owl's own: a rebase can need one, and it must not depend
+	// on the user having configured one.
+	args := append(append([]string{}, owlIdentity...), "rebase", "--autostash", "--", base)
+	_, stderr, code, err := run(path, args...)
+	if err != nil {
+		return nil, err
+	}
+	if code == 0 {
+		return nil, nil
+	}
+	conflicts, listErr := unmergedPaths(path)
+	if listErr != nil {
+		return nil, listErr
+	}
+	// Anything that is not a conflict - a base that does not exist, a worktree
+	// git will not touch - is the caller's to report as it is.
+	if len(conflicts) == 0 {
+		return nil, fmt.Errorf("rebasing %s onto %s: %s", path, base, message(stderr))
+	}
+	if _, abortErr, abortCode, err := run(path, "rebase", "--abort"); err != nil {
+		return nil, err
+	} else if abortCode != 0 {
+		return nil, fmt.Errorf("aborting the rebase in %s: %s", path, message(abortErr))
+	}
+	return conflicts, nil
+}
+
+// unmergedPaths are the paths a rebase left with conflicts to resolve.
+func unmergedPaths(path string) ([]string, error) {
+	out, stderr, code, err := run(path, "diff", "--name-only", "--diff-filter=U")
+	if err != nil {
+		return nil, err
+	}
+	if code != 0 {
+		return nil, fmt.Errorf("reading the conflicts in %s: %s", path, message(stderr))
+	}
+	var paths []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			paths = append(paths, line)
+		}
+	}
+	slices.Sort(paths)
+	return slices.Compact(paths), nil
+}
+
+// FetchBase updates what the repository knows about base from the remote it
+// belongs to - the branch's own remote when it has one, and origin otherwise.
+// A repository with no remote has nothing to fetch, which is not a failure.
+func FetchBase(dir, base string) error {
+	remote, err := remoteFor(dir, base)
+	if err != nil || remote == "" {
+		return err
+	}
+	// Only the remote-tracking branch is updated: nothing the user has is
+	// moved by a fetch, and no refspec here writes a local head.
+	_, stderr, code, err := run(dir, "fetch", "--quiet", "--", remote, base)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("fetching %s from %s: %s", base, remote, message(stderr))
+	}
+	return nil
+}
+
+// remoteFor names the remote a branch belongs to: the one it tracks, or origin
+// when it tracks none and the repository has an origin. Empty means there is
+// nothing to fetch from.
+func remoteFor(dir, branch string) (string, error) {
+	out, _, code, err := run(dir, "config", "--get", "branch."+branch+".remote")
+	if err != nil {
+		return "", err
+	}
+	if code == 0 {
+		if remote := strings.TrimSpace(string(out)); remote != "" {
+			return remote, nil
+		}
+	}
+	out, _, code, err = run(dir, "remote")
+	if err != nil {
+		return "", err
+	}
+	if code != 0 {
+		return "", nil
+	}
+	for _, name := range strings.Split(string(out), "\n") {
+		if strings.TrimSpace(name) == defaultRemote {
+			return defaultRemote, nil
+		}
+	}
+	return "", nil
+}
+
+// defaultRemote is where a branch that tracks nothing is fetched from.
+const defaultRemote = "origin"
+
 // owlIdentity is who Owl commits as. It commits only the handoff, and only
 // when the Agent left it uncommitted, so the identity is Owl's own rather than
 // the user's - and it does not depend on the user having configured one.
