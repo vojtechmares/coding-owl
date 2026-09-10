@@ -176,6 +176,38 @@ func order(t *testing.T, svc *queue.Service) string {
 	return strings.Join(prompts, ",")
 }
 
+func TestAddProducingTheSameReferenceTwiceKeepsOneJob(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "api")
+	svc := service(t, fixed{ref: "issue:1"}, map[string]string{"api": dir})
+
+	first, err := svc.Add(ctx, queue.AddRequest{Prompt: "first", WorkingDir: dir})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	second, err := svc.Add(ctx, queue.AddRequest{Prompt: "second", WorkingDir: dir})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	if second.ID != first.ID || second.Position != first.Position {
+		t.Errorf("second production made %+v, want the first job back: %+v", second, first)
+	}
+	if second.Prompt != "second" {
+		t.Errorf("prompt = %q, want the second production's", second.Prompt)
+	}
+	if second.Source != "test" || second.SourceRef != "issue:1" {
+		t.Errorf("job carries source %q ref %q, want test / issue:1", second.Source, second.SourceRef)
+	}
+	jobs, err := svc.List(ctx, true)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Errorf("the queue holds %d jobs, want 1: %+v", len(jobs), jobs)
+	}
+}
+
 func TestCancelTakesAJobOutOfTheQueue(t *testing.T) {
 	ctx := context.Background()
 	svc, jobs := threePending(t)

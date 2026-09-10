@@ -77,10 +77,11 @@ func (s *projectService) RenameProject(ctx context.Context, req *connect.Request
 }
 
 func (s *projectService) RemoveProject(ctx context.Context, req *connect.Request[codingowlv1.RemoveProjectRequest]) (*connect.Response[codingowlv1.RemoveProjectResponse], error) {
-	if err := s.projects.Remove(ctx, req.Msg.GetName()); err != nil {
+	jobs, err := s.projects.Remove(ctx, req.Msg.GetName())
+	if err != nil {
 		return nil, rpcError(err)
 	}
-	return connect.NewResponse(&codingowlv1.RemoveProjectResponse{}), nil
+	return connect.NewResponse(&codingowlv1.RemoveProjectResponse{JobsRemoved: int32(jobs)}), nil
 }
 
 func toProto(p project.Project) *codingowlv1.Project {

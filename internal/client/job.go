@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"time"
 
 	"connectrpc.com/connect"
@@ -67,8 +69,15 @@ func (c *Client) CancelJob(ctx context.Context, id int64) (Job, error) {
 	return jobFromProto(res.Msg.GetJob()), nil
 }
 
-// ReorderJob moves a pending Job to position, counting from one.
+// ReorderJob moves a pending Job to position, counting from one. A position
+// too large for the wire is refused here rather than truncated onto it.
 func (c *Client) ReorderJob(ctx context.Context, id int64, position int) (Job, error) {
+	if position < math.MinInt32 || position > math.MaxInt32 {
+		return Job{}, &StatusError{
+			Kind:    KindInvalid,
+			Message: fmt.Sprintf("position %d is outside the queue; no queue is that long", position),
+		}
+	}
 	res, err := c.jobs.ReorderJob(ctx, connect.NewRequest(&codingowlv1.ReorderJobRequest{
 		Id: id, Position: int32(position),
 	}))

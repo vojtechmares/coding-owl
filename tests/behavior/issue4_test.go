@@ -190,6 +190,9 @@ func TestS3QueueAddOutsideAnyProjectIsRefused(t *testing.T) {
 	if !strings.Contains(res.stderr, "--project") {
 		t.Errorf("stderr does not name the --project flag:\n%s", res.stderr)
 	}
+	if !strings.Contains(res.stderr, "not inside a registered project") {
+		t.Errorf("stderr does not say the directory is inside no project:\n%s", res.stderr)
+	}
 	wantEmptyQueue(t, l)
 }
 
@@ -305,8 +308,12 @@ func TestS11QueueRemoveRefusesAJobThatIsNotPending(t *testing.T) {
 	if !strings.Contains(res.stderr, id) || !strings.Contains(res.stderr, "not pending") {
 		t.Errorf("stderr does not say job %s is not pending:\n%s", id, res.stderr)
 	}
-	if rows := queueList(t, l, "--all"); len(rows) != 3 {
-		t.Errorf("owl queue list --all shows %d jobs, want 3: %v", len(rows), rows)
+	rows := queueList(t, l, "--all")
+	if len(rows) != 3 {
+		t.Fatalf("owl queue list --all shows %d jobs, want 3: %v", len(rows), rows)
+	}
+	if got := rows[2]; got.id != id || got.state != "cancelled" {
+		t.Errorf("the job that left the queue is %+v, want %s cancelled", got, id)
 	}
 }
 
@@ -356,13 +363,18 @@ func TestS15QueueReorderRefusesAPositionOutsideTheQueue(t *testing.T) {
 	threeJobs(t, l)
 	id := jobID(t, queueList(t, l), "first")
 
-	for _, position := range []string{"0", "4"} {
+	// 4294967297 is 2^32 + 1: a position that truncates to 1 if it is ever
+	// carried in a narrower number than it was typed in.
+	for _, position := range []string{"0", "4", "4294967297"} {
 		res := runOwl(t, l, "queue", "reorder", id, position)
 		if res.code == 0 {
 			t.Fatalf("reorder to position %s exited 0\nstdout:\n%s", position, res.stdout)
 		}
-		if !strings.Contains(res.stderr, "between 1 and 3") {
-			t.Errorf("stderr does not name the range of positions:\n%s", res.stderr)
+		if !strings.Contains(res.stderr, "between 1 and 3") && !strings.Contains(res.stderr, "is not one") {
+			t.Errorf("stderr neither names the range of positions nor refuses the position:\n%s", res.stderr)
+		}
+		if !strings.Contains(res.stderr, position) {
+			t.Errorf("stderr reports a position other than the %s that was asked for:\n%s", position, res.stderr)
 		}
 		wantQueue(t, l, "1|api|pending|first", "2|api|pending|second", "3|api|pending|third")
 	}
@@ -555,5 +567,48 @@ func TestS21QueueCommandsReportAStoppedDaemon(t *testing.T) {
 		if !strings.Contains(res.stderr, "daemon not running") || !strings.Contains(res.stderr, l.socket()) {
 			t.Errorf("owl %v stderr does not report a stopped daemon at %s:\n%s", args, l.socket(), res.stderr)
 		}
+	}
+}
+
+func TestS22QueueRemovingAProjectTakesItsJobsWithIt(t *testing.T) {
+	l := newLayout(t)
+	daemonUp(t, l)
+	api := project(t, l, "api")
+	web := project(t, l, "web")
+	addJob(t, l, api.dir, "first")
+	addJob(t, l, web.dir, "second")
+	addJob(t, l, api.dir, "third")
+
+	res := mustOwl(t, l, "project", "remove", "api")
+
+	if !strings.Contains(res.stdout, "2 jobs") {
+		t.Errorf("owl project remove does not say two jobs went with the project:\n%s", res.stdout)
+	}
+	wantQueue(t, l, "1|web|pending|second")
+	for _, row := range queueList(t, l, "--all") {
+		if row.project == "api" {
+			t.Errorf("owl queue list --all still shows %+v for the removed project", row)
+		}
+	}
+}
+
+func TestS23QueueListCutsALongPromptShort(t *testing.T) {
+	l := newLayout(t)
+	daemonUp(t, l)
+	r := project(t, l, "api")
+	prompt := strings.Repeat("long prompt ", 9)[:100]
+	addJob(t, l, r.dir, prompt)
+
+	rows := queueList(t, l)
+
+	if len(rows) != 1 {
+		t.Fatalf("owl queue list shows %d rows, want 1: %v", len(rows), rows)
+	}
+	want := string([]rune(prompt)[:57]) + "..."
+	if rows[0].prompt != want {
+		t.Errorf("prompt column = %q, want %q", rows[0].prompt, want)
+	}
+	if rows[0].position != "1" || rows[0].project != "api" || rows[0].state != "pending" {
+		t.Errorf("row = %+v, want position 1 in api, pending", rows[0])
 	}
 }

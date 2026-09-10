@@ -24,7 +24,7 @@ func rpcError(err error) error {
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.As(err, &conflict), errors.Is(err, store.ErrNameTaken):
 		return connect.NewError(connect.CodeAlreadyExists, err)
-	case errors.As(err, &invalid), errors.As(err, &unusable):
+	case errors.As(err, &invalid), errors.As(err, &unusable), errors.Is(err, store.ErrNotQueued):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)

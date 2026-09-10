@@ -673,7 +673,10 @@ func (x *RemoveProjectRequest) GetName() string {
 }
 
 type RemoveProjectResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// JobsRemoved is how many queued Jobs went with the Project, since a Job
+	// whose Project is gone has nowhere to run.
+	JobsRemoved   int32 `protobuf:"varint,1,opt,name=jobs_removed,json=jobsRemoved,proto3" json:"jobs_removed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -706,6 +709,13 @@ func (x *RemoveProjectResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use RemoveProjectResponse.ProtoReflect.Descriptor instead.
 func (*RemoveProjectResponse) Descriptor() ([]byte, []int) {
 	return file_codingowl_v1_project_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RemoveProjectResponse) GetJobsRemoved() int32 {
+	if x != nil {
+		return x.JobsRemoved
+	}
+	return 0
 }
 
 var File_codingowl_v1_project_proto protoreflect.FileDescriptor
@@ -750,8 +760,9 @@ const file_codingowl_v1_project_proto_rawDesc = "" +
 	"\x15RenameProjectResponse\x12/\n" +
 	"\aproject\x18\x01 \x01(\v2\x15.codingowl.v1.ProjectR\aproject\"*\n" +
 	"\x14RemoveProjectRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"\x17\n" +
-	"\x15RemoveProjectResponse2\x9d\x04\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\":\n" +
+	"\x15RemoveProjectResponse\x12!\n" +
+	"\fjobs_removed\x18\x01 \x01(\x05R\vjobsRemoved2\x9d\x04\n" +
 	"\x0eProjectService\x12Q\n" +
 	"\n" +
 	"AddProject\x12\x1f.codingowl.v1.AddProjectRequest\x1a .codingowl.v1.AddProjectResponse\"\x00\x12W\n" +

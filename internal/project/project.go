@@ -367,8 +367,9 @@ func (s *Service) moveConfigDir(from, to string) (undo func() error, err error) 
 	return func() error { return os.Rename(dst, src) }, nil
 }
 
-// Remove deregisters a Project. Its configuration directory is left on disk:
-// it is hand-written, and nothing else can put it back.
-func (s *Service) Remove(ctx context.Context, name string) error {
+// Remove deregisters a Project, returning how many queued Jobs went with it.
+// Its configuration directory is left on disk: it is hand-written, and
+// nothing else can put it back.
+func (s *Service) Remove(ctx context.Context, name string) (int, error) {
 	return s.store.RemoveProject(ctx, name)
 }

@@ -17,7 +17,9 @@ commit, as in issue #3. "Registered Project" means such a repository added with
 `POSITION`, `ID`, `PROJECT`, `STATE` and `PROMPT`. Without `--all` it lists the
 queue, which is the Jobs in state `pending`, in queue order; with `--all` it
 lists every Job whatever its state, the queue first and the rest after it. A
-Job that is not in the queue prints `-` for its position.
+Job that is not in the queue prints `-` for its position. A prompt is free
+text, so it is shown as one line and cut to 60 characters, the last three of
+which are `...` when there was more.
 
 ## Scenarios
 
@@ -116,10 +118,11 @@ And `owl queue list` shows `second` at 1, `third` at 2 and `first` at 3
 
 ### S15 - reorder refuses a position outside the queue
 Given a running daemon and three pending Jobs at positions 1, 2 and 3
-When `owl queue reorder <id of first> 0` runs, and then `owl queue reorder <id of first> 4`
+When `owl queue reorder <id of first> 0` runs, then `owl queue reorder <id of first> 4`, and then the same with the position `4294967297`, which is larger than the numbering the queue is carried in
 Then each exits with a non-zero code
-And each stderr names the range of positions the queue has
-And `owl queue list` shows the original order both times
+And each stderr names the range of positions the queue has, or says the position is not a position at all
+And no stderr reports a different number from the one that was asked for
+And `owl queue list` shows the original order every time
 
 ### S16 - reorder refuses an unknown id and a Job that is not pending
 Given a running daemon with two pending Jobs and one cancelled Job
@@ -158,3 +161,17 @@ Given a temporary XDG layout with no daemon running
 When `owl add "work" --project api`, `owl queue list`, `owl queue remove 1` and `owl queue reorder 1 1` each run
 Then each exits with a non-zero code
 And each stderr says the daemon is not running and names the socket path
+
+### S22 - removing a Project takes its queued Jobs with it, and says so
+Given a running daemon, a registered Project `api` with the pending Jobs `first` and `third`, and a registered Project `web` with the pending Job `second` between them
+When `owl project remove api` runs
+Then it exits 0
+And stdout says that two Jobs went with the Project
+And `owl queue list` shows only `second`, at position 1
+And `owl queue list --all` shows no Job for `api`
+
+### S23 - a long prompt is shown cut short
+Given a running daemon, a registered Project, and a Job whose prompt is 100 characters of prose
+When `owl queue list` runs
+Then the prompt column shows the first 57 characters of the prompt followed by `...`
+And the position, id, Project and state columns are unaffected
