@@ -34,6 +34,9 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Modules are tidy
+        run: go mod tidy -diff
+
       - name: buf lint
         run: buf lint
 

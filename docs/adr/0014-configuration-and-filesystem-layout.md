@@ -33,6 +33,13 @@ change shows up in the diff for review like any other.
 Form 4 is the fallback for Projects that should carry no Owl file, and for
 overrides that should not be committed.
 
+The base branch itself is **not** one of the settings these files carry. It is
+the branch the files are read from, so a file on that branch cannot also be
+what declares it. It is a Project attribute in Owl's store, chosen at
+registration by `owl project add --base-branch` and defaulting to the
+repository's branch at that moment. Everything else in the list above -
+branch prefix, Verification checks, tool allowlist - lives in the file.
+
 ### Filesystem layout
 
 Honouring `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME` and

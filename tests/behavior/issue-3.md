@@ -178,3 +178,36 @@ When `owl project add <path> --base-branch nope` runs
 Then it exits with a non-zero code
 And stderr names the branch `nope`
 And no Project is registered
+
+### S26 - a repository with no commit on the base branch is refused
+Given a running daemon and a directory that has had `git init -b main` run in it and nothing committed
+When `owl project add <path>` runs
+Then it exits with a non-zero code
+And stderr names the branch `main`
+And no Project is registered
+
+### S27 - a base branch that disappears after registration is reported
+Given a running daemon and a registered Project whose base branch `main` carries `.coding-owl.yaml` with `branchPrefix: committed/`
+When another branch is checked out, `main` is deleted, and `owl project show <name>` runs
+Then it exits with a non-zero code
+And stderr names the branch `main` and the Project
+And it does not report the default branch prefix as though the configuration still applied
+
+### S28 - a Project whose repository is gone is reported
+Given a running daemon and a registered Project
+When the repository directory is deleted and `owl project show <name>` runs
+Then it exits with a non-zero code
+And it does not report `config: (none)` as though the Project simply had no configuration
+
+### S29 - move refuses a repository that does not carry the base branch
+Given a running daemon and a Project registered with base branch `main`, and a second repository whose only branch is `trunk`
+When `owl project move <name> <second repository>` runs
+Then it exits with a non-zero code
+And stderr names the branch `main`
+And `owl project show <name>` still reports the original path
+
+### S30 - a revision expression is not a base branch
+Given a running daemon and a temporary repository whose `main` branch carries a committed file
+When `owl project add <path> --base-branch main:.coding-owl.yaml` runs
+Then it exits with a non-zero code
+And no Project is registered

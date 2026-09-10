@@ -20,6 +20,10 @@ import (
 // configFileName is the per-Project fallback file under the config home.
 const configFileName = "config.yaml"
 
+// sepChars are the bytes a Project name may not contain, because the name is
+// used verbatim as a directory name under the config home.
+const sepChars = `/\` + "\x00"
+
 // inRepoCandidates is the discovery order for the in-repo forms of ADR-0014.
 // First match wins.
 var inRepoCandidates = []string{
@@ -116,14 +120,15 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Project, error) {
 		if base, err = git.CurrentBranch(path); err != nil {
 			return Project{}, &InvalidError{Err: err}
 		}
-	} else {
-		ok, err := git.HasBranch(path, base)
-		if err != nil {
-			return Project{}, err
-		}
-		if !ok {
-			return Project{}, invalid("%s has no branch %q", path, base)
-		}
+	}
+	// The base branch is where Jobs branch from and where configuration is
+	// read (ADR-0007, ADR-0014), so a Project without one is not registrable.
+	ok, err := git.HasBranch(path, base)
+	if err != nil {
+		return Project{}, err
+	}
+	if !ok {
+		return Project{}, invalid("%s has no branch %q", path, base)
 	}
 	p := Project{Name: name, Path: path, BaseBranch: base, Registered: s.now().UTC()}
 	if err := s.store.AddProject(ctx, store.Project(p)); err != nil {
@@ -156,22 +161,26 @@ func (s *Service) discover(p Project) (string, config.Config, error) {
 	if err != nil {
 		return "", config.Config{}, err
 	}
-	if hasBase {
-		for _, candidate := range inRepoCandidates {
-			data, found, err := git.ShowFile(p.Path, p.BaseBranch, candidate)
-			if err != nil {
-				return "", config.Config{}, err
-			}
-			if !found {
-				continue
-			}
-			source := p.BaseBranch + ":" + candidate
-			cfg, err := config.Parse(source, data)
-			if err != nil {
-				return "", config.Config{}, &InvalidError{Err: err}
-			}
-			return source, cfg, nil
+	if !hasBase {
+		// Falling through to the defaults here would let a Project's
+		// configuration stop applying without anyone being told, which is
+		// exactly what reading from the base branch is meant to prevent.
+		return "", config.Config{}, invalid("%s has no branch %q, so no configuration can be read for project %s", p.Path, p.BaseBranch, p.Name)
+	}
+	for _, candidate := range inRepoCandidates {
+		data, found, err := git.ShowFile(p.Path, p.BaseBranch, candidate)
+		if err != nil {
+			return "", config.Config{}, err
 		}
+		if !found {
+			continue
+		}
+		source := p.BaseBranch + ":" + candidate
+		cfg, err := config.Parse(source, data)
+		if err != nil {
+			return "", config.Config{}, &InvalidError{Err: err}
+		}
+		return source, cfg, nil
 	}
 	fallback := s.configPath(p.Name)
 	data, err := os.ReadFile(fallback)
@@ -206,18 +215,25 @@ func repoRoot(path string) (string, error) {
 		return "", err
 	}
 	abs = filepath.Clean(abs)
+	if st, err := os.Stat(abs); err != nil {
+		return "", invalid("no such directory: %s", abs)
+	} else if !st.IsDir() {
+		return "", invalid("not a directory: %s", abs)
+	}
 	root, err := git.Root(abs)
 	if err != nil {
 		return "", &InvalidError{Err: err}
 	}
 	// Root resolves symlinks, so compare like with like before deciding the
-	// caller pointed at a subdirectory.
+	// caller pointed at a subdirectory - and report both paths in the resolved
+	// form, so the one to register is not a different spelling of the one
+	// that was refused.
 	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		resolved = abs
 	}
 	if resolved != root {
-		return "", invalid("%s is not the root of its git repository; register %s instead", abs, root)
+		return "", invalid("%s is not the root of its git repository; register %s instead", resolved, root)
 	}
 	return abs, nil
 }
@@ -227,15 +243,15 @@ func repoRoot(path string) (string, error) {
 func validateName(name string) error {
 	switch {
 	case name == "":
-		return errors.New("invalid project name: it is empty")
+		return invalid("invalid project name: it is empty")
 	case name == "." || name == "..":
-		return fmt.Errorf("invalid project name %q: it is a directory reference", name)
-	case strings.ContainsAny(name, `/\`+"\x00"):
-		return fmt.Errorf("invalid project name %q: it may not contain a path separator", name)
+		return invalid("invalid project name %q: it is a directory reference", name)
+	case strings.ContainsAny(name, sepChars):
+		return invalid("invalid project name %q: it may not contain a path separator", name)
 	case strings.HasPrefix(name, "-"):
-		return fmt.Errorf("invalid project name %q: it may not start with a dash", name)
+		return invalid("invalid project name %q: it may not start with a dash", name)
 	case strings.TrimSpace(name) != name:
-		return fmt.Errorf("invalid project name %q: it has leading or trailing whitespace", name)
+		return invalid("invalid project name %q: it has leading or trailing whitespace", name)
 	}
 	return nil
 }
@@ -256,12 +272,22 @@ func (s *Service) List(ctx context.Context) ([]Project, error) {
 // Move points a Project at a new path. Its name, and everything attached to
 // that name, is unaffected (ADR-0031).
 func (s *Service) Move(ctx context.Context, name, path string) error {
-	if _, err := s.store.GetProject(ctx, name); err != nil {
+	p, err := s.store.GetProject(ctx, name)
+	if err != nil {
 		return err
 	}
 	root, err := repoRoot(path)
 	if err != nil {
 		return err
+	}
+	// The Project keeps its base branch across a move, so the repository at
+	// the new path has to carry it or nothing could be read there.
+	ok, err := git.HasBranch(root, p.BaseBranch)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return invalid("%s has no branch %q, which is project %s's base branch", root, p.BaseBranch, name)
 	}
 	return s.store.SetProjectPath(ctx, name, root)
 }
@@ -282,43 +308,48 @@ func (s *Service) Rename(ctx context.Context, from, to string) error {
 		return err
 	}
 
-	moved, err := s.moveConfigDir(from, to)
+	undo, err := s.moveConfigDir(from, to)
 	if err != nil {
 		return err
 	}
 	if err := s.store.RenameProject(ctx, from, to); err != nil {
-		if moved {
-			// Undo the move so a refused rename leaves nothing behind.
-			if undo := os.Rename(s.configDir(to), s.configDir(from)); undo != nil {
-				return fmt.Errorf("%w (and the configuration directory was left at %s: %v)", err, s.configDir(to), undo)
+		if undo != nil {
+			// Put the directory back, so a refused rename leaves nothing
+			// behind. Losing the race to a concurrent add lands here.
+			if undoErr := undo(); undoErr != nil {
+				return fmt.Errorf("%w (and the configuration directory was left at %s: %v)", err, s.configDir(to), undoErr)
 			}
+		}
+		if errors.Is(err, store.ErrNameTaken) {
+			return conflict("a project named %q is already registered", to)
 		}
 		return err
 	}
 	return nil
 }
 
-// moveConfigDir moves the per-Project configuration directory. It reports
-// whether there was one to move, and refuses to overwrite an existing target.
-func (s *Service) moveConfigDir(from, to string) (bool, error) {
+// moveConfigDir moves the per-Project configuration directory and returns the
+// action that puts it back. undo is nil when there was no directory to move.
+// It refuses to overwrite an existing destination.
+func (s *Service) moveConfigDir(from, to string) (undo func() error, err error) {
 	src, dst := s.configDir(from), s.configDir(to)
 	if _, err := os.Stat(src); errors.Is(err, os.ErrNotExist) {
-		return false, nil
+		return nil, nil
 	} else if err != nil {
-		return false, err
+		return nil, err
 	}
 	if _, err := os.Stat(dst); err == nil {
-		return false, invalid("%s already exists; move or remove it before renaming", dst)
+		return nil, invalid("%s already exists; move or remove it before renaming", dst)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return false, err
+		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-		return false, err
+		return nil, err
 	}
 	if err := os.Rename(src, dst); err != nil {
-		return false, fmt.Errorf("moving %s to %s: %w", src, dst, err)
+		return nil, fmt.Errorf("moving %s to %s: %w", src, dst, err)
 	}
-	return true, nil
+	return func() error { return os.Rename(dst, src) }, nil
 }
 
 // Remove deregisters a Project. Its configuration directory is left on disk:
