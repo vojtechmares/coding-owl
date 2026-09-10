@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -500,9 +502,10 @@ func TestS17ARebaseThatStopsPartWayBlocksTheJob(t *testing.T) {
 	worktree := rb.worktree(t)
 	before := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "HEAD"))
 	rb.moveBase(t, "shared.txt", "one\ntwo\n")
-	// A filter that fails once, after the rebase has begun: somebody else's
-	// program, named by configuration an Agent can write. Set last, because
-	// the fixture's own commits would trip it too.
+	// A filter that refuses the base branch's own new content, which git only
+	// reaches once the rebase has begun: somebody else's program, named by
+	// configuration an Agent can write. Set last, because the fixture's own
+	// commits would go through it too.
 	rb.stopsPartWay(t)
 
 	res := runOwl(t, rb.l, "start")
@@ -528,20 +531,78 @@ func TestS17ARebaseThatStopsPartWayBlocksTheJob(t *testing.T) {
 	}
 }
 
+// slowFilter makes the Project require a filter that takes seconds over the
+// second thing git filters, so a rebase is under way for long enough to be
+// interrupted, and records that it got there.
+func (rb *rebasing) slowFilter(t *testing.T, marker string) {
+	t.Helper()
+	rb.filter(t, 2, "touch "+marker+"; sleep 3")
+}
+
+func TestS19AClientThatGoesAwayLeavesNoRebaseInProgress(t *testing.T) {
+	rb := rebasingJobOn(t,
+		map[string]string{"work.txt": agentWork},
+		map[string]string{".gitattributes": "shared.txt filter=owlstop\n", "shared.txt": "one\n"})
+	worktree := rb.worktree(t)
+	rb.moveBase(t, "shared.txt", "one\ntwo\n")
+	marker := filepath.Join(rb.l.root, "rebasing")
+	rb.slowFilter(t, marker)
+
+	// Started and then killed while git is in the middle of the rebase.
+	cmd := exec.Command(owlBin, "start")
+	cmd.Env = rb.l.env
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the rebase to be under way", func() bool {
+		_, err := os.Stat(marker)
+		return err == nil
+	})
+	if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+
+	// The rebase finishes on its own, rather than being killed half way.
+	waitFor(t, "the rebase to finish", func() bool {
+		return !strings.Contains(gitIn(t, rb.repo, worktree, "status"), "rebase in progress")
+	})
+	if got := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "--abbrev-ref", "HEAD")); got != rb.branch(t) {
+		t.Errorf("the worktree is on %q, want the job's own branch", got)
+	}
+	if got := jobState(t, rb.l, rb.job); got == "blocked" {
+		t.Errorf("the job is blocked, and nothing went wrong with it: %q",
+			line(t, mustOwl(t, rb.l, "jobs", "show", rb.job).stdout, "reason"))
+	}
+	rb.stub.let(t)
+}
+
 // stopsPartWay makes the Project require a filter that fails the second thing
 // git filters and lets everything after it through, which stops a rebase after
 // it has begun rather than before it starts.
 func (rb *rebasing) stopsPartWay(t *testing.T) {
 	t.Helper()
+	rb.filter(t, 2, "rm -f \"$t\"; exit 1")
+}
+
+// filter makes the Project require a filter that does what onNth says the nth
+// time git uses it, and passes everything through otherwise. Git filters the
+// worktree once before a rebase begins and again as it replays, so a later
+// count is what fires while the rebase is under way rather than before it.
+func (rb *rebasing) filter(t *testing.T, nth int, onNth string) {
+	t.Helper()
+	path := filepath.Join(rb.l.root, "filter.sh")
 	count := filepath.Join(rb.l.root, "filter-count")
-	filter := filepath.Join(rb.l.root, "filter.sh")
-	script := "#!/bin/sh\nc=0\n[ -f " + count + " ] && c=$(cat " + count + ")\n" +
-		"c=$((c+1))\necho \"$c\" > " + count + "\n[ \"$c\" = 2 ] && exit 1\ncat\n"
-	if err := os.WriteFile(filter, []byte(script), 0o755); err != nil {
+	script := "#!/bin/sh\nt=$(mktemp)\ncat > \"$t\"\n" +
+		"c=0\n[ -f " + count + " ] && c=$(cat " + count + ")\n" +
+		"c=$((c+1))\necho \"$c\" > " + count + "\n" +
+		"if [ \"$c\" = " + strconv.Itoa(nth) + " ]; then\n  " + onNth + "\nfi\n" +
+		"cat \"$t\"\nrm -f \"$t\"\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	rb.repo.git("config", "filter.owlstop.clean", filter)
-	rb.repo.git("config", "filter.owlstop.smudge", filter)
+	rb.repo.git("config", "filter.owlstop.clean", path)
+	rb.repo.git("config", "filter.owlstop.smudge", path)
 	rb.repo.git("config", "filter.owlstop.required", "true")
 }
 
@@ -562,8 +623,10 @@ func TestS18AWorktreeThatIsGoneBlocksTheJobNotTheQueue(t *testing.T) {
 	if got := line(t, out, "state"); got != "blocked" {
 		t.Errorf("state = %q, want blocked", got)
 	}
-	if reason := line(t, out, "reason"); !strings.Contains(reason, "worktree") {
-		t.Errorf("the reason does not mention the worktree: %q", reason)
+	// Not merely the path, which the worktree's own directory name would
+	// satisfy whatever the reason said.
+	if reason := line(t, out, "reason"); !strings.Contains(reason, "not a worktree git can work in") {
+		t.Errorf("the reason does not say the worktree is not one git can work in: %q", reason)
 	}
 	// And the queue is not held by it.
 	_, next := startRun(t, rb.l)
