@@ -229,6 +229,16 @@ func TestRemoveProjectTakesItsJobsAndClosesTheGaps(t *testing.T) {
 		}
 	}
 
+	// One of api's Jobs has already left the queue: the count is every Job
+	// that went, not only the ones that were still waiting.
+	left, err := s.ListJobs(ctx, false)
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	if err := s.DequeueJob(ctx, left[0].ID, "cancelled"); err != nil {
+		t.Fatalf("DequeueJob: %v", err)
+	}
+
 	gone, err := s.RemoveProject(ctx, "api")
 	if err != nil {
 		t.Fatalf("RemoveProject: %v", err)
@@ -246,5 +256,28 @@ func TestRemoveProjectTakesItsJobsAndClosesTheGaps(t *testing.T) {
 	}
 	if jobs[0].Position != 1 {
 		t.Errorf("the remaining job is at position %d, want 1", jobs[0].Position)
+	}
+}
+
+func TestRenameProjectCarriesItsJobsAcross(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	threeQueued(t, s)
+
+	if err := s.RenameProject(ctx, "api", "backend"); err != nil {
+		t.Fatalf("RenameProject: %v", err)
+	}
+
+	jobs, err := s.ListJobs(ctx, true)
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	if len(jobs) != 3 {
+		t.Fatalf("the database holds %d jobs after the rename, want 3", len(jobs))
+	}
+	for _, j := range jobs {
+		if j.Project != "backend" {
+			t.Errorf("job %d is queued against %q, want backend", j.ID, j.Project)
+		}
 	}
 }

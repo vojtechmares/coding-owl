@@ -92,8 +92,8 @@ func (c *Client) RenameProject(ctx context.Context, name, newName string) (Proje
 	return fromProto(res.Msg.GetProject()), nil
 }
 
-// RemoveProject deregisters a Project, returning how many queued Jobs went
-// with it.
+// RemoveProject deregisters a Project, returning how many Jobs went with it,
+// queued or not.
 func (c *Client) RemoveProject(ctx context.Context, name string) (int, error) {
 	res, err := c.projects.RemoveProject(ctx, connect.NewRequest(&codingowlv1.RemoveProjectRequest{Name: name}))
 	if err != nil {

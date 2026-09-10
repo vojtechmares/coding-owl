@@ -97,7 +97,7 @@ message RemoveProjectRequest {
 }
 
 message RemoveProjectResponse {
-  // JobsRemoved is how many queued Jobs went with the Project, since a Job
-  // whose Project is gone has nowhere to run.
+  // JobsRemoved is how many Jobs went with the Project, queued or not, since
+  // a Job whose Project is gone has nowhere to run.
   int32 jobs_removed = 1;
 }
