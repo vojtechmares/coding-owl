@@ -732,3 +732,33 @@ func TestVerificationIsNotRunAfterAPlanningRun(t *testing.T) {
 		t.Errorf("verification ran after a planning run, in %s", got.WorkingDir)
 	}
 }
+
+func TestVerificationJudgesByTheConfigurationFromBeforeTheAgentRan(t *testing.T) {
+	ctx := context.Background()
+	hold := make(chan struct{})
+	started := make(chan struct{})
+	v := &fakeVerifier{results: []verifier.Result{{Name: "guard", Passed: false, Reason: "exited 1"}}}
+	svc, st, repo, _ := newVerifiedFixture(t, &fakeDriver{},
+		&fakeExecutor{hold: hold, started: started}, v,
+		"apiVersion: codingowl.dev/v1\nchecks:\n  - name: guard\n    run: \"false\"\n")
+	j := queueJob(t, st, "work")
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started
+	// While the Agent is working, the base branch loses its checks - which is
+	// what an Agent can do from a worktree, since the refs are shared.
+	commitFile(t, repo, ".coding-owl.yaml", "apiVersion: codingowl.dev/v1\n")
+	close(hold)
+
+	blocked := awaitState(t, st, j.ID, queue.StateBlocked)
+
+	if !strings.Contains(blocked.Note, "guard") {
+		t.Errorf("note = %q, want the check the job was judged by", blocked.Note)
+	}
+	asked := v.request()
+	if len(asked.Checks) != 1 || asked.Checks[0].Name != "guard" {
+		t.Errorf("verification was asked for %+v, want the checks from before the agent ran", asked.Checks)
+	}
+}

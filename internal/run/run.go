@@ -3,8 +3,9 @@
 // it (ADR-0018), captures what the Agent writes, and records the Run and where
 // the Job got to (ADR-0027).
 //
-// Verification is a pass-through here: a clean exit leaves the Job in review
-// and a failure blocks it (ADR-0013). Nothing retries.
+// After an execution Run it runs Verification: the Project's own checks decide
+// whether the work is acceptable, and a Job reaches review only if they all
+// pass (ADR-0013). Nothing retries.
 package run
 
 import (
@@ -331,7 +332,7 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	// empty log it reads as the end of one.
 	b := s.openBroker(r.ID)
 	s.wg.Add(1)
-	go s.carryOut(j, r, phase, req, b)
+	go s.carryOut(j, r, phase, req, b, details.Config)
 
 	return queue.FromStore(j), toRun(r), true, nil
 }
@@ -556,13 +557,30 @@ func (s *Service) sendFile(path string, send func(Line) error) (int64, error) {
 }
 
 // carryOut runs the Agent and records what became of the Job.
-func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Request, b *broker) {
+func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Request, b *broker, cfg config.Config) {
 	defer s.wg.Done()
 	outcome, reason, code := s.execute(r, req, b)
 	s.closeBroker(r.ID)
 
+	// An Agent exiting cleanly says nothing about whether its work is any
+	// good, so the Project's own checks decide (ADR-0013). They run under the
+	// Service's own context and their own timeouts, not under the deadline
+	// that bounds the writes afterwards - a check may take minutes. The Run
+	// itself still succeeded: the Agent did its part, and Verification is what
+	// refused it.
+	refused := ""
+	if outcome == OutcomeSucceeded && phase == PhaseExecute {
+		refused = s.verify(s.ctx, j, r.ID, cfg)
+		if s.ctx.Err() != nil {
+			// The daemon stopped before Verification could finish, so nothing
+			// has judged this work yet.
+			outcome, reason, refused = OutcomeInterrupted, "the daemon stopped while verification was running", ""
+		}
+	}
+
 	// The daemon may be stopping, so the bookkeeping does not run under the
-	// Service's own context.
+	// Service's own context - and it gets its deadline here, after the work
+	// that takes time.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
 	defer cancel()
 
@@ -572,14 +590,6 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 		if err := s.recordPlan(ctx, j); err != nil {
 			outcome, reason = OutcomeFailed, err.Error()
 		}
-	}
-	// An Agent exiting cleanly says nothing about whether its work is any
-	// good, so the Project's own checks decide (ADR-0013). The Run itself
-	// still succeeded: the Agent did its part, and Verification is what
-	// refused it.
-	refused := ""
-	if outcome == OutcomeSucceeded && phase == PhaseExecute {
-		refused = s.verify(ctx, j, r.ID)
 	}
 
 	if err := s.opts.Store.FinishRun(ctx, r.ID, s.now().UTC(), string(outcome), reason, code); err != nil {
@@ -646,15 +656,14 @@ func (s *Service) prepare(ctx context.Context, j store.Job, setup []string) erro
 // verify runs the Project's checks over what the Run left in the worktree and
 // records what each of them said. It returns the summary a blocked Job carries,
 // or an empty string when nothing refused the work.
-func (s *Service) verify(ctx context.Context, j store.Job, runID int64) string {
-	// The checks come from the base branch, so an Agent editing them in its
-	// worktree changes nothing about the Verification it is being judged by
-	// (ADR-0014, ADR-0030).
-	details, err := s.opts.Projects.Show(ctx, j.Project)
-	if err != nil {
-		return fmt.Sprintf("verification could not read the project's checks: %v", err)
-	}
-	if len(details.Config.Checks) == 0 {
+//
+// cfg is the configuration read from the base branch before the Agent started.
+// It is carried here rather than read again, because a Job's worktree shares
+// the repository's refs: an Agent can move the base branch while it works, and
+// what judges its work must be what was there before it did (ADR-0014,
+// ADR-0030).
+func (s *Service) verify(ctx context.Context, j store.Job, runID int64, cfg config.Config) string {
+	if len(cfg.Checks) == 0 {
 		return ""
 	}
 	if s.opts.Verifier == nil {
@@ -662,7 +671,7 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64) string {
 		return "verification could not be carried out: this daemon has no verifier"
 	}
 	results, err := s.opts.Verifier.Verify(ctx, verifier.Request{
-		WorkingDir: j.Worktree, Checks: details.Config.Checks,
+		WorkingDir: j.Worktree, Checks: cfg.Checks,
 	})
 	if err != nil {
 		return fmt.Sprintf("verification could not be carried out: %v", err)
@@ -671,7 +680,11 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64) string {
 	for _, r := range results {
 		rows = append(rows, store.CheckResult(r))
 	}
-	if err := s.opts.Store.SaveCheckResults(ctx, runID, rows); err != nil {
+	// Writing down what the checks said is bookkeeping, and outlives a context
+	// the checks themselves may have exhausted.
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
+	defer cancel()
+	if err := s.opts.Store.SaveCheckResults(saveCtx, runID, rows); err != nil {
 		s.opts.Logger.Error("recording what verification said", "run", runID, "error", err)
 	}
 	failed := verifier.Failed(results)

@@ -53,18 +53,27 @@ const NoExitCode = -1
 // only when the command could not be run at all, which is a different thing
 // from it running and failing.
 func Run(ctx context.Context, dir, command string, timeout time.Duration) (Result, error) {
+	// A command with nowhere to run would inherit the daemon's own working
+	// directory, which is wherever the user started it. The worktree is where
+	// a Project's commands belong (ADR-0007), so it is required.
+	if dir == "" {
+		return Result{ExitCode: NoExitCode}, errors.New("a command must be given a directory to run in")
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, shellPath, "-c", command)
 	cmd.Dir = dir
+	// The shell gets a process group of its own, so that a check which starts
+	// a test runner takes it with it when it is stopped.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// The command inherits the user's environment, the way it would if they
 	// ran it themselves (ADR-0006).
 	cmd.Env = os.Environ()
 	// Nobody is at a terminal, so a command that reads sees end of file rather
 	// than waiting until morning.
 	cmd.Stdin = nil
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.Cancel = func() error { return signalGroup(cmd, syscall.SIGTERM) }
 	cmd.WaitDelay = killDelay
 
 	both := &interleaved{}
@@ -89,6 +98,20 @@ func Run(ctx context.Context, dir, command string, timeout time.Duration) (Resul
 	}
 	res.ExitCode = NoExitCode
 	return res, fmt.Errorf("running %s: %w", command, err)
+}
+
+// signalGroup signals the command's whole process group, so that whatever it
+// started stops with it rather than outliving the check and holding the
+// worktree open.
+func signalGroup(cmd *exec.Cmd, sig syscall.Signal) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	if err := syscall.Kill(-cmd.Process.Pid, sig); err != nil {
+		// The group may already be gone, which is not a failure to report.
+		return cmd.Process.Signal(sig)
+	}
+	return nil
 }
 
 // interleaved collects both streams in the order they were written, which is

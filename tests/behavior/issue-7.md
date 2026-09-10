@@ -122,3 +122,9 @@ And the Project's own checkout does not hold `prepared.txt`
 Given the blocked Job of S1
 When `owl jobs show <job>` runs
 Then it prints a reason naming `first` and `third`
+
+### S16 - an Agent moving the base branch does not change what judges its work
+Given a running daemon and a Project whose base branch configures a check `guard` that exits 1, and a Job whose Agent commits a `.coding-owl.yaml` configuring no checks and then points the base branch at its own commit
+When the execution Run finishes
+Then `guard` is still reported failed
+And the Job is `blocked`
