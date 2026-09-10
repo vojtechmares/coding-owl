@@ -20,8 +20,13 @@ import (
 
 	codingowlv1 "github.com/vojtechmares/coding-owl/gen/codingowl/v1"
 	"github.com/vojtechmares/coding-owl/gen/codingowl/v1/codingowlv1connect"
+	"github.com/vojtechmares/coding-owl/internal/project"
+	"github.com/vojtechmares/coding-owl/internal/store"
 	"github.com/vojtechmares/coding-owl/internal/xdg"
 )
+
+// databaseName is the SQLite file under the data directory (ADR-0014).
+const databaseName = "owl.db"
 
 // ErrAlreadyListening is returned by Run when another daemon answers on the
 // socket path.
@@ -57,6 +62,14 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	dbPath := filepath.Join(opts.Paths.DataDir, databaseName)
+	db, migration, err := store.Open(dbPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	log.Info("database ready", "path", dbPath, "schema", migration.Schema, "applied", migration.Applied)
+
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		return fmt.Errorf("listening on %s: %w", sock, err)
@@ -74,6 +87,9 @@ func Run(ctx context.Context, opts Options) error {
 		version: opts.Version,
 		socket:  sock,
 		started: started,
+	}))
+	mux.Handle(codingowlv1connect.NewProjectServiceHandler(&projectService{
+		projects: project.NewService(db, opts.Paths.ConfigDir),
 	}))
 	srv := &http.Server{
 		Handler:           mux,
