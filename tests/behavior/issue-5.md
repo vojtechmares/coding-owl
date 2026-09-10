@@ -175,3 +175,9 @@ Given a running daemon whose stub agent is waiting, two pending Jobs, and a Run 
 When the daemon is killed outright, so nothing records how that Run ended, and a daemon is started again
 Then `owl jobs show <first job>` reports that Run's outcome as `interrupted`
 And `owl start` starts a Run for the second Job rather than refusing because one is in progress
+
+### S24 - the daemon stops cleanly while a Run is being followed
+Given a running daemon, a pending Job whose stub agent is waiting for its release file, and an `owl logs <run-id> -f` attached to that Run
+When the daemon is sent SIGTERM
+Then the daemon exits 0
+And the follower's stream ends rather than hanging until it is killed

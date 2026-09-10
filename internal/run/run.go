@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/driver"
@@ -254,8 +255,12 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 		WorkingDir:   j.Worktree,
 		BudgetUSD:    details.Config.BudgetUSD,
 	}
+	// The broker is opened here rather than in the goroutine, so a follower
+	// that arrives the instant owl start returns finds the Run rather than an
+	// empty log it reads as the end of one.
+	b := s.openBroker(r.ID)
 	s.wg.Add(1)
-	go s.carryOut(r, req)
+	go s.carryOut(r, req, b)
 
 	return toJob(j), toRun(r), true, nil
 }
@@ -374,9 +379,8 @@ func (s *Service) sendFile(path string, send func(Line) error) (int64, error) {
 }
 
 // carryOut runs the Agent and records what became of the Job.
-func (s *Service) carryOut(r store.Run, req driver.Request) {
+func (s *Service) carryOut(r store.Run, req driver.Request, b *broker) {
 	defer s.wg.Done()
-	b := s.openBroker(r.ID)
 	outcome, reason, code := s.execute(r, req, b)
 	s.closeBroker(r.ID)
 
@@ -409,7 +413,7 @@ func (s *Service) execute(r store.Run, req driver.Request, b *broker) (Outcome, 
 	if err := mkdirPrivate(filepath.Dir(r.LogPath)); err != nil {
 		return OutcomeFailed, fmt.Sprintf("preparing the run's log: %v", err), store.NoExitCode
 	}
-	f, err := os.OpenFile(r.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	f, err := os.OpenFile(r.LogPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return OutcomeFailed, fmt.Sprintf("opening the run's log: %v", err), store.NoExitCode
 	}
@@ -426,9 +430,13 @@ func (s *Service) execute(r store.Run, req driver.Request, b *broker) (Outcome, 
 
 	sc := bufio.NewScanner(proc.Stdout())
 	sc.Buffer(make([]byte, 0, 64<<10), maxLine)
+	var writeErr error
 	for sc.Scan() {
 		line := sc.Text()
-		if _, err := f.WriteString(line + "\n"); err != nil {
+		if _, err := f.WriteString(line + "\n"); err != nil && writeErr == nil {
+			// The log is the Run's evidence, so losing it is a failure of the
+			// Run rather than a line in the daemon's own log.
+			writeErr = err
 			s.opts.Logger.Error("capturing a run's output", "run", r.ID, "error", err)
 		}
 		b.publish(line)
@@ -445,6 +453,8 @@ func (s *Service) execute(r store.Run, req driver.Request, b *broker) (Outcome, 
 		return OutcomeFailed, fmt.Sprintf("the agent exited with status %d%s", code, quote(proc.Stderr())), code
 	case readErr != nil:
 		return OutcomeFailed, fmt.Sprintf("reading the agent's output: %v", readErr), code
+	case writeErr != nil:
+		return OutcomeFailed, fmt.Sprintf("capturing the agent's output: %v", writeErr), code
 	default:
 		return OutcomeSucceeded, "", code
 	}

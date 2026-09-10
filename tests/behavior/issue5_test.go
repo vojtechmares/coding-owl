@@ -829,3 +829,21 @@ func TestS23RunAnUnfinishedRunDoesNotHoldTheQueue(t *testing.T) {
 		t.Errorf("owl start ran the job prompted %q, want second", got)
 	}
 }
+
+func TestS24RunDaemonStopsCleanlyWithAFollowerAttached(t *testing.T) {
+	script := []string{agentScript[0], "#wait", agentScript[2]}
+	l, _ := agentLayout(t, script, 0)
+	p := daemonUp(t, l)
+	runnableJob(t, l, "work")
+	run, _ := startRun(t, l)
+	follow := followLogs(t, l, run)
+	if got := follow.next(t); got != agentScript[0] {
+		t.Fatalf("first streamed line = %q, want %q", got, agentScript[0])
+	}
+
+	stopDaemon(t, p)
+
+	if code := follow.wait(t); code != 0 {
+		t.Errorf("owl logs -f exited %d after the daemon stopped, want 0", code)
+	}
+}
