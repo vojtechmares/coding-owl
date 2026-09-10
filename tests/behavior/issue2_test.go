@@ -159,9 +159,10 @@ func runOwl(t *testing.T, l *layout, args ...string) result {
 
 // daemonProc is a running `owl daemon run` subprocess.
 type daemonProc struct {
-	cmd  *exec.Cmd
-	out  *syncBuffer
-	done chan error
+	cmd     *exec.Cmd
+	out     *syncBuffer
+	done    chan struct{} // closed once the process has been waited for
+	waitErr error
 }
 
 type syncBuffer struct {
@@ -191,8 +192,11 @@ func startDaemon(t *testing.T, l *layout) *daemonProc {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	p := &daemonProc{cmd: cmd, out: out, done: make(chan error, 1)}
-	go func() { p.done <- cmd.Wait() }()
+	p := &daemonProc{cmd: cmd, out: out, done: make(chan struct{})}
+	go func() {
+		p.waitErr = cmd.Wait()
+		close(p.done)
+	}()
 	t.Cleanup(func() {
 		select {
 		case <-p.done:
@@ -214,13 +218,13 @@ func startDaemon(t *testing.T, l *layout) *daemonProc {
 func (p *daemonProc) exit(t *testing.T, within time.Duration) int {
 	t.Helper()
 	select {
-	case err := <-p.done:
+	case <-p.done:
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.As(p.waitErr, &exitErr) {
 			return exitErr.ExitCode()
 		}
-		if err != nil {
-			t.Fatalf("daemon wait: %v", err)
+		if p.waitErr != nil {
+			t.Fatalf("daemon wait: %v", p.waitErr)
 		}
 		return 0
 	case <-time.After(within):
