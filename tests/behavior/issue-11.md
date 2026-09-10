@@ -34,6 +34,7 @@ And when the Agent finishes, that same Run is reported `succeeded` and its Job i
 Given the frozen Run of S1
 When `owl status` runs
 Then it reports the Run in progress as paused rather than running
+And `owl jobs show` reports that Run as paused too
 And after `owl resume` it reports it as running again
 
 ### S4 - pause with nothing running says so
@@ -53,6 +54,13 @@ And the Agent and the child it started are both gone
 Given a running daemon and a Job whose Agent starts a child and then exits of its own accord
 When the Run has finished
 Then the child is gone too, rather than left running with nobody watching it
+
+### S20 - an Agent that will not stop when it is asked is killed
+Given a running daemon whose `graceWindow` is a second, and a frozen Run whose Agent ignores being asked to stop
+When the window has passed and a few seconds more
+Then the Run ends `interrupted` and its Job is `pending`
+And the Agent and the child it started are both gone
+And `owl start` can begin a new Run
 
 ### S16 - a Run being verified is not reported as one that is not there
 Given a running daemon and a Job whose Project configures a check that takes a few seconds, whose Agent has exited

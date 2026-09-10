@@ -17,6 +17,8 @@
 //	OWL_FAKE_CLAUDE_COMMIT   when set, commits what was written
 //	OWL_FAKE_CLAUDE_GIT      JSON array of git argument arrays, run in the
 //	                         working directory after the files are written
+//	OWL_FAKE_CLAUDE_IGNORE_TERM  when set, ignores SIGTERM, standing in for an
+//	                         agent that will not stop when it is asked
 //	OWL_FAKE_CLAUDE_CHILD    file a child process appends to every few
 //	                         milliseconds, so a scenario can see whether what
 //	                         the Agent started is running. Its pid is written
@@ -34,10 +36,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -90,6 +94,9 @@ func main() {
 	if err := runGit(); err != nil {
 		fmt.Fprintln(os.Stderr, "fakeclaude:", err)
 		os.Exit(94)
+	}
+	if os.Getenv("OWL_FAKE_CLAUDE_IGNORE_TERM") != "" {
+		signal.Ignore(syscall.SIGTERM)
 	}
 	if err := startChild(); err != nil {
 		fmt.Fprintln(os.Stderr, "fakeclaude:", err)
