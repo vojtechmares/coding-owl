@@ -253,3 +253,21 @@ func stateOf(t *testing.T, st *store.Store, id int64) queue.State {
 	}
 	return queue.State(j.State)
 }
+
+func TestPauseIsRefusedOnceTheDaemonIsStopping(t *testing.T) {
+	svc, _, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{})
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	_, err := svc.Pause(context.Background())
+
+	// Freezing an Agent that has just been asked to stop would leave it unable
+	// to hear that, and the daemon waiting out the kill delay on it.
+	if err == nil {
+		t.Fatal("Pause reported success while the daemon was stopping")
+	}
+	if !strings.Contains(err.Error(), "stopping") {
+		t.Errorf("Pause error = %q, want it to say the daemon is stopping", err)
+	}
+}

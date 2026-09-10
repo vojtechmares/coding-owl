@@ -8,12 +8,16 @@ package behavior_test
 // process group apart from a frozen Agent.
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/vojtechmares/coding-owl/internal/store"
 )
 
 // beating is a layout whose Agent starts a heartbeat child and then waits, so
@@ -480,5 +484,82 @@ func TestS16VerifyingRunIsNotReportedAsAbsent(t *testing.T) {
 	if !strings.Contains(res.stderr, "verif") {
 		t.Errorf("stderr does not say the run is being verified:\n%s", res.stderr)
 	}
+	// The same answer, in the words of the verb that was asked for.
+	resumed := runOwl(t, b.l, "resume")
+	if resumed.code == 0 {
+		t.Errorf("owl resume continued something during verification\nstdout:\n%s", resumed.stdout)
+	}
+	if !strings.Contains(resumed.stderr, "resumed") {
+		t.Errorf("owl resume answers in the words of another verb:\n%s", resumed.stderr)
+	}
 	waitRun(t, b.l, job, run)
+}
+
+// closeRun records a Run as ended by writing to the database directly, which
+// is how a scenario reaches a state only a daemon that died halfway through
+// its own recovery would leave behind.
+func closeRun(t *testing.T, l *layout, run string) {
+	t.Helper()
+	id, err := strconv.ParseInt(run, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _, err := store.Open(filepath.Join(l.data, "coding-owl", "owl.db"))
+	if err != nil {
+		t.Fatalf("opening the database: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+	if err := st.FinishRun(context.Background(), id, time.Now().UTC(), "interrupted", "ended by hand", -1); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+}
+
+func TestS17RecoveryQueuesWhatWasBeingCarriedOut(t *testing.T) {
+	b := beatingLayout(t, "")
+	d := daemonUp(t, b.l)
+	r := project(t, b.l, "api")
+	addJob(t, b.l, r.dir, "work", "--no-plan")
+	run, job := startRun(t, b.l)
+	b.started(t)
+	if err := d.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	d.exit(t, 10*time.Second)
+	// The Run is closed but the Job was never put back: a daemon that died
+	// between the two halves of recovering.
+	closeRun(t, b.l, run)
+	if got := line(t, mustOwlNoDaemon(t, b.l, job), "state"); got != "active" {
+		t.Fatalf("state before the restart = %q, want the job still active", got)
+	}
+
+	waitForLog(t, startDaemon(t, b.l), "daemon listening")
+
+	if got := line(t, mustOwl(t, b.l, "jobs", "show", job).stdout, "state"); got != "pending" {
+		t.Errorf("state = %q, want pending: nothing is carrying that job out", got)
+	}
+	again, sameJob := startRun(t, b.l)
+	if sameJob != job || again == run {
+		t.Errorf("owl start began run %s of job %s, want a new run of job %s", again, sameJob, job)
+	}
+	mustOwl(t, b.l, "pause")
+}
+
+// mustOwlNoDaemon reads a Job straight from the database, for the moment
+// between one daemon dying and the next one starting.
+func mustOwlNoDaemon(t *testing.T, l *layout, job string) string {
+	t.Helper()
+	id, err := strconv.ParseInt(job, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _, err := store.Open(filepath.Join(l.data, "coding-owl", "owl.db"))
+	if err != nil {
+		t.Fatalf("opening the database: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+	j, err := st.GetJob(context.Background(), id)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	return "state: " + j.State + "\n"
 }

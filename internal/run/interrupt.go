@@ -71,7 +71,7 @@ func (s *Service) Pause(ctx context.Context) (Run, error) {
 	if s.ctx.Err() != nil {
 		return Run{}, refused("the daemon is stopping; nothing is frozen now")
 	}
-	runID, l, err := s.onlyLive(ctx)
+	runID, l, err := s.onlyLive(ctx, "paused")
 	if err != nil {
 		return Run{}, err
 	}
@@ -94,7 +94,7 @@ func (s *Service) Pause(ctx context.Context) (Run, error) {
 func (s *Service) Resume(ctx context.Context) (Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	runID, l, err := s.onlyLive(ctx)
+	runID, l, err := s.onlyLive(ctx, "resumed")
 	if err != nil {
 		return Run{}, err
 	}
@@ -122,17 +122,23 @@ func (l *live) release() {
 
 // onlyLive is the Run whose Agent this daemon can still reach. One Agent runs
 // at a time in this milestone (ADR-0029), so pausing and resuming take no
-// argument. The caller holds the lock.
-func (s *Service) onlyLive(ctx context.Context) (int64, *live, error) {
+// argument. what names what the caller wanted to do to it, so a refusal reads
+// as an answer to the question that was asked. The caller holds the lock.
+func (s *Service) onlyLive(ctx context.Context, what string) (int64, *live, error) {
 	for id, l := range s.live {
 		return id, l, nil
 	}
 	// A Run whose Agent has exited is still in progress until its Project's
 	// checks have had their say (ADR-0013), and those are nobody's to freeze:
 	// saying there is no run at all would not be true.
-	if r, ok, err := s.opts.Store.RunInProgress(ctx); err == nil && ok {
+	r, ok, err := s.opts.Store.RunInProgress(ctx)
+	switch {
+	case err != nil:
+		// Not knowing is not the same as knowing there is nothing.
+		return 0, nil, err
+	case ok:
 		return 0, nil, refused(
-			"run %d is being verified rather than carried out by an agent, and cannot be paused", r.ID)
+			"run %d is being verified rather than carried out by an agent, and cannot be %s", r.ID, what)
 	}
 	return 0, nil, refused("there is no run in progress")
 }
