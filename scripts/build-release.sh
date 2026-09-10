@@ -2,7 +2,7 @@
 #
 # Builds the release artifacts for one version: the darwin/arm64 archive and a
 # checksums file beside it. The release workflow runs this after the guard job,
-# and running it by hand produces exactly the same artifacts.
+# so what ships is what a developer can build from the same tag.
 #
 #   ./scripts/build-release.sh v0.1.0
 #
