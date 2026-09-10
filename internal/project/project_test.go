@@ -517,3 +517,90 @@ func TestRemoveUnknownProject(t *testing.T) {
 		t.Errorf("Remove error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestShowReportsAVanishedBaseBranch(t *testing.T) {
+	f := newFixture(t)
+	dir := f.repo(t, "api")
+	f.commit(t, dir, ".coding-owl.yaml", owlConfig("committed/"))
+	if _, err := f.svc.Add(ctx, project.AddRequest{Path: dir}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	f.git(t, dir, "checkout", "-q", "-b", "other")
+	f.git(t, dir, "branch", "-q", "-D", "main")
+
+	_, err := f.svc.Show(ctx, "api")
+
+	if err == nil {
+		t.Fatal("Show fell back to the defaults instead of reporting the missing base branch")
+	}
+	for _, want := range []string{"main", "api"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+func TestShowReportsAVanishedRepository(t *testing.T) {
+	f := newFixture(t)
+	dir := f.repo(t, "api")
+	if _, err := f.svc.Add(ctx, project.AddRequest{Path: dir}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := f.svc.Show(ctx, "api"); err == nil {
+		t.Fatal("Show reported defaults for a Project whose repository is gone")
+	}
+}
+
+func TestAddRefusesARepositoryWithNoCommits(t *testing.T) {
+	f := newFixture(t)
+	dir := filepath.Join(f.root, "repos", "empty")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.git(t, dir, "init", "-b", "main")
+
+	_, err := f.svc.Add(ctx, project.AddRequest{Path: dir})
+
+	if err == nil || !strings.Contains(err.Error(), "main") {
+		t.Errorf("Add error = %v, want an error naming the branch that does not exist yet", err)
+	}
+}
+
+func TestAddRefusesARevisionExpressionAsBaseBranch(t *testing.T) {
+	f := newFixture(t)
+	dir := f.repo(t, "api")
+	f.commit(t, dir, ".coding-owl.yaml", owlConfig("root/"))
+
+	_, err := f.svc.Add(ctx, project.AddRequest{Path: dir, BaseBranch: "main:.coding-owl.yaml"})
+
+	if err == nil {
+		t.Fatal("Add accepted a revision expression as a base branch")
+	}
+}
+
+func TestMoveRefusesAPathWithoutTheBaseBranch(t *testing.T) {
+	f := newFixture(t)
+	dir := f.repo(t, "api")
+	if _, err := f.svc.Add(ctx, project.AddRequest{Path: dir}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	other := f.repo(t, "other")
+	f.git(t, other, "branch", "-m", "main", "trunk")
+
+	err := f.svc.Move(ctx, "api", other)
+
+	if err == nil || !strings.Contains(err.Error(), "main") {
+		t.Fatalf("Move error = %v, want an error naming the missing base branch", err)
+	}
+	d, err := f.svc.Show(ctx, "api")
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	if d.Path != dir {
+		t.Errorf("Path = %q, want the original %q", d.Path, dir)
+	}
+}

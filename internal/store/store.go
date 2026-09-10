@@ -53,6 +53,12 @@ func Open(path string) (*Store, Migration, error) {
 		_ = db.Close()
 		return nil, Migration{}, fmt.Errorf("migrating %s: %w", path, err)
 	}
+	// The database holds only this user's Projects; SQLite creates it with the
+	// process umask, so the mode is set rather than inherited.
+	if err := os.Chmod(path, 0o600); err != nil {
+		_ = db.Close()
+		return nil, Migration{}, fmt.Errorf("restricting %s: %w", path, err)
+	}
 	return &Store{db: db}, m, nil
 }
 

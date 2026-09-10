@@ -168,3 +168,48 @@ func TestShowFileFailsOnUnknownRef(t *testing.T) {
 		t.Fatal("ShowFile accepted an unknown ref")
 	}
 }
+
+func TestHasBranchRejectsRevisionExpressions(t *testing.T) {
+	dir := newRepo(t)
+
+	// These all resolve as revisions but none of them is a branch, and
+	// accepting one would let a Project's base branch address an arbitrary
+	// tree inside the repository.
+	for _, expr := range []string{"main:README.md", "main@{0}", "main^{tree}", "HEAD"} {
+		got, err := git.HasBranch(dir, expr)
+		if err != nil {
+			t.Fatalf("HasBranch(%q): %v", expr, err)
+		}
+		if got {
+			t.Errorf("HasBranch(%q) = true, want false: it is a revision, not a branch", expr)
+		}
+	}
+}
+
+func TestHasBranchReportsAMissingDirectory(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "gone")
+
+	got, err := git.HasBranch(gone, "main")
+	if err == nil {
+		t.Fatalf("HasBranch on a missing directory = %v, nil; want an error", got)
+	}
+	if !strings.Contains(err.Error(), gone) {
+		t.Errorf("error %q does not name the missing directory", err)
+	}
+}
+
+func TestShowFileReportsAMissingDirectory(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "gone")
+
+	if _, _, err := git.ShowFile(gone, "main", ".coding-owl.yaml"); err == nil {
+		t.Fatal("ShowFile on a missing directory returned no error")
+	}
+}
+
+func TestRootReportsAMissingDirectory(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "gone")
+
+	if _, err := git.Root(gone); err == nil {
+		t.Fatal("Root on a missing directory returned no error")
+	}
+}

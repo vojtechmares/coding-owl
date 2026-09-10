@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -181,4 +182,68 @@ func TestSilentSocketAtSocketPathIsRefused(t *testing.T) {
 	if _, serr := os.Lstat(paths.SocketPath); serr != nil {
 		t.Errorf("socket must be left in place: %v", serr)
 	}
+}
+
+// TestProjectErrorsReachTheClientClassified checks the whole error path over a
+// real socket: a service failure keeps both its message and its classification
+// by the time a client sees it.
+func TestProjectErrorsReachTheClientClassified(t *testing.T) {
+	paths := tempPaths(t)
+	stop := run(t, paths)
+	defer func() { _ = stop() }()
+	c := client.New(paths.SocketPath)
+	waitStatus(t, c)
+	ctx := context.Background()
+
+	if _, err := c.GetProject(ctx, "ghost"); kindOfClientErr(t, err) != client.KindNotFound {
+		t.Errorf("GetProject(ghost) = %v, want a not-found error", err)
+	}
+
+	repo := initRepo(t, filepath.Join(t.TempDir(), "api"))
+	if _, err := c.AddProject(ctx, repo, "a/b", ""); kindOfClientErr(t, err) != client.KindInvalid {
+		t.Errorf("AddProject with an invalid name = %v, want an invalid error", err)
+	}
+	if _, err := c.AddProject(ctx, repo, "api", ""); err != nil {
+		t.Fatalf("AddProject: %v", err)
+	}
+	if _, err := c.AddProject(ctx, repo, "api", ""); kindOfClientErr(t, err) != client.KindAlreadyExists {
+		t.Errorf("AddProject with a taken name = %v, want an already-exists error", err)
+	}
+}
+
+func kindOfClientErr(t *testing.T, err error) client.Kind {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected an error, got none")
+	}
+	var se *client.StatusError
+	if !errors.As(err, &se) {
+		t.Fatalf("error %v is not a *client.StatusError", err)
+	}
+	return se.Kind
+}
+
+// initRepo makes dir a repository on branch main with one commit.
+func initRepo(t *testing.T, dir string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := append(os.Environ(),
+		"GIT_AUTHOR_NAME=Owl Test", "GIT_AUTHOR_EMAIL=owl@example.com",
+		"GIT_COMMITTER_NAME=Owl Test", "GIT_COMMITTER_EMAIL=owl@example.com",
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+	)
+	for _, args := range [][]string{
+		{"init", "-b", "main"},
+		{"commit", "--allow-empty", "-m", "initial commit"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return dir
 }

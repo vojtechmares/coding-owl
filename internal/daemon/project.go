@@ -100,12 +100,15 @@ func toProto(p project.Project) *codingowlv1.Project {
 // rpcError gives a failure the Connect code that describes it, so a client
 // can tell "you asked for something impossible" from "Owl broke".
 func rpcError(err error) error {
+	if err == nil {
+		return nil
+	}
 	var invalid *project.InvalidError
 	var conflict *project.ConflictError
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
-	case errors.As(err, &conflict):
+	case errors.As(err, &conflict), errors.Is(err, store.ErrNameTaken):
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.As(err, &invalid):
 		return connect.NewError(connect.CodeInvalidArgument, err)

@@ -21,6 +21,31 @@ import (
 // the socket. Check with errors.Is.
 var ErrDaemonNotRunning = errors.New("daemon not running")
 
+// Kind is what the daemon said went wrong, without exposing the transport.
+type Kind int
+
+const (
+	// KindUnknown is anything the daemon did not classify.
+	KindUnknown Kind = iota
+	// KindNotFound means the thing asked for does not exist.
+	KindNotFound
+	// KindAlreadyExists means the name asked for is taken.
+	KindAlreadyExists
+	// KindInvalid means the request itself was not usable.
+	KindInvalid
+	// KindInternal means Owl failed, rather than the caller.
+	KindInternal
+)
+
+// StatusError is a failure the daemon reported, carrying both the message it
+// wrote and how it classified it.
+type StatusError struct {
+	Kind    Kind
+	Message string
+}
+
+func (e *StatusError) Error() string { return e.Message }
+
 // DaemonStatus is what the daemon reports about itself.
 type DaemonStatus struct {
 	Version    string
@@ -80,7 +105,24 @@ func (c *Client) wrap(err error) error {
 	}
 	var cerr *connect.Error
 	if errors.As(err, &cerr) {
-		return errors.New(cerr.Message())
+		return &StatusError{Kind: kindOf(cerr.Code()), Message: cerr.Message()}
 	}
 	return err
+}
+
+// kindOf translates the Connect code into Owl's own vocabulary, so callers do
+// not have to know the transport to tell the cases apart.
+func kindOf(code connect.Code) Kind {
+	switch code {
+	case connect.CodeNotFound:
+		return KindNotFound
+	case connect.CodeAlreadyExists:
+		return KindAlreadyExists
+	case connect.CodeInvalidArgument:
+		return KindInvalid
+	case connect.CodeInternal:
+		return KindInternal
+	default:
+		return KindUnknown
+	}
 }

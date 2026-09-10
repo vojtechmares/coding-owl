@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -111,18 +112,33 @@ func mustOwl(t *testing.T, l *layout, args ...string) result {
 	return res
 }
 
-// listNames returns the Project names shown by owl project list.
-func listNames(t *testing.T, l *layout) []string {
+// listRows returns the name and path columns of owl project list, keyed by
+// name, skipping the header and the empty-list line.
+func listRows(t *testing.T, l *layout) map[string]string {
 	t.Helper()
 	out := mustOwl(t, l, "project", "list").stdout
-	var names []string
+	rows := map[string]string{}
 	for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
 		f := strings.Fields(ln)
 		if len(f) == 0 || f[0] == "NAME" || strings.HasPrefix(ln, "no projects") {
 			continue
 		}
-		names = append(names, f[0])
+		if len(f) < 2 {
+			t.Fatalf("owl project list row %q has no path column", ln)
+		}
+		rows[f[0]] = f[1]
 	}
+	return rows
+}
+
+// listNames returns the Project names shown by owl project list, in order.
+func listNames(t *testing.T, l *layout) []string {
+	t.Helper()
+	var names []string
+	for name := range listRows(t, l) {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	return names
 }
 
@@ -155,6 +171,10 @@ func TestS1AddProposesBasename(t *testing.T) {
 
 	addProject(t, l, r)
 
+	rows := listRows(t, l)
+	if got, ok := rows["api"]; !ok || got != r.dir {
+		t.Errorf("owl project list = %v, want one row api -> %s", rows, r.dir)
+	}
 	show := mustOwl(t, l, "project", "show", "api").stdout
 	wantLine(t, show, "name", "api")
 	wantLine(t, show, "path", r.dir)
@@ -453,8 +473,8 @@ func TestS18FailedRenameLeavesNothingBehind(t *testing.T) {
 	if res.code == 0 {
 		t.Fatalf("rename onto an existing name accepted:\n%s", res.stdout)
 	}
-	if !strings.Contains(res.stderr, "backend") {
-		t.Errorf("stderr does not name the conflicting project:\n%s", res.stderr)
+	if !strings.Contains(res.stderr, "backend") || !strings.Contains(res.stderr, "already registered") {
+		t.Errorf("stderr does not say a project named backend already exists:\n%s", res.stderr)
 	}
 	wantNames(t, l, "api", "backend")
 	wantFileContent(t, apiCfg, owlConfig("api/"))
@@ -474,8 +494,8 @@ func TestS19RemoveDropsProject(t *testing.T) {
 	if res.code == 0 {
 		t.Fatalf("owl project show succeeded after remove:\n%s", res.stdout)
 	}
-	if !strings.Contains(res.stderr, "api") {
-		t.Errorf("stderr does not name the project:\n%s", res.stderr)
+	if !strings.Contains(res.stderr, "api") || !strings.Contains(res.stderr, "no such project") {
+		t.Errorf("stderr does not say there is no such project:\n%s", res.stderr)
 	}
 }
 
@@ -630,4 +650,102 @@ func wantFileContent(t *testing.T, path, want string) {
 	if string(got) != want {
 		t.Errorf("%s = %q, want %q", path, got, want)
 	}
+}
+
+func TestS26RepositoryWithNoCommitsRefused(t *testing.T) {
+	l := newLayout(t)
+	daemonUp(t, l)
+	dir := filepath.Join(l.root, "repos", "empty")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	empty := &repo{t: t, dir: dir, env: append(append([]string{}, l.env...),
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")}
+	empty.git("init", "-b", "main")
+
+	res := runOwl(t, l, "project", "add", dir)
+
+	if res.code == 0 {
+		t.Fatalf("a repository with no commits was accepted:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stderr, "main") {
+		t.Errorf("stderr does not name the branch:\n%s", res.stderr)
+	}
+	wantNames(t, l)
+}
+
+func TestS27VanishedBaseBranchReported(t *testing.T) {
+	l := newLayout(t)
+	daemonUp(t, l)
+	r := newRepo(t, l, "api")
+	r.commit(".coding-owl.yaml", owlConfig("committed/"), "add config")
+	addProject(t, l, r)
+	r.git("checkout", "-q", "-b", "other")
+	r.git("branch", "-q", "-D", "main")
+
+	res := runOwl(t, l, "project", "show", "api")
+
+	if res.code == 0 {
+		t.Fatalf("show fell back to defaults after the base branch was deleted:\n%s", res.stdout)
+	}
+	for _, want := range []string{"main", "api"} {
+		if !strings.Contains(res.stderr, want) {
+			t.Errorf("stderr does not mention %q:\n%s", want, res.stderr)
+		}
+	}
+	if strings.Contains(res.stdout, "branch prefix: owl/") {
+		t.Errorf("show reported the default configuration anyway:\n%s", res.stdout)
+	}
+}
+
+func TestS28VanishedRepositoryReported(t *testing.T) {
+	l := newLayout(t)
+	daemonUp(t, l)
+	r := newRepo(t, l, "api")
+	addProject(t, l, r)
+	if err := os.RemoveAll(r.dir); err != nil {
+		t.Fatal(err)
+	}
+
+	res := runOwl(t, l, "project", "show", "api")
+
+	if res.code == 0 {
+		t.Fatalf("show succeeded for a Project whose repository is gone:\n%s", res.stdout)
+	}
+	if strings.Contains(res.stdout, "config: (none)") {
+		t.Errorf("show reported a missing repository as a Project with no configuration:\n%s", res.stdout)
+	}
+}
+
+func TestS29MoveRefusesAPathWithoutTheBaseBranch(t *testing.T) {
+	l := newLayout(t)
+	daemonUp(t, l)
+	r := newRepo(t, l, "api")
+	addProject(t, l, r)
+	other := newRepo(t, l, "other")
+	other.git("branch", "-m", "main", "trunk")
+
+	res := runOwl(t, l, "project", "move", "api", other.dir)
+
+	if res.code == 0 {
+		t.Fatalf("move accepted a repository without the base branch:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stderr, "main") {
+		t.Errorf("stderr does not name the base branch:\n%s", res.stderr)
+	}
+	wantLine(t, mustOwl(t, l, "project", "show", "api").stdout, "path", r.dir)
+}
+
+func TestS30RevisionExpressionIsNotABaseBranch(t *testing.T) {
+	l := newLayout(t)
+	daemonUp(t, l)
+	r := newRepo(t, l, "api")
+	r.commit(".coding-owl.yaml", owlConfig("root/"), "add config")
+
+	res := runOwl(t, l, "project", "add", r.dir, "--base-branch", "main:.coding-owl.yaml")
+
+	if res.code == 0 {
+		t.Fatalf("a revision expression was accepted as a base branch:\n%s", res.stdout)
+	}
+	wantNames(t, l)
 }
