@@ -112,7 +112,7 @@ Security PASS, correctness PASS, behavior PASS
 ## Decisions made on my own
 <choices you made where the issue was open, with reasons - or none>"
 gh pr checks --watch --fail-fast          # wait for CI if the repo has any
-gh pr merge --squash --delete-branch      # squash title is the PR title above
+gh pr merge --rebase --delete-branch      # the repo allows rebase merges only
 gh issue comment <n> --body "Merged in <PR url>. Behavior spec: tests/behavior/issue-<n>.md. Verification: security PASS, correctness PASS, behavior PASS."
 git checkout main && git pull --ff-only
 ```
