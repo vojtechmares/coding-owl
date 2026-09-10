@@ -79,14 +79,30 @@ func (b *beating) growing(t *testing.T) {
 	waitFor(t, "the agent's child to beat again", func() bool { return b.count(t) > before })
 }
 
-// gone asserts the Agent's own process is no longer there, which a heartbeat
-// that stopped does not say by itself: a frozen process is not a dead one.
+// gone asserts the Agent and the child it started are both gone, which a
+// heartbeat that stopped does not say by itself: a frozen process is not a
+// dead one, and a child left stopped would look exactly the same.
 func (b *beating) gone(t *testing.T) {
 	t.Helper()
-	pid := b.stub.invoked(t).PID
-	waitFor(t, "the agent's process to be gone", func() bool {
-		return syscall.Kill(pid, syscall.Signal(0)) != nil
-	})
+	for what, pid := range map[string]int{"agent": b.stub.invoked(t).PID, "the child it started": b.childPID(t)} {
+		waitFor(t, what+" to be gone", func() bool {
+			return syscall.Kill(pid, syscall.Signal(0)) != nil
+		})
+	}
+}
+
+// childPID is the pid the stub recorded for the child it started.
+func (b *beating) childPID(t *testing.T) int {
+	t.Helper()
+	data, err := os.ReadFile(b.beats + ".pid")
+	if err != nil {
+		t.Fatalf("the stub agent recorded no child: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatalf("the recorded child pid: %v", err)
+	}
+	return pid
 }
 
 // sleep is a pause the test itself takes, where waiting for a condition would
@@ -232,7 +248,11 @@ func TestS7GraceWindowEndsAFrozenRun(t *testing.T) {
 	daemonUp(t, b.l)
 	run, job := b.frozen(t)
 
+	started := time.Now()
 	row := waitRun(t, b.l, job, run)
+	if took := time.Since(started); took > 10*time.Second {
+		t.Errorf("the run took %s to end on a one second window", took.Round(time.Second))
+	}
 
 	if row.outcome != "interrupted" {
 		t.Errorf("run outcome = %q, want interrupted", row.outcome)
@@ -562,4 +582,44 @@ func mustOwlNoDaemon(t *testing.T, l *layout, job string) string {
 		t.Fatalf("GetJob: %v", err)
 	}
 	return "state: " + j.State + "\n"
+}
+
+func TestS18StoppingTheDaemonEndsARunThatIsNotFrozen(t *testing.T) {
+	b := beatingLayout(t, "")
+	d := daemonUp(t, b.l)
+	r := project(t, b.l, "api")
+	addJob(t, b.l, r.dir, "work", "--no-plan")
+	run, job := startRun(t, b.l)
+	b.started(t)
+
+	stopDaemon(t, d)
+
+	b.gone(t)
+	daemonUp(t, b.l)
+	if row := runRowOf(t, b.l, job, run); row.outcome != "interrupted" {
+		t.Errorf("run outcome = %q, want interrupted", row.outcome)
+	}
+	if got := line(t, mustOwl(t, b.l, "jobs", "show", job).stdout, "state"); got != "pending" {
+		t.Errorf("state = %q, want pending", got)
+	}
+}
+
+func TestS19WhatTheAgentStartedDoesNotOutliveItsRun(t *testing.T) {
+	b := beatingLayout(t, "")
+	daemonUp(t, b.l)
+	r := project(t, b.l, "api")
+	addJob(t, b.l, r.dir, "work", "--no-plan")
+	run, job := startRun(t, b.l)
+	b.started(t)
+
+	// The Agent exits of its own accord, with its child still going.
+	b.stub.let(t)
+
+	if row := waitRun(t, b.l, job, run); row.outcome != "succeeded" {
+		t.Fatalf("run outcome = %q, want succeeded", row.outcome)
+	}
+	b.gone(t)
+	if !b.still(t) {
+		t.Errorf("the child the agent started is still beating after its run ended")
+	}
 }

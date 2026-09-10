@@ -202,12 +202,13 @@ func TestSignalGroupReachesWhatTheAgentStarted(t *testing.T) {
 func TestSignalGroupRefusesAProcessThatHasBeenWaitedFor(t *testing.T) {
 	dir := t.TempDir()
 	beats := filepath.Join(dir, "beats")
-	// The Agent leaves a child behind and exits, so the group still has a
-	// member after the Agent is reaped. Signalling by the group's id would
-	// still work here - and that is exactly the habit that signals a stranger
-	// once the group is empty and the system has handed the number out again.
+	// The Agent leaves behind a child that ignores being asked to stop, so the
+	// group still has a member after the Agent is reaped and after Wait has
+	// tidied up what it could. Signalling by the group's id would still work
+	// here - and that is exactly the habit that signals a stranger once the
+	// group is empty and the system has handed the number out again.
 	p, err := host.New().Start(context.Background(), shell(t,
-		"(for i in $(seq 1 200); do echo beat >> "+beats+"; sleep 0.05; done) >/dev/null 2>&1 &\nexit 0\n"))
+		"(trap '' TERM; for i in $(seq 1 200); do echo beat >> "+beats+"; sleep 0.05; done) >/dev/null 2>&1 &\nexit 0\n"))
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -218,7 +219,9 @@ func TestSignalGroupRefusesAProcessThatHasBeenWaitedFor(t *testing.T) {
 	waitFor(t, "the child the agent left behind", func() bool { return count(beats) > 0 })
 	t.Cleanup(func() { _ = syscall.Kill(-pidOf(t, p), syscall.SIGKILL) })
 
-	err = p.SignalGroup(syscall.SIGTERM)
+	// SIGKILL, which nothing can ignore: if the guard were not there, the
+	// child would be gone rather than still beating.
+	err = p.SignalGroup(syscall.SIGKILL)
 
 	if !errors.Is(err, os.ErrProcessDone) {
 		t.Errorf("SignalGroup after Wait = %v, want %v", err, os.ErrProcessDone)
