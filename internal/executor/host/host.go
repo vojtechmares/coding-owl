@@ -54,9 +54,12 @@ func (*Executor) Start(ctx context.Context, inv agent.Invocation) (agent.Process
 	// Nobody is at a terminal, so there is nothing to read: an Agent that
 	// waits on stdin sees end of file rather than hanging until morning.
 	cmd.Stdin = nil
+	// The Agent leads a process group of its own, so that stopping it stops
+	// everything it started rather than orphaning a compile (ADR-0011).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// A cancelled Run is asked to stop before it is killed, so an Agent that
 	// commits as it goes (ADR-0017) gets to finish the commit it is making.
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.Cancel = func() error { return signalGroup(cmd, syscall.SIGTERM) }
 	cmd.WaitDelay = killDelay
 
 	stdout, err := cmd.StdoutPipe()
@@ -82,8 +85,26 @@ type process struct {
 // Stdout is the Agent's structured output.
 func (p *process) Stdout() io.Reader { return p.stdout }
 
-// Signal passes a signal to the Agent.
-func (p *process) Signal(sig os.Signal) error { return p.cmd.Process.Signal(sig) }
+// SignalGroup passes a signal to the Agent and everything it started.
+func (p *process) SignalGroup(sig os.Signal) error {
+	signal, ok := sig.(syscall.Signal)
+	if !ok {
+		return fmt.Errorf("%v cannot be sent to a process group", sig)
+	}
+	return signalGroup(p.cmd, signal)
+}
+
+// signalGroup signals the command's whole process group, falling back to the
+// process itself when the group is already gone.
+func signalGroup(cmd *exec.Cmd, sig syscall.Signal) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	if err := syscall.Kill(-cmd.Process.Pid, sig); err != nil {
+		return cmd.Process.Signal(sig)
+	}
+	return nil
+}
 
 // Wait blocks until the Agent exits and returns its exit status. A non-zero
 // status is an answer, not an error.

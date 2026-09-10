@@ -96,7 +96,7 @@ And the Run ends `succeeded`, so the window did not end it
 
 ### S13 - a daemon restart ends the Runs that were going
 Given a running daemon and a Run in progress
-When the daemon is stopped and started again
+When the daemon is killed outright, so nothing records how that Run ended, and a daemon is started again
 Then that Run is reported `interrupted`
 And its Job is `pending` again
 And `owl start` begins a new Run for it

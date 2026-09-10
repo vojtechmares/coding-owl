@@ -36,6 +36,8 @@ type Run struct {
 	// Skills is what the Run read, so that what an Agent did is attributable
 	// to the instructions it had (ADR-0024).
 	Skills []Skill
+	// Paused is whether the Run is frozen right now (ADR-0011).
+	Paused bool
 }
 
 // CheckResult is what one Verification check said about a Run.
@@ -197,9 +199,29 @@ func runFromProto(r *codingowlv1.Run) Run {
 		LogPath:  r.GetLogPath(),
 		Phase:    r.GetPhase(),
 		Skills:   skillsFromProto(r.GetSkills()),
+		Paused:   r.GetPaused(),
 	}
 	if r.GetEnded() != nil {
 		out.Ended = r.GetEnded().AsTime()
 	}
 	return out
+}
+
+// PauseRun freezes the Run in progress and everything its Agent started, and
+// starts the grace window that will end it if nobody comes back.
+func (c *Client) PauseRun(ctx context.Context) (Run, error) {
+	res, err := c.jobs.PauseRun(ctx, connect.NewRequest(&codingowlv1.PauseRunRequest{}))
+	if err != nil {
+		return Run{}, c.wrap(err)
+	}
+	return runFromProto(res.Msg.GetRun()), nil
+}
+
+// ResumeRun continues a frozen Run where it was.
+func (c *Client) ResumeRun(ctx context.Context) (Run, error) {
+	res, err := c.jobs.ResumeRun(ctx, connect.NewRequest(&codingowlv1.ResumeRunRequest{}))
+	if err != nil {
+		return Run{}, c.wrap(err)
+	}
+	return runFromProto(res.Msg.GetRun()), nil
 }

@@ -26,8 +26,10 @@ type Invocation struct {
 type Process interface {
 	// Stdout is the Agent's structured output, read to end of file.
 	Stdout() io.Reader
-	// Signal asks the Agent to stop, or worse.
-	Signal(sig os.Signal) error
+	// SignalGroup signals the Agent and everything it started. Claude Code
+	// spawns test runners, compilers and package managers, and signalling only
+	// the Agent would leave those running (ADR-0011).
+	SignalGroup(sig os.Signal) error
 	// Wait blocks until the Agent exits and returns its exit status. The
 	// error is for a process that could not be waited on at all, never for a
 	// non-zero status.

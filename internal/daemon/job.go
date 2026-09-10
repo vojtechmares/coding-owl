@@ -179,6 +179,22 @@ func (s *jobService) GetOverview(ctx context.Context, _ *connect.Request[codingo
 	return connect.NewResponse(res), nil
 }
 
+func (s *jobService) PauseRun(ctx context.Context, _ *connect.Request[codingowlv1.PauseRunRequest]) (*connect.Response[codingowlv1.PauseRunResponse], error) {
+	r, err := s.runs.Pause(ctx)
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return connect.NewResponse(&codingowlv1.PauseRunResponse{Run: toRunProto(r)}), nil
+}
+
+func (s *jobService) ResumeRun(ctx context.Context, _ *connect.Request[codingowlv1.ResumeRunRequest]) (*connect.Response[codingowlv1.ResumeRunResponse], error) {
+	r, err := s.runs.Resume(ctx)
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return connect.NewResponse(&codingowlv1.ResumeRunResponse{Run: toRunProto(r)}), nil
+}
+
 func (s *jobService) StreamRunLog(ctx context.Context, req *connect.Request[codingowlv1.StreamRunLogRequest], stream *connect.ServerStream[codingowlv1.StreamRunLogResponse]) error {
 	err := s.runs.Log(ctx, req.Msg.GetRunId(), req.Msg.GetFollow(), func(l run.Line) error {
 		return stream.Send(&codingowlv1.StreamRunLogResponse{Line: l.Text})
@@ -213,6 +229,7 @@ func toRunProto(r run.Run) *codingowlv1.Run {
 		LogPath:  r.LogPath,
 		Phase:    string(r.Phase),
 		Skills:   toRunSkillsProto(r.Skills),
+		Paused:   r.Paused,
 	}
 	if !r.Ended.IsZero() {
 		out.Ended = timestamppb.New(r.Ended)

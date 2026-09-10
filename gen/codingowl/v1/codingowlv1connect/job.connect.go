@@ -55,6 +55,10 @@ const (
 	JobServiceGetOverviewProcedure = "/codingowl.v1.JobService/GetOverview"
 	// JobServiceExtendJobProcedure is the fully-qualified name of the JobService's ExtendJob RPC.
 	JobServiceExtendJobProcedure = "/codingowl.v1.JobService/ExtendJob"
+	// JobServicePauseRunProcedure is the fully-qualified name of the JobService's PauseRun RPC.
+	JobServicePauseRunProcedure = "/codingowl.v1.JobService/PauseRun"
+	// JobServiceResumeRunProcedure is the fully-qualified name of the JobService's ResumeRun RPC.
+	JobServiceResumeRunProcedure = "/codingowl.v1.JobService/ResumeRun"
 )
 
 // JobServiceClient is a client for the codingowl.v1.JobService service.
@@ -87,6 +91,10 @@ type JobServiceClient interface {
 	// ExtendJob gives a Job more attempts, returning it to the queue if it had
 	// run out (ADR-0025).
 	ExtendJob(context.Context, *connect.Request[v1.ExtendJobRequest]) (*connect.Response[v1.ExtendJobResponse], error)
+	// PauseRun freezes the Run in progress and everything its Agent started.
+	PauseRun(context.Context, *connect.Request[v1.PauseRunRequest]) (*connect.Response[v1.PauseRunResponse], error)
+	// ResumeRun continues a frozen Run where it was.
+	ResumeRun(context.Context, *connect.Request[v1.ResumeRunRequest]) (*connect.Response[v1.ResumeRunResponse], error)
 }
 
 // NewJobServiceClient constructs a client for the codingowl.v1.JobService service. By default, it
@@ -166,6 +174,18 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(jobServiceMethods.ByName("ExtendJob")),
 			connect.WithClientOptions(opts...),
 		),
+		pauseRun: connect.NewClient[v1.PauseRunRequest, v1.PauseRunResponse](
+			httpClient,
+			baseURL+JobServicePauseRunProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("PauseRun")),
+			connect.WithClientOptions(opts...),
+		),
+		resumeRun: connect.NewClient[v1.ResumeRunRequest, v1.ResumeRunResponse](
+			httpClient,
+			baseURL+JobServiceResumeRunProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("ResumeRun")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -182,6 +202,8 @@ type jobServiceClient struct {
 	dropJob      *connect.Client[v1.DropJobRequest, v1.DropJobResponse]
 	getOverview  *connect.Client[v1.GetOverviewRequest, v1.GetOverviewResponse]
 	extendJob    *connect.Client[v1.ExtendJobRequest, v1.ExtendJobResponse]
+	pauseRun     *connect.Client[v1.PauseRunRequest, v1.PauseRunResponse]
+	resumeRun    *connect.Client[v1.ResumeRunRequest, v1.ResumeRunResponse]
 }
 
 // AddJob calls codingowl.v1.JobService.AddJob.
@@ -239,6 +261,16 @@ func (c *jobServiceClient) ExtendJob(ctx context.Context, req *connect.Request[v
 	return c.extendJob.CallUnary(ctx, req)
 }
 
+// PauseRun calls codingowl.v1.JobService.PauseRun.
+func (c *jobServiceClient) PauseRun(ctx context.Context, req *connect.Request[v1.PauseRunRequest]) (*connect.Response[v1.PauseRunResponse], error) {
+	return c.pauseRun.CallUnary(ctx, req)
+}
+
+// ResumeRun calls codingowl.v1.JobService.ResumeRun.
+func (c *jobServiceClient) ResumeRun(ctx context.Context, req *connect.Request[v1.ResumeRunRequest]) (*connect.Response[v1.ResumeRunResponse], error) {
+	return c.resumeRun.CallUnary(ctx, req)
+}
+
 // JobServiceHandler is an implementation of the codingowl.v1.JobService service.
 type JobServiceHandler interface {
 	// AddJob queues a Job, producing it through the local queue Source.
@@ -269,6 +301,10 @@ type JobServiceHandler interface {
 	// ExtendJob gives a Job more attempts, returning it to the queue if it had
 	// run out (ADR-0025).
 	ExtendJob(context.Context, *connect.Request[v1.ExtendJobRequest]) (*connect.Response[v1.ExtendJobResponse], error)
+	// PauseRun freezes the Run in progress and everything its Agent started.
+	PauseRun(context.Context, *connect.Request[v1.PauseRunRequest]) (*connect.Response[v1.PauseRunResponse], error)
+	// ResumeRun continues a frozen Run where it was.
+	ResumeRun(context.Context, *connect.Request[v1.ResumeRunRequest]) (*connect.Response[v1.ResumeRunResponse], error)
 }
 
 // NewJobServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -344,6 +380,18 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(jobServiceMethods.ByName("ExtendJob")),
 		connect.WithHandlerOptions(opts...),
 	)
+	jobServicePauseRunHandler := connect.NewUnaryHandler(
+		JobServicePauseRunProcedure,
+		svc.PauseRun,
+		connect.WithSchema(jobServiceMethods.ByName("PauseRun")),
+		connect.WithHandlerOptions(opts...),
+	)
+	jobServiceResumeRunHandler := connect.NewUnaryHandler(
+		JobServiceResumeRunProcedure,
+		svc.ResumeRun,
+		connect.WithSchema(jobServiceMethods.ByName("ResumeRun")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/codingowl.v1.JobService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case JobServiceAddJobProcedure:
@@ -368,6 +416,10 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 			jobServiceGetOverviewHandler.ServeHTTP(w, r)
 		case JobServiceExtendJobProcedure:
 			jobServiceExtendJobHandler.ServeHTTP(w, r)
+		case JobServicePauseRunProcedure:
+			jobServicePauseRunHandler.ServeHTTP(w, r)
+		case JobServiceResumeRunProcedure:
+			jobServiceResumeRunHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -419,4 +471,12 @@ func (UnimplementedJobServiceHandler) GetOverview(context.Context, *connect.Requ
 
 func (UnimplementedJobServiceHandler) ExtendJob(context.Context, *connect.Request[v1.ExtendJobRequest]) (*connect.Response[v1.ExtendJobResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.ExtendJob is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) PauseRun(context.Context, *connect.Request[v1.PauseRunRequest]) (*connect.Response[v1.PauseRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.PauseRun is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) ResumeRun(context.Context, *connect.Request[v1.ResumeRunRequest]) (*connect.Response[v1.ResumeRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.ResumeRun is not implemented"))
 }

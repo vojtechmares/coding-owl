@@ -111,6 +111,10 @@ type Global struct {
 	// runs, and how long a Job may wait for a decision before it is reported
 	// (ADR-0015). A zero field is one this file does not set.
 	GarbageCollection GarbageCollection
+	// GraceWindow is how long a frozen Run may stay frozen before Owl ends it
+	// rather than leave a stopped process holding its sockets (ADR-0011). Zero
+	// means whatever the daemon defaults to.
+	GraceWindow time.Duration
 }
 
 // GarbageCollection is what the daemon's configuration says about the task
@@ -146,6 +150,7 @@ type file struct {
 	Account           string           `yaml:"account"`
 	CredentialStore   string           `yaml:"credentialStore"`
 	GarbageCollection *garbage         `yaml:"garbageCollection"`
+	GraceWindow       string           `yaml:"graceWindow"`
 }
 
 // garbage is the on-disk shape of the `garbageCollection` block.
@@ -350,10 +355,15 @@ func ParseGlobal(source string, data []byte) (Global, error) {
 	if err != nil {
 		return Global{}, err
 	}
+	grace, err := parseGraceWindow(source, f.GraceWindow)
+	if err != nil {
+		return Global{}, err
+	}
 	return Global{
 		Phases:            phases,
 		CredentialStore:   strings.TrimSpace(f.CredentialStore),
 		GarbageCollection: collection,
+		GraceWindow:       grace,
 	}, nil
 }
 
@@ -387,6 +397,23 @@ func parseGarbageCollection(source string, g *garbage) (GarbageCollection, error
 		*field.into = d
 	}
 	return out, nil
+}
+
+// parseGraceWindow reads how long a frozen Run may stay frozen. A window that
+// is not a duration is refused rather than quietly defaulted: the setting
+// exists to be believed.
+func parseGraceWindow(source, value string) (time.Duration, error) {
+	if strings.TrimSpace(value) == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s: graceWindow: %q is not a duration like 15m", source, value)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("%s: graceWindow: %s is negative", source, value)
+	}
+	return d, nil
 }
 
 // parsePhases reads the phases map, refusing a phase nobody runs and a value
