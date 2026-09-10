@@ -809,8 +809,8 @@ func FetchBase(ctx context.Context, dir, base string) error {
 
 // rebaseTimeout bounds a rebase. Replaying a short-lived branch is quick; this
 // only has to be long enough for a large one and short enough that a daemon
-// never waits on git for ever.
-const rebaseTimeout = 10 * time.Minute
+// stopping is not held up by one.
+const rebaseTimeout = 2 * time.Minute
 
 // fetchTimeout bounds a fetch. A remote that is slow or gone is not a reason to
 // leave a Job unstarted, so this only has to be short enough to notice.

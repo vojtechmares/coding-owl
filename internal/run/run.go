@@ -307,6 +307,18 @@ func (s *Service) Close() error {
 	return nil
 }
 
+// untilClosedFrom is the Service's own lifetime, keeping whatever the caller's
+// context carried but not its cancellation. It is for work that must not be
+// interrupted half way by a caller hanging up, and that a stopping daemon may
+// still cut short.
+func (s *Service) untilClosedFrom(ctx context.Context) context.Context {
+	ctx, cancel := s.untilClosed(context.WithoutCancel(ctx))
+	// The Service's own context outlives this call, and cancelling on its way
+	// out is what releases the watcher.
+	context.AfterFunc(s.ctx, cancel)
+	return ctx
+}
+
 // untilClosed is ctx, cut short when the Service closes. The work it bounds is
 // the user's own commands, which can take minutes: a daemon that is stopping
 // must not have to wait for them.
