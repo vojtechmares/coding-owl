@@ -7,10 +7,14 @@
 // daemon:
 //
 //	OWL_FAKE_CLAUDE_VERSION  what --version prints
-//	OWL_FAKE_CLAUDE_ARGV     file to record the invocation in, as JSON
+//	OWL_FAKE_CLAUDE_ARGV     file to append the invocation to, one JSON object
+//	                         per line, so several runs each leave a record
 //	OWL_FAKE_CLAUDE_SCRIPT   file of lines to emit on stdout, one per line
 //	OWL_FAKE_CLAUDE_WAIT     file whose appearance releases a `#wait` line
 //	OWL_FAKE_CLAUDE_EXIT     exit status, default 0
+//	OWL_FAKE_CLAUDE_WRITE    JSON object of path to contents, written into the
+//	                         working directory before the script is emitted
+//	OWL_FAKE_CLAUDE_COMMIT   when set, commits what was written
 package main
 
 import (
@@ -18,6 +22,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -49,6 +56,10 @@ func main() {
 			os.Exit(90)
 		}
 	}
+	if err := writeFiles(); err != nil {
+		fmt.Fprintln(os.Stderr, "fakeclaude:", err)
+		os.Exit(93)
+	}
 	if script := os.Getenv("OWL_FAKE_CLAUDE_SCRIPT"); script != "" {
 		if err := emit(script); err != nil {
 			fmt.Fprintln(os.Stderr, "fakeclaude:", err)
@@ -79,7 +90,60 @@ func record(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	// Appended rather than written: a Job takes several runs, and each one's
+	// invocation is worth reading back.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	_, err = f.Write(append(data, '\n'))
+	return err
+}
+
+// writeFiles puts the files of OWL_FAKE_CLAUDE_WRITE in the working directory,
+// which is how a scripted Agent leaves a handoff behind, and commits them when
+// OWL_FAKE_CLAUDE_COMMIT is set.
+func writeFiles() error {
+	spec := os.Getenv("OWL_FAKE_CLAUDE_WRITE")
+	if spec == "" {
+		return nil
+	}
+	var files map[string]string
+	if err := json.Unmarshal([]byte(spec), &files); err != nil {
+		return fmt.Errorf("OWL_FAKE_CLAUDE_WRITE: %w", err)
+	}
+	paths := make([]string, 0, len(files))
+	for path, content := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			return err
+		}
+		paths = append(paths, path)
+	}
+	if os.Getenv("OWL_FAKE_CLAUDE_COMMIT") == "" {
+		return nil
+	}
+	sort.Strings(paths)
+	if err := git(append([]string{"add", "--"}, paths...)); err != nil {
+		return err
+	}
+	return git([]string{"commit", "-m", "the agent's own commit"})
+}
+
+// git runs a git command in the working directory with an identity of its own,
+// since the test environment deliberately has no git configuration.
+func git(args []string) error {
+	cmd := exec.Command("git", append([]string{
+		"-c", "user.name=Fake Agent", "-c", "user.email=agent@example.com",
+	}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git %v: %w\n%s", args, err, out)
+	}
+	return nil
 }
 
 // emit writes the script's lines to stdout as they are read, unbuffered, so a

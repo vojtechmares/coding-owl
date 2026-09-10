@@ -88,18 +88,36 @@ func (s *stub) let(t *testing.T) {
 	}
 }
 
-// invoked reads what the stub agent recorded about its invocation.
+// invoked reads what the stub agent recorded about its most recent invocation.
 func (s *stub) invoked(t *testing.T) invocation {
+	t.Helper()
+	all := s.invocations(t)
+	if len(all) == 0 {
+		t.Fatal("the stub agent recorded no invocation")
+	}
+	return all[len(all)-1]
+}
+
+// invocations reads every invocation the stub agent recorded, in order: a Job
+// takes a Run per phase, and each one is worth reading back.
+func (s *stub) invocations(t *testing.T) []invocation {
 	t.Helper()
 	data, err := os.ReadFile(s.argv)
 	if err != nil {
 		t.Fatalf("the stub agent recorded no invocation: %v", err)
 	}
-	var inv invocation
-	if err := json.Unmarshal(data, &inv); err != nil {
-		t.Fatalf("unreadable invocation record: %v\n%s", err, data)
+	var out []invocation
+	for _, ln := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		var inv invocation
+		if err := json.Unmarshal([]byte(ln), &inv); err != nil {
+			t.Fatalf("unreadable invocation record: %v\n%s", err, ln)
+		}
+		out = append(out, inv)
 	}
-	return inv
+	return out
 }
 
 // flag returns the value that follows name in the invocation.
@@ -299,10 +317,10 @@ func TestS4RunCleanExitLandsTheJobInReview(t *testing.T) {
 
 // runRow is one row of the runs table owl jobs show prints.
 type runRow struct {
-	id, attempt, outcome, exit, log string
+	id, attempt, phase, outcome, exit, log string
 }
 
-var runRowRE = regexp.MustCompile(`^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)$`)
+var runRowRE = regexp.MustCompile(`^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)$`)
 
 // runRows parses the runs table out of owl jobs show output.
 func runRows(t *testing.T, out string) []runRow {
@@ -323,7 +341,7 @@ func runRows(t *testing.T, out string) []runRow {
 		if m == nil {
 			t.Fatalf("cannot parse run row %q in:\n%s", ln, out)
 		}
-		rows = append(rows, runRow{id: m[1], attempt: m[2], outcome: m[3], exit: m[4], log: m[7]})
+		rows = append(rows, runRow{id: m[1], attempt: m[2], phase: m[3], outcome: m[4], exit: m[5], log: m[8]})
 	}
 	return rows
 }
