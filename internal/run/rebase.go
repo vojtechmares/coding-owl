@@ -31,11 +31,14 @@ func (s *Service) rebase(ctx context.Context, j store.Job, details project.Detai
 	// Owl rebases its own Job branches and nothing else (ADR-0016). A worktree
 	// that is on something else is one an Agent moved, and replaying whatever
 	// is checked out there would be rewriting somebody else's history.
-	// A worktree on no branch answers with an error rather than a name, and
-	// means the same thing here: whatever is checked out, it is not the Job's
-	// branch.
-	on, err := git.CurrentBranch(j.Worktree)
-	if err != nil || on != j.Branch {
+	// A worktree on no branch answers with an empty name, which means the same
+	// thing here: whatever is checked out, it is not the Job's branch. Being
+	// unable to ask at all is a different answer, and is reported as one.
+	on, err := git.HeadBranch(j.Worktree)
+	if err != nil {
+		return err
+	}
+	if on != j.Branch {
 		return s.blocked(j, fmt.Sprintf(
 			"the worktree %s is on %s and not on the job's own branch %s, so there is nothing here to rebase",
 			j.Worktree, describe(on), j.Branch))
