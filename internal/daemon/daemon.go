@@ -84,7 +84,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	select {
 	case err := <-serveErr:
-		os.Remove(sock)
+		_ = os.Remove(sock)
 		return fmt.Errorf("serving: %w", err)
 	case <-ctx.Done():
 	}
@@ -94,7 +94,7 @@ func Run(ctx context.Context, opts Options) error {
 	defer cancel()
 	err = srv.Shutdown(shutdownCtx)
 	<-serveErr
-	os.Remove(sock)
+	_ = os.Remove(sock)
 	if err != nil {
 		return fmt.Errorf("shutting down: %w", err)
 	}
@@ -111,7 +111,7 @@ func removeStaleSocket(sock string) error {
 	}
 	conn, err := net.DialTimeout("unix", sock, time.Second)
 	if err == nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("%w on %s", ErrAlreadyListening, sock)
 	}
 	if err := os.Remove(sock); err != nil {

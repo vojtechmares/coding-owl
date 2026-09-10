@@ -34,7 +34,7 @@ func Run(ctx context.Context, env Env, args []string) int {
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
 	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintf(env.Stderr, "owl: %v\n", err)
+		_, _ = fmt.Fprintf(env.Stderr, "owl: %v\n", err)
 		return 1
 	}
 	return 0
@@ -92,9 +92,9 @@ func newDaemonStatusCmd(env Env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(env.Stdout, "version: %s\n", st.Version)
-			fmt.Fprintf(env.Stdout, "uptime: %s\n", st.Uptime.Round(time.Second))
-			fmt.Fprintf(env.Stdout, "socket: %s\n", st.SocketPath)
+			_, _ = fmt.Fprintf(env.Stdout, "version: %s\n", st.Version)
+			_, _ = fmt.Fprintf(env.Stdout, "uptime: %s\n", st.Uptime.Round(time.Second))
+			_, _ = fmt.Fprintf(env.Stdout, "socket: %s\n", st.SocketPath)
 			return nil
 		},
 	}
