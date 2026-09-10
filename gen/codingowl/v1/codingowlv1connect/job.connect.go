@@ -41,6 +41,12 @@ const (
 	JobServiceCancelJobProcedure = "/codingowl.v1.JobService/CancelJob"
 	// JobServiceReorderJobProcedure is the fully-qualified name of the JobService's ReorderJob RPC.
 	JobServiceReorderJobProcedure = "/codingowl.v1.JobService/ReorderJob"
+	// JobServiceStartRunProcedure is the fully-qualified name of the JobService's StartRun RPC.
+	JobServiceStartRunProcedure = "/codingowl.v1.JobService/StartRun"
+	// JobServiceGetJobProcedure is the fully-qualified name of the JobService's GetJob RPC.
+	JobServiceGetJobProcedure = "/codingowl.v1.JobService/GetJob"
+	// JobServiceStreamRunLogProcedure is the fully-qualified name of the JobService's StreamRunLog RPC.
+	JobServiceStreamRunLogProcedure = "/codingowl.v1.JobService/StreamRunLog"
 )
 
 // JobServiceClient is a client for the codingowl.v1.JobService service.
@@ -53,6 +59,14 @@ type JobServiceClient interface {
 	CancelJob(context.Context, *connect.Request[v1.CancelJobRequest]) (*connect.Response[v1.CancelJobResponse], error)
 	// ReorderJob moves a pending Job to a position in the queue.
 	ReorderJob(context.Context, *connect.Request[v1.ReorderJobRequest]) (*connect.Response[v1.ReorderJobResponse], error)
+	// StartRun runs the Job at the head of the queue.
+	StartRun(context.Context, *connect.Request[v1.StartRunRequest]) (*connect.Response[v1.StartRunResponse], error)
+	// GetJob returns one Job with its Runs and the system prompt in force for
+	// it.
+	GetJob(context.Context, *connect.Request[v1.GetJobRequest]) (*connect.Response[v1.GetJobResponse], error)
+	// StreamRunLog sends a Run's captured output, and with follow keeps sending
+	// until the Run ends.
+	StreamRunLog(context.Context, *connect.Request[v1.StreamRunLogRequest]) (*connect.ServerStreamForClient[v1.StreamRunLogResponse], error)
 }
 
 // NewJobServiceClient constructs a client for the codingowl.v1.JobService service. By default, it
@@ -90,15 +104,36 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(jobServiceMethods.ByName("ReorderJob")),
 			connect.WithClientOptions(opts...),
 		),
+		startRun: connect.NewClient[v1.StartRunRequest, v1.StartRunResponse](
+			httpClient,
+			baseURL+JobServiceStartRunProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("StartRun")),
+			connect.WithClientOptions(opts...),
+		),
+		getJob: connect.NewClient[v1.GetJobRequest, v1.GetJobResponse](
+			httpClient,
+			baseURL+JobServiceGetJobProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("GetJob")),
+			connect.WithClientOptions(opts...),
+		),
+		streamRunLog: connect.NewClient[v1.StreamRunLogRequest, v1.StreamRunLogResponse](
+			httpClient,
+			baseURL+JobServiceStreamRunLogProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("StreamRunLog")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // jobServiceClient implements JobServiceClient.
 type jobServiceClient struct {
-	addJob     *connect.Client[v1.AddJobRequest, v1.AddJobResponse]
-	listJobs   *connect.Client[v1.ListJobsRequest, v1.ListJobsResponse]
-	cancelJob  *connect.Client[v1.CancelJobRequest, v1.CancelJobResponse]
-	reorderJob *connect.Client[v1.ReorderJobRequest, v1.ReorderJobResponse]
+	addJob       *connect.Client[v1.AddJobRequest, v1.AddJobResponse]
+	listJobs     *connect.Client[v1.ListJobsRequest, v1.ListJobsResponse]
+	cancelJob    *connect.Client[v1.CancelJobRequest, v1.CancelJobResponse]
+	reorderJob   *connect.Client[v1.ReorderJobRequest, v1.ReorderJobResponse]
+	startRun     *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
+	getJob       *connect.Client[v1.GetJobRequest, v1.GetJobResponse]
+	streamRunLog *connect.Client[v1.StreamRunLogRequest, v1.StreamRunLogResponse]
 }
 
 // AddJob calls codingowl.v1.JobService.AddJob.
@@ -121,6 +156,21 @@ func (c *jobServiceClient) ReorderJob(ctx context.Context, req *connect.Request[
 	return c.reorderJob.CallUnary(ctx, req)
 }
 
+// StartRun calls codingowl.v1.JobService.StartRun.
+func (c *jobServiceClient) StartRun(ctx context.Context, req *connect.Request[v1.StartRunRequest]) (*connect.Response[v1.StartRunResponse], error) {
+	return c.startRun.CallUnary(ctx, req)
+}
+
+// GetJob calls codingowl.v1.JobService.GetJob.
+func (c *jobServiceClient) GetJob(ctx context.Context, req *connect.Request[v1.GetJobRequest]) (*connect.Response[v1.GetJobResponse], error) {
+	return c.getJob.CallUnary(ctx, req)
+}
+
+// StreamRunLog calls codingowl.v1.JobService.StreamRunLog.
+func (c *jobServiceClient) StreamRunLog(ctx context.Context, req *connect.Request[v1.StreamRunLogRequest]) (*connect.ServerStreamForClient[v1.StreamRunLogResponse], error) {
+	return c.streamRunLog.CallServerStream(ctx, req)
+}
+
 // JobServiceHandler is an implementation of the codingowl.v1.JobService service.
 type JobServiceHandler interface {
 	// AddJob queues a Job, producing it through the local queue Source.
@@ -131,6 +181,14 @@ type JobServiceHandler interface {
 	CancelJob(context.Context, *connect.Request[v1.CancelJobRequest]) (*connect.Response[v1.CancelJobResponse], error)
 	// ReorderJob moves a pending Job to a position in the queue.
 	ReorderJob(context.Context, *connect.Request[v1.ReorderJobRequest]) (*connect.Response[v1.ReorderJobResponse], error)
+	// StartRun runs the Job at the head of the queue.
+	StartRun(context.Context, *connect.Request[v1.StartRunRequest]) (*connect.Response[v1.StartRunResponse], error)
+	// GetJob returns one Job with its Runs and the system prompt in force for
+	// it.
+	GetJob(context.Context, *connect.Request[v1.GetJobRequest]) (*connect.Response[v1.GetJobResponse], error)
+	// StreamRunLog sends a Run's captured output, and with follow keeps sending
+	// until the Run ends.
+	StreamRunLog(context.Context, *connect.Request[v1.StreamRunLogRequest], *connect.ServerStream[v1.StreamRunLogResponse]) error
 }
 
 // NewJobServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -164,6 +222,24 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(jobServiceMethods.ByName("ReorderJob")),
 		connect.WithHandlerOptions(opts...),
 	)
+	jobServiceStartRunHandler := connect.NewUnaryHandler(
+		JobServiceStartRunProcedure,
+		svc.StartRun,
+		connect.WithSchema(jobServiceMethods.ByName("StartRun")),
+		connect.WithHandlerOptions(opts...),
+	)
+	jobServiceGetJobHandler := connect.NewUnaryHandler(
+		JobServiceGetJobProcedure,
+		svc.GetJob,
+		connect.WithSchema(jobServiceMethods.ByName("GetJob")),
+		connect.WithHandlerOptions(opts...),
+	)
+	jobServiceStreamRunLogHandler := connect.NewServerStreamHandler(
+		JobServiceStreamRunLogProcedure,
+		svc.StreamRunLog,
+		connect.WithSchema(jobServiceMethods.ByName("StreamRunLog")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/codingowl.v1.JobService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case JobServiceAddJobProcedure:
@@ -174,6 +250,12 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 			jobServiceCancelJobHandler.ServeHTTP(w, r)
 		case JobServiceReorderJobProcedure:
 			jobServiceReorderJobHandler.ServeHTTP(w, r)
+		case JobServiceStartRunProcedure:
+			jobServiceStartRunHandler.ServeHTTP(w, r)
+		case JobServiceGetJobProcedure:
+			jobServiceGetJobHandler.ServeHTTP(w, r)
+		case JobServiceStreamRunLogProcedure:
+			jobServiceStreamRunLogHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -197,4 +279,16 @@ func (UnimplementedJobServiceHandler) CancelJob(context.Context, *connect.Reques
 
 func (UnimplementedJobServiceHandler) ReorderJob(context.Context, *connect.Request[v1.ReorderJobRequest]) (*connect.Response[v1.ReorderJobResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.ReorderJob is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) StartRun(context.Context, *connect.Request[v1.StartRunRequest]) (*connect.Response[v1.StartRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.StartRun is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) GetJob(context.Context, *connect.Request[v1.GetJobRequest]) (*connect.Response[v1.GetJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.GetJob is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) StreamRunLog(context.Context, *connect.Request[v1.StreamRunLogRequest], *connect.ServerStream[v1.StreamRunLogResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.StreamRunLog is not implemented"))
 }

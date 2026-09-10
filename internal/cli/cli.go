@@ -79,7 +79,15 @@ func newRoot(env Env) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newDaemonCmd(env), newProjectCmd(env), newAddCmd(env), newQueueCmd(env))
+	root.AddCommand(
+		newDaemonCmd(env),
+		newProjectCmd(env),
+		newAddCmd(env),
+		newQueueCmd(env),
+		newStartCmd(env),
+		newLogsCmd(env),
+		newJobsCmd(env),
+	)
 	return root
 }
 

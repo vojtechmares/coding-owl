@@ -32,6 +32,10 @@ type Job struct {
 	Prompt string
 	// State is where the Job is in its lifecycle.
 	State string
+	// Branch is the branch the Job's work lands on, empty until it has one.
+	Branch string
+	// Worktree is where that branch is checked out, empty until it has one.
+	Worktree string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -40,7 +44,7 @@ type Job struct {
 }
 
 // jobColumns is the select list every Job read shares, in scanJob's order.
-const jobColumns = `id, source, source_ref, project, prompt, state, position, created`
+const jobColumns = `id, source, source_ref, project, prompt, state, branch, worktree, position, created`
 
 // UpsertJob produces j. A Job with that source and reference is not made
 // twice: the second production rewrites the prompt of the Job already in the
@@ -87,14 +91,67 @@ func (s *Store) GetJob(ctx context.Context, id int64) (Job, error) {
 	return j, err
 }
 
-// ListJobs returns the queue - the Jobs that have a position - in order.
-// With all, every other Job follows it, oldest first.
-func (s *Store) ListJobs(ctx context.Context, all bool) ([]Job, error) {
-	query := `SELECT ` + jobColumns + ` FROM jobs WHERE position IS NOT NULL ORDER BY position, id`
-	if all {
-		query = `SELECT ` + jobColumns + ` FROM jobs ORDER BY position IS NULL, position, id`
+// ListQueue returns the Jobs waiting in that state, in queue order. A Job
+// being run keeps its position (ADR-0025) but is no longer waiting, so the
+// state is what decides membership of the queue rather than the position.
+func (s *Store) ListQueue(ctx context.Context, state string) ([]Job, error) {
+	return s.listJobs(ctx,
+		`SELECT `+jobColumns+` FROM jobs WHERE position IS NOT NULL AND state = ? ORDER BY position, id`,
+		state)
+}
+
+// ListAllJobs returns every Job whatever its state, the queue first.
+func (s *Store) ListAllJobs(ctx context.Context) ([]Job, error) {
+	return s.listJobs(ctx, `SELECT `+jobColumns+` FROM jobs ORDER BY position IS NULL, position, id`)
+}
+
+// NextQueued returns the Job at the head of the queue, if there is one.
+func (s *Store) NextQueued(ctx context.Context, state string) (Job, bool, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+jobColumns+` FROM jobs WHERE position IS NOT NULL AND state = ?
+		 ORDER BY position, id LIMIT 1`, state)
+	j, err := scanJob(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Job{}, false, nil
 	}
-	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return Job{}, false, err
+	}
+	return j, true, nil
+}
+
+// SetJobState moves a Job to another state, leaving its place in the queue
+// alone: a re-attempt never changes a Job's position (ADR-0025).
+func (s *Store) SetJobState(ctx context.Context, id int64, state string) error {
+	return s.affectOneJob(ctx, id, `UPDATE jobs SET state = ? WHERE id = ?`, state, id)
+}
+
+// SetJobWorkspace records the branch a Job's work lands on and the worktree it
+// is checked out in. Both belong to the Job, not to one Run (ADR-0007).
+func (s *Store) SetJobWorkspace(ctx context.Context, id int64, branch, worktree string) error {
+	return s.affectOneJob(ctx, id,
+		`UPDATE jobs SET branch = ?, worktree = ? WHERE id = ?`, branch, worktree, id)
+}
+
+// affectOneJob runs a statement that must touch exactly one Job and turns
+// touching none into ErrJobNotFound.
+func (s *Store) affectOneJob(ctx context.Context, id int64, query string, args ...any) error {
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: %d", ErrJobNotFound, id)
+	}
+	return nil
+}
+
+func (s *Store) listJobs(ctx context.Context, query string, args ...any) ([]Job, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +171,8 @@ func scanJob(sc scanner) (Job, error) {
 	var j Job
 	var position sql.NullInt64
 	var created string
-	if err := sc.Scan(&j.ID, &j.Source, &j.SourceRef, &j.Project, &j.Prompt, &j.State, &position, &created); err != nil {
+	if err := sc.Scan(&j.ID, &j.Source, &j.SourceRef, &j.Project, &j.Prompt, &j.State,
+		&j.Branch, &j.Worktree, &position, &created); err != nil {
 		return Job{}, err
 	}
 	j.Position = int(position.Int64)

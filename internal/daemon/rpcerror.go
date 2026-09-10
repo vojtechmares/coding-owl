@@ -7,6 +7,7 @@ import (
 
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
+	"github.com/vojtechmares/coding-owl/internal/run"
 	"github.com/vojtechmares/coding-owl/internal/store"
 )
 
@@ -19,8 +20,11 @@ func rpcError(err error) error {
 	var invalid *project.InvalidError
 	var conflict *project.ConflictError
 	var unusable *queue.InvalidError
+	var refused *run.RefusedError
 	switch {
-	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrJobNotFound):
+	case errors.As(err, &refused):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrJobNotFound), errors.Is(err, store.ErrRunNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.As(err, &conflict), errors.Is(err, store.ErrNameTaken):
 		return connect.NewError(connect.CodeAlreadyExists, err)

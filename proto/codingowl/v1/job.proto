@@ -17,6 +17,14 @@ service JobService {
   rpc CancelJob(CancelJobRequest) returns (CancelJobResponse) {}
   // ReorderJob moves a pending Job to a position in the queue.
   rpc ReorderJob(ReorderJobRequest) returns (ReorderJobResponse) {}
+  // StartRun runs the Job at the head of the queue.
+  rpc StartRun(StartRunRequest) returns (StartRunResponse) {}
+  // GetJob returns one Job with its Runs and the system prompt in force for
+  // it.
+  rpc GetJob(GetJobRequest) returns (GetJobResponse) {}
+  // StreamRunLog sends a Run's captured output, and with follow keeps sending
+  // until the Run ends.
+  rpc StreamRunLog(StreamRunLogRequest) returns (stream StreamRunLogResponse) {}
 }
 
 // JobState is the lifecycle of a Job (ADR-0025, ADR-0027).
@@ -58,6 +66,43 @@ message Job {
   int32 position = 7;
   // Created is when the Job was first produced.
   google.protobuf.Timestamp created = 8;
+  // Branch is the branch the Job's work lands on, empty until it has one
+  // (ADR-0007).
+  string branch = 9;
+  // Worktree is where that branch is checked out, empty until it has one.
+  string worktree = 10;
+}
+
+// RunOutcome is how a Run ended (ADR-0027).
+enum RunOutcome {
+  // RUN_OUTCOME_UNSPECIFIED is a Run that has not ended yet.
+  RUN_OUTCOME_UNSPECIFIED = 0;
+  // RUN_OUTCOME_SUCCEEDED is an Agent that exited cleanly.
+  RUN_OUTCOME_SUCCEEDED = 1;
+  // RUN_OUTCOME_FAILED is an Agent that exited non-zero, or could not be run.
+  RUN_OUTCOME_FAILED = 2;
+  // RUN_OUTCOME_INTERRUPTED is a Run that was stopped rather than finished.
+  RUN_OUTCOME_INTERRUPTED = 3;
+}
+
+// Run is one attempt to carry out a Job (ADR-0027).
+message Run {
+  // Id identifies the Run and is what owl logs takes.
+  int64 id = 1;
+  // JobId is the Job this Run is an attempt at.
+  int64 job_id = 2;
+  // Attempt counts this Job's Runs, from one.
+  int32 attempt = 3;
+  // Started is when the Agent was launched.
+  google.protobuf.Timestamp started = 4;
+  // Ended is when it exited, and is unset while the Run is still going.
+  google.protobuf.Timestamp ended = 5;
+  // Outcome is how it ended.
+  RunOutcome outcome = 6;
+  // Error is why it did not succeed.
+  string error = 7;
+  // LogPath is where its structured output was captured.
+  string log_path = 8;
 }
 
 message AddJobRequest {
@@ -99,4 +144,37 @@ message ReorderJobRequest {
 
 message ReorderJobResponse {
   Job job = 1;
+}
+
+message StartRunRequest {}
+
+message StartRunResponse {
+  // Started is false when the queue held nothing to run, which is not a
+  // failure.
+  bool started = 1;
+  Job job = 2;
+  Run run = 3;
+}
+
+message GetJobRequest {
+  int64 id = 1;
+}
+
+message GetJobResponse {
+  Job job = 1;
+  repeated Run runs = 2;
+  // SystemPrompt is the unattended contract with the Project's own clauses
+  // appended, exactly as the Agent is given it (ADR-0017).
+  string system_prompt = 3;
+}
+
+message StreamRunLogRequest {
+  int64 run_id = 1;
+  // Follow keeps the stream open until the Run ends.
+  bool follow = 2;
+}
+
+message StreamRunLogResponse {
+  // Line is one line of the Agent's structured output.
+  string line = 1;
 }

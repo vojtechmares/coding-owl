@@ -84,6 +84,10 @@ type Job struct {
 	Prompt string
 	// State is where the Job is in its lifecycle.
 	State State
+	// Branch is the branch the Job's work lands on, empty until it has one.
+	Branch string
+	// Worktree is where that branch is checked out, empty until it has one.
+	Worktree string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -201,7 +205,7 @@ func resolve(path string) string {
 // List returns the queue in order. With all, every Job follows it whatever
 // its state, so a Job that has left the queue can still be seen.
 func (s *Service) List(ctx context.Context, all bool) ([]Job, error) {
-	rows, err := s.store.ListJobs(ctx, all)
+	rows, err := s.jobs(ctx, all)
 	if err != nil {
 		return nil, err
 	}
@@ -212,6 +216,15 @@ func (s *Service) List(ctx context.Context, all bool) ([]Job, error) {
 	return out, nil
 }
 
+// jobs reads the queue, or every Job. The queue is the Jobs still waiting: a
+// Job being run keeps its position (ADR-0025) but is not waiting.
+func (s *Service) jobs(ctx context.Context, all bool) ([]store.Job, error) {
+	if all {
+		return s.store.ListAllJobs(ctx)
+	}
+	return s.store.ListQueue(ctx, string(StatePending))
+}
+
 func toJob(j store.Job) Job {
 	return Job{
 		ID:        j.ID,
@@ -220,6 +233,8 @@ func toJob(j store.Job) Job {
 		Project:   j.Project,
 		Prompt:    j.Prompt,
 		State:     State(j.State),
+		Branch:    j.Branch,
+		Worktree:  j.Worktree,
 		Position:  j.Position,
 		Created:   j.Created,
 	}

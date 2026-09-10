@@ -17,6 +17,12 @@ const APIVersion = "codingowl.dev/v1"
 type Config struct {
 	// BranchPrefix is prepended to the branch of every Job in the Project.
 	BranchPrefix string
+	// UnattendedClauses are the Project's own additions to Owl's standing
+	// unattended contract (ADR-0017).
+	UnattendedClauses []string
+	// BudgetUSD caps what one Run of this Project may spend, when it is above
+	// zero.
+	BudgetUSD float64
 }
 
 // defaultBranchPrefix is what a Job's branch is prefixed with when no
@@ -31,8 +37,10 @@ func Default() Config {
 
 // file is the on-disk shape of a configuration file.
 type file struct {
-	APIVersion   string `yaml:"apiVersion"`
-	BranchPrefix string `yaml:"branchPrefix"`
+	APIVersion        string   `yaml:"apiVersion"`
+	BranchPrefix      string   `yaml:"branchPrefix"`
+	UnattendedClauses []string `yaml:"unattendedClauses"`
+	BudgetUSD         float64  `yaml:"budgetUSD"`
 }
 
 // Parse reads a configuration file. source names the file in error messages -
@@ -52,5 +60,10 @@ func Parse(source string, data []byte) (Config, error) {
 	if f.BranchPrefix != "" {
 		cfg.BranchPrefix = f.BranchPrefix
 	}
+	cfg.UnattendedClauses = f.UnattendedClauses
+	if f.BudgetUSD < 0 {
+		return Config{}, fmt.Errorf("%s: budgetUSD is %v; a spend cap cannot be negative", source, f.BudgetUSD)
+	}
+	cfg.BudgetUSD = f.BudgetUSD
 	return cfg, nil
 }

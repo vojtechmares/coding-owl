@@ -323,3 +323,53 @@ func TestReadsIgnorePathspecSettingsInTheEnvironment(t *testing.T) {
 		})
 	}
 }
+
+func TestAddWorktreeCutsABranchFromTheBaseBranch(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job-1")
+
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+
+	if got := strings.TrimSpace(run(t, worktree, "rev-parse", "--abbrev-ref", "HEAD")); got != "owl/job-1" {
+		t.Errorf("worktree is on %q, want owl/job-1", got)
+	}
+	head := strings.TrimSpace(run(t, worktree, "rev-parse", "HEAD"))
+	if base := strings.TrimSpace(run(t, dir, "rev-parse", "refs/heads/main")); head != base {
+		t.Errorf("worktree HEAD = %s, want main's %s", head, base)
+	}
+	if list := run(t, dir, "worktree", "list"); !strings.Contains(list, worktree) {
+		t.Errorf("git worktree list does not report %s:\n%s", worktree, list)
+	}
+	if got := strings.TrimSpace(run(t, dir, "rev-parse", "--abbrev-ref", "HEAD")); got != "main" {
+		t.Errorf("the original checkout moved to %q, want main", got)
+	}
+}
+
+func TestAddWorktreeRefusesABranchThatExists(t *testing.T) {
+	dir := newRepo(t)
+	run(t, dir, "branch", "owl/job-1")
+
+	err := git.AddWorktree(dir, filepath.Join(t.TempDir(), "job-1"), "owl/job-1", "main")
+
+	if err == nil {
+		t.Fatal("AddWorktree onto an existing branch = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "owl/job-1") {
+		t.Errorf("error %q does not name the branch", err)
+	}
+}
+
+func TestAddWorktreeReportsAMissingBaseBranch(t *testing.T) {
+	dir := newRepo(t)
+
+	err := git.AddWorktree(dir, filepath.Join(t.TempDir(), "job-1"), "owl/job-1", "nope")
+
+	if err == nil {
+		t.Fatal("AddWorktree from a missing branch = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "nope") {
+		t.Errorf("error %q does not name the base branch", err)
+	}
+}
