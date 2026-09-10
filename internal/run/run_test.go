@@ -499,3 +499,25 @@ func TestRecoverEndsTheRunsAnEarlierDaemonLeftOpen(t *testing.T) {
 	}
 	close(hold)
 }
+
+func TestStartRefusesOnceTheDaemonIsStopping(t *testing.T) {
+	ctx := context.Background()
+	svc, st, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{})
+	queueJob(t, st, "work")
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	_, _, started, err := svc.Start(ctx)
+
+	if started {
+		t.Error("a run started while the daemon was stopping")
+	}
+	var refused *run.RefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("Start = %v, want a RefusedError", err)
+	}
+	if !strings.Contains(err.Error(), "stopping") {
+		t.Errorf("error %q does not say the daemon is stopping", err)
+	}
+}
