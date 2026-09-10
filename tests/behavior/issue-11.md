@@ -42,6 +42,18 @@ When `owl pause` runs
 Then it exits with a non-zero code
 And stderr says there is no run in progress
 
+### S18 - stopping the daemon ends a Run that is not frozen
+Given a running daemon and a Run in progress that nobody has frozen
+When the daemon is sent SIGTERM
+Then it exits within a few seconds
+And that Run is `interrupted` and its Job `pending`
+And the Agent and the child it started are both gone
+
+### S19 - what the Agent started does not outlive its Run
+Given a running daemon and a Job whose Agent starts a child and then exits of its own accord
+When the Run has finished
+Then the child is gone too, rather than left running with nobody watching it
+
 ### S16 - a Run being verified is not reported as one that is not there
 Given a running daemon and a Job whose Project configures a check that takes a few seconds, whose Agent has exited
 When `owl pause` runs while the checks are running
@@ -71,9 +83,9 @@ And the Run is still frozen, and resuming it still works
 ### S7 - the grace window ends a frozen Run
 Given a running daemon whose `graceWindow` is a second, and a frozen Run
 When the window passes
-Then the Run ends `interrupted` within a few seconds
+Then the Run ends `interrupted` within ten seconds
 And its Job is `pending` again
-And the heartbeat file is not growing, and the Agent's own process is gone
+And the heartbeat file is not growing, and the Agent and the child it started are both gone
 
 ### S8 - what a terminated Run leaves behind is kept
 Given the Job of S7
@@ -118,7 +130,7 @@ And `owl start` begins a new Run for it
 Given a running daemon and a frozen Run
 When the daemon is sent SIGTERM
 Then it exits within a few seconds
-And the heartbeat file is not growing, and the Agent's own process is gone
+And the heartbeat file is not growing, and the Agent and the child it started are both gone
 And the Run is `interrupted` and its Job `pending`
 
 ### S15 - pause and resume never touch the daemon itself

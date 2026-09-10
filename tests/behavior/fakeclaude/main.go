@@ -19,7 +19,8 @@
 //	                         working directory after the files are written
 //	OWL_FAKE_CLAUDE_CHILD    file a child process appends to every few
 //	                         milliseconds, so a scenario can see whether what
-//	                         the Agent started is running
+//	                         the Agent started is running. Its pid is written
+//	                         to the same path with `.pid` after it
 //
 // The invocation record also holds the names of the files in the working
 // directory, so a scenario can see what ran before the Agent did, and every
@@ -147,6 +148,11 @@ func startChild() error {
 		"for i in $(seq 1 %d); do echo beat >> %q; sleep 0.05; done", childBeats, path)
 	cmd := exec.Command("/bin/sh", "-c", script)
 	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("OWL_FAKE_CLAUDE_CHILD: %w", err)
+	}
+	// The pid is written down because "the heartbeat stopped" cannot tell a
+	// child that died from one that is merely stopped.
+	if err := os.WriteFile(path+".pid", []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
 		return fmt.Errorf("OWL_FAKE_CLAUDE_CHILD: %w", err)
 	}
 	// Deliberately not waited for: the child outlives this function and is

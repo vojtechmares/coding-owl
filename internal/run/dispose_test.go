@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/store"
@@ -229,6 +230,16 @@ func TestRecoverQueuesWhatWasBeingCarriedOutAndLeavesDecisionsAlone(t *testing.T
 	carried := queueJob(t, st, "carried out")
 	if err := st.SetJobState(ctx, carried.ID, string(queue.StateActive)); err != nil {
 		t.Fatalf("SetJobState: %v", err)
+	}
+	// Its Run was already recorded as ended, which is what a daemon that died
+	// between interrupting the runs it found and putting their jobs back
+	// leaves behind.
+	r, err := st.StartRun(ctx, store.Run{JobID: carried.ID, Started: time.Now().UTC(), LogPath: "/logs/1.jsonl"})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if err := st.FinishRun(ctx, r.ID, time.Now().UTC(), "interrupted", "the daemon stopped", -1); err != nil {
+		t.Fatalf("FinishRun: %v", err)
 	}
 	decided := reviewing(t, st, repo)
 

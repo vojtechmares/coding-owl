@@ -131,6 +131,13 @@ func signalGroup(cmd *exec.Cmd, sig syscall.Signal) error {
 // status is an answer, not an error.
 func (p *process) Wait() (int, error) {
 	err := p.cmd.Wait()
+	// Whatever the Agent started is Owl's to clean up: a test runner or a
+	// compile left behind would go on burning the machine with nobody
+	// watching it, which is the same reason signals go to the group in the
+	// first place (ADR-0011, ADR-0012). This is the last moment it can be
+	// done: the group is named by the Agent's pid, and that name is only
+	// pinned while a member of the group is still alive.
+	_ = signalGroup(p.cmd, syscall.SIGTERM)
 	p.reaped.Store(true)
 	if err == nil {
 		return 0, nil
