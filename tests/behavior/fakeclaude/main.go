@@ -17,6 +17,9 @@
 //	OWL_FAKE_CLAUDE_COMMIT   when set, commits what was written
 //	OWL_FAKE_CLAUDE_GIT      JSON array of git argument arrays, run in the
 //	                         working directory after the files are written
+//	OWL_FAKE_CLAUDE_CHILD    file a child process appends to every few
+//	                         milliseconds, so a scenario can see whether what
+//	                         the Agent started is running
 //
 // The invocation record also holds the names of the files in the working
 // directory, so a scenario can see what ran before the Agent did, and every
@@ -87,6 +90,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "fakeclaude:", err)
 		os.Exit(94)
 	}
+	if err := startChild(); err != nil {
+		fmt.Fprintln(os.Stderr, "fakeclaude:", err)
+		os.Exit(95)
+	}
 	if script := os.Getenv("OWL_FAKE_CLAUDE_SCRIPT"); script != "" {
 		if err := emit(script); err != nil {
 			fmt.Fprintln(os.Stderr, "fakeclaude:", err)
@@ -119,6 +126,32 @@ func refuseOwlsOwnCheckout() error {
 		}
 		dir = parent
 	}
+}
+
+// childBeats bounds the heartbeat child, so a scenario that ends badly leaves
+// nothing looping on the machine: at twenty a second it gives up after a
+// minute.
+const childBeats = 1200
+
+// startChild starts a process that appends to a file every few milliseconds
+// and is not waited for. A real Agent runs test suites and compilers the same
+// way, and freezing the Agent alone would leave them running (ADR-0011).
+func startChild() error {
+	path := os.Getenv("OWL_FAKE_CLAUDE_CHILD")
+	if path == "" {
+		return nil
+	}
+	// Every beat is one line, so a scenario counts lines rather than timing
+	// anything.
+	script := fmt.Sprintf(
+		"for i in $(seq 1 %d); do echo beat >> %q; sleep 0.05; done", childBeats, path)
+	cmd := exec.Command("/bin/sh", "-c", script)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("OWL_FAKE_CLAUDE_CHILD: %w", err)
+	}
+	// Deliberately not waited for: the child outlives this function and is
+	// stopped by whatever stops the process group.
+	return nil
 }
 
 func env(name, fallback string) string {
