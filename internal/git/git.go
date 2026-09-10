@@ -639,40 +639,83 @@ func RebaseInProgress(path string) (bool, error) {
 	return false, nil
 }
 
+// Conflict is what stood in the way of a rebase. The zero value is a rebase
+// that went through.
+type Conflict struct {
+	// Paths are the files that could not be replayed, in order.
+	Paths []string
+	// InStash says the rebase itself went through and what conflicted was
+	// putting back changes nobody had committed. Git keeps those in the
+	// repository's stash rather than losing them, and the worktree is left
+	// holding the conflict for somebody to resolve.
+	InStash bool
+}
+
+// Conflicted reports whether anything stood in the way.
+func (c Conflict) Conflicted() bool { return len(c.Paths) > 0 }
+
 // Rebase replays the branch checked out in a worktree onto base. A rebase that
-// conflicts is aborted and the conflicting paths are returned, so that whoever
+// conflicts is aborted and the conflicting paths are reported, so that whoever
 // asked can say what is in the way; the worktree is left exactly as it was
 // (ADR-0016).
 //
 // Changes nobody committed are stashed and put back afterwards: an interrupted
 // Run leaves a possibly untidy worktree behind (ADR-0011), and that is not a
 // reason to leave a Job unrebased.
-func Rebase(path, base string) (conflicts []string, err error) {
+func Rebase(path, base string) (Conflict, error) {
 	// The identity is Owl's own: a rebase can need one, and it must not depend
-	// on the user having configured one.
-	args := append(append([]string{}, owlIdentity...), "rebase", "--autostash", "--", base)
+	// on the user having configured one. The base is named as a ref rather
+	// than by its bare name, because a tag of the same name would otherwise
+	// decide what the Job is rebased onto.
+	args := append(append([]string{}, owlIdentity...), "rebase", "--autostash", "--", branchRef(base))
 	_, stderr, code, err := run(path, args...)
 	if err != nil {
-		return nil, err
+		return Conflict{}, err
 	}
 	if code == 0 {
-		return nil, nil
+		// A rebase that went through can still leave the worktree in conflict:
+		// git puts back what it stashed afterwards, says so, and exits zero.
+		stashed, err := unmergedPaths(path)
+		if err != nil {
+			return Conflict{}, err
+		}
+		if len(stashed) > 0 {
+			return Conflict{Paths: stashed, InStash: true}, nil
+		}
+		return Conflict{}, nil
 	}
 	conflicts, listErr := unmergedPaths(path)
 	if listErr != nil {
-		return nil, listErr
+		return Conflict{}, listErr
 	}
-	// Anything that is not a conflict - a base that does not exist, a worktree
-	// git will not touch - is the caller's to report as it is.
+	// Whatever stopped it - a conflict, a commit that could not be signed, a
+	// hook that refused - the worktree must not be left in the middle of a
+	// rebase for the next Run to trip over.
+	if err := abortRebase(path); err != nil {
+		return Conflict{}, err
+	}
+	// Anything that is not a conflict is the caller's to report as it is.
 	if len(conflicts) == 0 {
-		return nil, fmt.Errorf("rebasing %s onto %s: %s", path, base, message(stderr))
+		return Conflict{}, fmt.Errorf("rebasing %s onto %s: %s", path, base, message(stderr))
 	}
-	if _, abortErr, abortCode, err := run(path, "rebase", "--abort"); err != nil {
-		return nil, err
-	} else if abortCode != 0 {
-		return nil, fmt.Errorf("aborting the rebase in %s: %s", path, message(abortErr))
+	return Conflict{Paths: conflicts}, nil
+}
+
+// abortRebase puts a worktree back where it was, when there is a rebase to
+// abort at all.
+func abortRebase(path string) error {
+	inProgress, err := RebaseInProgress(path)
+	if err != nil || !inProgress {
+		return err
 	}
-	return conflicts, nil
+	_, stderr, code, err := run(path, "rebase", "--abort")
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("aborting the rebase in %s: %s", path, message(stderr))
+	}
+	return nil
 }
 
 // unmergedPaths are the paths a rebase left with conflicts to resolve.
@@ -697,14 +740,19 @@ func unmergedPaths(path string) ([]string, error) {
 // FetchBase updates what the repository knows about base from the remote it
 // belongs to - the branch's own remote when it has one, and origin otherwise.
 // A repository with no remote has nothing to fetch, which is not a failure.
-func FetchBase(dir, base string) error {
+// The fetch is bounded: a daemon must not wait on a remote for ever.
+func FetchBase(ctx context.Context, dir, base string) error {
 	remote, err := remoteFor(dir, base)
 	if err != nil || remote == "" {
 		return err
 	}
-	// Only the remote-tracking branch is updated: nothing the user has is
-	// moved by a fetch, and no refspec here writes a local head.
-	_, stderr, code, err := run(dir, "fetch", "--quiet", "--", remote, base)
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
+	// The refspec is written out in full: only the remote-tracking branch is
+	// updated, nothing the user has is moved, and neither side can be read as
+	// a tag of the same name.
+	refspec := fmt.Sprintf("+%s:refs/remotes/%s/%s", branchRef(base), remote, base)
+	_, stderr, code, err := runWithin(ctx, dir, "fetch", "--quiet", "--", remote, refspec)
 	if err != nil {
 		return err
 	}
@@ -713,6 +761,10 @@ func FetchBase(dir, base string) error {
 	}
 	return nil
 }
+
+// fetchTimeout bounds a fetch. A remote that is slow or gone is not a reason to
+// leave a Job unstarted, so this only has to be short enough to notice.
+const fetchTimeout = 2 * time.Minute
 
 // remoteFor names the remote a branch belongs to: the one it tracks, or origin
 // when it tracks none and the repository has an origin. Empty means there is

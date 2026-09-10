@@ -1,6 +1,7 @@
 package git_test
 
 import (
+	"context"
 	"net"
 	"os"
 	"os/exec"
@@ -1001,10 +1002,10 @@ func TestRebaseReplaysABranchOntoAMovedBase(t *testing.T) {
 	commit(t, worktree, "work.txt", "the agent's work\n")
 	commit(t, dir, "from-base.txt", "moved on\n")
 
-	conflicts, err := git.Rebase(worktree, "main")
+	conflict, err := git.Rebase(worktree, "main")
 
-	if err != nil || conflicts != nil {
-		t.Fatalf("Rebase = %v, %v, want a clean rebase", conflicts, err)
+	if err != nil || conflict.Conflicted() {
+		t.Fatalf("Rebase = %+v, %v, want a clean rebase", conflict, err)
 	}
 	if _, err := os.Stat(filepath.Join(worktree, "from-base.txt")); err != nil {
 		t.Errorf("the base's new file is not in the worktree: %v", err)
@@ -1027,13 +1028,16 @@ func TestRebaseAbortsAConflictAndNamesThePaths(t *testing.T) {
 	before := strings.TrimSpace(run(t, worktree, "rev-parse", "HEAD"))
 	commit(t, dir, "both.txt", "what the base says\n")
 
-	conflicts, err := git.Rebase(worktree, "main")
+	conflict, err := git.Rebase(worktree, "main")
 
 	if err != nil {
 		t.Fatalf("Rebase: %v", err)
 	}
-	if strings.Join(conflicts, ",") != "both.txt" {
-		t.Errorf("conflicts = %v, want both.txt", conflicts)
+	if strings.Join(conflict.Paths, ",") != "both.txt" {
+		t.Errorf("conflicts = %v, want both.txt", conflict.Paths)
+	}
+	if conflict.InStash {
+		t.Errorf("the conflict is reported as one in the stash, and it is in the commits")
 	}
 	if progress, err := git.RebaseInProgress(worktree); err != nil || progress {
 		t.Errorf("RebaseInProgress = %v, %v; an aborted rebase leaves none", progress, err)
@@ -1060,10 +1064,10 @@ func TestRebaseKeepsWhatNobodyCommitted(t *testing.T) {
 	}
 	commit(t, dir, "from-base.txt", "moved on\n")
 
-	conflicts, err := git.Rebase(worktree, "main")
+	conflict, err := git.Rebase(worktree, "main")
 
-	if err != nil || conflicts != nil {
-		t.Fatalf("Rebase = %v, %v, want a clean rebase", conflicts, err)
+	if err != nil || conflict.Conflicted() {
+		t.Fatalf("Rebase = %+v, %v, want a clean rebase", conflict, err)
 	}
 	if body, err := os.ReadFile(filepath.Join(worktree, "work.txt")); err != nil || string(body) != "committed\nand more\n" {
 		t.Errorf("the uncommitted change reads %q, %v", body, err)
@@ -1080,10 +1084,10 @@ func TestRebaseReportsABaseThatIsNotThere(t *testing.T) {
 		t.Fatalf("AddWorktree: %v", err)
 	}
 
-	conflicts, err := git.Rebase(worktree, "no-such-branch")
+	conflict, err := git.Rebase(worktree, "no-such-branch")
 
 	if err == nil {
-		t.Fatalf("Rebase onto a branch that is not there reported %v and no error", conflicts)
+		t.Fatalf("Rebase onto a branch that is not there reported %+v and no error", conflict)
 	}
 	if !strings.Contains(err.Error(), "no-such-branch") {
 		t.Errorf("error %q does not name the base", err)
@@ -1128,7 +1132,7 @@ func TestFetchBaseUpdatesWhatIsKnownWithoutMovingAnything(t *testing.T) {
 	pushed := strings.TrimSpace(run(t, other, "rev-parse", "HEAD"))
 	mine := strings.TrimSpace(run(t, dir, "rev-parse", "main"))
 
-	if err := git.FetchBase(dir, "main"); err != nil {
+	if err := git.FetchBase(context.Background(), dir, "main"); err != nil {
 		t.Fatalf("FetchBase: %v", err)
 	}
 
@@ -1143,7 +1147,7 @@ func TestFetchBaseUpdatesWhatIsKnownWithoutMovingAnything(t *testing.T) {
 func TestFetchBaseWithNoRemoteIsNothingToDo(t *testing.T) {
 	dir := newRepo(t)
 
-	if err := git.FetchBase(dir, "main"); err != nil {
+	if err := git.FetchBase(context.Background(), dir, "main"); err != nil {
 		t.Errorf("FetchBase on a repository with no remote: %v", err)
 	}
 }
@@ -1152,7 +1156,7 @@ func TestFetchBaseReportsARemoteItCannotReach(t *testing.T) {
 	dir := newRepo(t)
 	run(t, dir, "remote", "add", "origin", filepath.Join(t.TempDir(), "not-there.git"))
 
-	err := git.FetchBase(dir, "main")
+	err := git.FetchBase(context.Background(), dir, "main")
 
 	if err == nil {
 		t.Fatal("FetchBase reported success for a remote that is not there")
@@ -1174,4 +1178,89 @@ func runAllowingFailure(t *testing.T, dir string, args ...string) string {
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	out, _ := cmd.CombinedOutput()
 	return string(out)
+}
+
+func TestRebaseIsOntoTheBranchNotATagOfTheSameName(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	commit(t, worktree, "work.txt", "the agent's work\n")
+	// A tag with the base branch's name, which git resolves before the branch
+	// when a bare name is used. An Agent can plant one: the worktree shares
+	// the repository's tags.
+	run(t, worktree, "tag", "main", "HEAD")
+	commit(t, dir, "from-base.txt", "moved on\n")
+
+	conflict, err := git.Rebase(worktree, "main")
+
+	if err != nil || conflict.Conflicted() {
+		t.Fatalf("Rebase = %+v, %v, want a clean rebase", conflict, err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "from-base.txt")); err != nil {
+		t.Errorf("the branch was rebased onto the tag rather than the base branch: %v", err)
+	}
+}
+
+func TestRebaseReportsAConflictInWhatNobodyCommitted(t *testing.T) {
+	dir := newRepo(t)
+	commit(t, dir, "both.txt", "shared\n")
+	worktree := filepath.Join(t.TempDir(), "job")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	// What the branch committed replays cleanly; what nobody committed is
+	// where the conflict is.
+	commit(t, worktree, "other.txt", "the agent's work\n")
+	commit(t, dir, "both.txt", "shared\nfrom the base\n")
+	if err := os.WriteFile(filepath.Join(worktree, "both.txt"), []byte("shared\nfrom the agent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	conflict, err := git.Rebase(worktree, "main")
+
+	if err != nil {
+		t.Fatalf("Rebase: %v", err)
+	}
+	if !conflict.InStash {
+		t.Errorf("Rebase = %+v; the conflict is in putting back what nobody committed", conflict)
+	}
+	if strings.Join(conflict.Paths, ",") != "both.txt" {
+		t.Errorf("conflicts = %v, want both.txt", conflict.Paths)
+	}
+	// Nothing was lost: git keeps what it stashed.
+	if out := run(t, worktree, "stash", "list"); strings.TrimSpace(out) == "" {
+		t.Errorf("the changes nobody committed are not in the stash")
+	}
+}
+
+func TestRebaseLeavesNoRebaseInProgressWhenItCannotCommit(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	commit(t, worktree, "work.txt", "the agent's work\n")
+	before := strings.TrimSpace(run(t, worktree, "rev-parse", "HEAD"))
+	commit(t, dir, "from-base.txt", "moved on\n")
+	// Signing that cannot work, which is what a daemon with no terminal gets
+	// from an ordinary developer's configuration.
+	run(t, dir, "config", "commit.gpgsign", "true")
+	run(t, dir, "config", "gpg.program", filepath.Join(t.TempDir(), "no-such-gpg"))
+
+	conflict, err := git.Rebase(worktree, "main")
+
+	if err == nil {
+		t.Fatalf("Rebase = %+v and no error, want the failure reported", conflict)
+	}
+	if progress, err := git.RebaseInProgress(worktree); err != nil || progress {
+		t.Errorf("RebaseInProgress = %v, %v; a rebase that stopped is aborted whatever stopped it", progress, err)
+	}
+	if got := strings.TrimSpace(run(t, worktree, "rev-parse", "HEAD")); got != before {
+		t.Errorf("the worktree is at %s, want where it was, %s", got, before)
+	}
+	if got := strings.TrimSpace(run(t, worktree, "rev-parse", "--abbrev-ref", "HEAD")); got != "owl/job-1" {
+		t.Errorf("the worktree is on %q, want the job's branch", got)
+	}
 }
