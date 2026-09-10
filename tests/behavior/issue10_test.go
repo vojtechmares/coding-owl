@@ -664,17 +664,28 @@ type workflow struct {
 	} `yaml:"jobs"`
 }
 
-// step returns the step of a job whose command holds needle, so a scenario can
-// say which step must do what rather than grepping the whole job.
+// step returns the command of the step of a job that holds needle, with its
+// comments taken out: a scenario says which step must do what, and a comment
+// mentioning the right words is not doing it.
 func (w workflow) step(t *testing.T, job, needle string) string {
 	t.Helper()
 	for _, s := range w.Jobs[job].Steps {
-		if strings.Contains(s.Run, needle) {
-			return s.Run
+		if run := uncommented(s.Run); strings.Contains(run, needle) {
+			return run
 		}
 	}
 	t.Fatalf("no step of the %s job runs %q:\n%s", job, needle, w.job(t, job))
 	return ""
+}
+
+func uncommented(run string) string {
+	var kept []string
+	for _, ln := range strings.Split(run, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(ln), "#") {
+			kept = append(kept, ln)
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 func (w workflow) job(t *testing.T, name string) string {
@@ -725,12 +736,14 @@ func TestS14ReleaseWorkflowGuardsTheTagAndPublishes(t *testing.T) {
 	if got := w.Env["RELEASE_BRANCH"]; got != "main" {
 		t.Errorf("releases are cut from %q, want main", got)
 	}
-	guard := w.job(t, "guard")
-	if !strings.Contains(guard, "merge-base --is-ancestor") {
-		t.Errorf("the guard job does not check the tagged commit is on the release branch:\n%s", guard)
+	// The guard has to refuse, not merely work the answer out: the negation is
+	// matched with it, so a check whose result is thrown away fails here.
+	guard := w.step(t, "guard", "merge-base --is-ancestor")
+	if !strings.Contains(guard, `if ! git merge-base --is-ancestor`) {
+		t.Errorf("the guard step does not refuse a commit that is not on the release branch:\n%s", guard)
 	}
-	if !strings.Contains(guard, "RELEASE_BRANCH") {
-		t.Errorf("the guard job does not use the release branch:\n%s", guard)
+	if !strings.Contains(guard, "RELEASE_BRANCH") || !strings.Contains(guard, "exit 1") {
+		t.Errorf("the guard step does not exit on a tag off the release branch:\n%s", guard)
 	}
 	for name, j := range w.Jobs {
 		if name == "guard" {
@@ -743,7 +756,7 @@ func TestS14ReleaseWorkflowGuardsTheTagAndPublishes(t *testing.T) {
 	// The build step works out the checksum the formula will carry, and must
 	// not hand on one it could not find.
 	build := w.step(t, "release", "scripts/build-release.sh")
-	if !strings.Contains(build, "[0-9a-f]{64}") || !strings.Contains(build, "exit 1") {
+	if !strings.Contains(build, `! "$SHA256" =~ ^[0-9a-f]{64}$`) || !strings.Contains(build, "exit 1") {
 		t.Errorf("the build step does not refuse a checksum it could not work out:\n%s", build)
 	}
 	// The release is the assets: a release published without them leaves the
@@ -878,6 +891,13 @@ func agentPath(l *layout) string {
 func TestS15DaemonInstallWritesTheLaunchAgent(t *testing.T) {
 	requireDarwin(t)
 	l, _ := launchctlStub(t, newLayout(t), "")
+	// A state directory that is already there, and readable by everybody.
+	if err := os.MkdirAll(filepath.Join(l.state, "coding-owl"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(l.state, "coding-owl"), 0o777); err != nil {
+		t.Fatal(err)
+	}
 
 	res := runOwl(t, l, "daemon", "install")
 
