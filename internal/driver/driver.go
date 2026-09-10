@@ -28,7 +28,8 @@ type Capabilities struct {
 
 // Request is what a Run asks its Agent to do.
 type Request struct {
-	// Prompt is the work, in the user's words.
+	// Prompt is what the Agent is asked to do: the user's own words, inside
+	// whatever the phase of the Job builds around them (ADR-0026).
 	Prompt string
 	// SystemPrompt is Owl's standing unattended contract with the Project's
 	// own clauses appended (ADR-0017).

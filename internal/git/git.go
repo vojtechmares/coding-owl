@@ -182,7 +182,9 @@ func CommitPath(dir, path, msg string) (committed bool, err error) {
 	default:
 		return false, fmt.Errorf("looking for changes to %s in %s: %s", path, dir, message(stderr))
 	}
-	args := append(append([]string{}, owlIdentity...), "commit", "-m", msg, "--", path)
+	// --no-verify: the hooks in this repository are the Agent's to write, and
+	// Owl's bookkeeping commit is not the place to run them.
+	args := append(append([]string{}, owlIdentity...), "commit", "--no-verify", "-m", msg, "--", path)
 	_, stderr, code, err = run(dir, args...)
 	if err != nil {
 		return false, err
@@ -220,7 +222,7 @@ func run(dir string, args ...string) (stdout []byte, stderr string, code int, er
 	case errors.As(err, &exitErr):
 		return out.Bytes(), errb.String(), exitErr.ExitCode(), nil
 	default:
-		return nil, errb.String(), -1, fmt.Errorf("running git %s in %s: %w", args[0], dir, err)
+		return nil, errb.String(), -1, fmt.Errorf("running git %s in %s: %w", strings.Join(args, " "), dir, err)
 	}
 }
 

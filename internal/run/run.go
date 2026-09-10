@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -38,6 +39,10 @@ const logSuffix = ".jsonl"
 // maxLine bounds one line of an Agent's structured output. A tool result can
 // be large; a line that is larger than this is a runaway rather than an event.
 const maxLine = 8 << 20
+
+// maxHandoff bounds the handoff document, which is read into the daemon, the
+// database and the next Agent's prompt.
+const maxHandoff = 256 << 10
 
 // stderrTail is how much of a failed Agent's standard error is quoted in the
 // reason the Job is blocked with.
@@ -336,16 +341,30 @@ func (s *Service) promptFor(phase Phase, j store.Job) (string, error) {
 
 // readHandoff reads a Job's handoff from its worktree. A Job that has none yet
 // is not an error: its first Run writes one.
+//
+// The file is written by an unattended Agent and read back into the daemon,
+// the database and the next Agent's prompt, so it is opened without following
+// a symlink and read up to a limit: a handoff is a document someone will read,
+// not a way to fetch a file or exhaust the daemon.
 func readHandoff(worktree string) (string, error) {
 	if worktree == "" {
 		return "", nil
 	}
-	data, err := os.ReadFile(filepath.Join(worktree, HandoffPath))
+	path := filepath.Join(worktree, HandoffPath)
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", HandoffPath, err)
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxHandoff+1))
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", HandoffPath, err)
+	}
+	if len(data) > maxHandoff {
+		return "", fmt.Errorf("%s is larger than %d bytes; a handoff is a document, not a dump", HandoffPath, maxHandoff)
 	}
 	return string(data), nil
 }
@@ -407,7 +426,7 @@ func (s *Service) Show(ctx context.Context, jobID int64) (Details, error) {
 		return Details{}, err
 	}
 	settings := make([]Settings, 0, len(phases))
-	for _, phase := range phases {
+	for _, phase := range phasesOf(j) {
 		// A phase whose settings are unusable is still worth reporting: the
 		// value that is the problem is what a user needs to see.
 		resolved, _ := resolve(phase, global, details.Config, j)

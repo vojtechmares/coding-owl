@@ -208,7 +208,7 @@ func TestS1RunStartsTheOldestPendingJobInItsOwnWorktree(t *testing.T) {
 	l, _ := agentLayout(t, agentScript, 0)
 	daemonUp(t, l)
 	r := runnableJob(t, l, "first")
-	addJob(t, l, r.dir, "second")
+	addJob(t, l, r.dir, "second", "--no-plan")
 
 	run, job := startRun(t, l)
 	finished(t, l, job)
@@ -554,9 +554,9 @@ func TestS11RunInvokesPrintModeWithoutPermissionPrompts(t *testing.T) {
 		}
 	}
 	// The Job's prompt is carried inside the prompt the phase builds around
-	// it, so it is in an argument rather than being one.
-	if !strings.Contains(strings.Join(inv.Argv, "\n"), "fix the flaky test") {
-		t.Errorf("the job's prompt is not in the agent's argv: %v", inv.Argv)
+	// it, so it is in the last argument rather than being one of its own.
+	if last := inv.Argv[len(inv.Argv)-1]; !strings.Contains(last, "fix the flaky test") {
+		t.Errorf("the job's prompt is not in the prompt the agent was given: %q", last)
 	}
 }
 
@@ -579,7 +579,7 @@ func TestS13RunAppliesASpendCapOnlyWhenConfigured(t *testing.T) {
 	r := newRepo(t, l, "api")
 	r.commit(".coding-owl.yaml", "apiVersion: codingowl.dev/v1\nbudgetUSD: 5\n", "configure owl")
 	addProject(t, l, r)
-	addJob(t, l, r.dir, "work")
+	addJob(t, l, r.dir, "work", "--no-plan")
 
 	_, job := startRun(t, l)
 	finished(t, l, job)
@@ -633,7 +633,7 @@ func TestS15RunBranchesFromTheBaseBranchUnderThePrefix(t *testing.T) {
 	r := newRepo(t, l, "api")
 	r.commit(".coding-owl.yaml", owlConfig("nightly/"), "configure owl")
 	addProject(t, l, r)
-	addJob(t, l, r.dir, "work")
+	addJob(t, l, r.dir, "work", "--no-plan")
 
 	_, job := startRun(t, l)
 	finished(t, l, job)
@@ -671,7 +671,7 @@ func TestS17RunOnlyOneAtATime(t *testing.T) {
 	l, s := agentLayout(t, script, 0)
 	daemonUp(t, l)
 	r := runnableJob(t, l, "first")
-	addJob(t, l, r.dir, "second")
+	addJob(t, l, r.dir, "second", "--no-plan")
 	_, job := startRun(t, l)
 
 	res := runOwl(t, l, "start")
@@ -804,7 +804,8 @@ func TestSmokeRealClaudeCode(t *testing.T) {
 	l := newLayout(t)
 	daemonUp(t, l)
 	r := project(t, l, "api")
-	addJob(t, l, r.dir, "Write a file called SMOKE.md containing the single word owl, then commit it.")
+	addJob(t, l, r.dir,
+		"Write a file called SMOKE.md containing the single word owl, then commit it.", "--no-plan")
 
 	run, job := startRun(t, l)
 	out := finished(t, l, job)
@@ -823,7 +824,7 @@ func TestS23RunAnUnfinishedRunDoesNotHoldTheQueue(t *testing.T) {
 	l, _ := agentLayout(t, script, 0)
 	p := daemonUp(t, l)
 	r := runnableJob(t, l, "first")
-	addJob(t, l, r.dir, "second")
+	addJob(t, l, r.dir, "second", "--no-plan")
 	run, job := startRun(t, l)
 
 	if err := p.cmd.Process.Kill(); err != nil {
