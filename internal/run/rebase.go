@@ -37,7 +37,7 @@ func (s *Service) rebase(ctx context.Context, j store.Job, details project.Detai
 	on, err := git.CurrentBranch(j.Worktree)
 	if err != nil || on != j.Branch {
 		return s.blocked(j, fmt.Sprintf(
-			"the worktree %s is on %s rather than the job's own branch %s, so there is nothing here to rebase",
+			"the worktree %s is on %s and not on the job's own branch %s, so there is nothing here to rebase",
 			j.Worktree, describe(on), j.Branch))
 	}
 

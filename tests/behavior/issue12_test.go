@@ -122,6 +122,12 @@ func TestS2RebaseReplaysWhatTheAgentCommitted(t *testing.T) {
 	if got := rb.repo.git("show", rb.branch(t)+":work.txt"); got != agentWork {
 		t.Errorf("the job's branch no longer carries the agent's commit: %q", got)
 	}
+	// On top of the new base: a rebase that quietly did nothing would still
+	// have left the agent's work where it was.
+	base := strings.TrimSpace(rb.repo.git("rev-parse", "main"))
+	if out := rb.gitInWorktree(t, "merge-base", "--is-ancestor", base, "HEAD"); out != "" {
+		t.Errorf("the agent's commit is not on top of the new base: %s", out)
+	}
 	rb.stub.let(t)
 }
 
@@ -241,8 +247,10 @@ func TestS7TheFirstRunHasNothingToRebase(t *testing.T) {
 
 func TestS8OnlyTheJobsBranchIsRebased(t *testing.T) {
 	rb := rebasingJob(t, map[string]string{"work.txt": agentWork})
-	// A branch of somebody else's, and an uncommitted file in the Project.
-	rb.repo.git("branch", "someone-else")
+	// A branch of somebody else's pointing at one of the Job's own commits,
+	// which is the one a rebase could carry along with it, and an uncommitted
+	// file in the Project.
+	rb.repo.git("branch", "someone-else", rb.branch(t))
 	elsewhere := strings.TrimSpace(rb.repo.git("rev-parse", "someone-else"))
 	rb.repo.write("mine.txt", "not committed\n")
 	rb.moveBase(t, "from-base.txt", "added while the job was waiting\n")
@@ -412,8 +420,11 @@ func TestS15AWorktreeNotOnTheJobsBranchIsNotRebased(t *testing.T) {
 	if got := line(t, out, "state"); got != "blocked" {
 		t.Errorf("state = %q, want blocked", got)
 	}
-	if reason := line(t, out, "reason"); !strings.Contains(reason, "someone-else") {
-		t.Errorf("the reason does not say what the worktree is on: %q", reason)
+	reason := line(t, out, "reason")
+	for _, want := range []string{"someone-else", "not on the job's own branch"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("the reason does not say %q: %q", want, reason)
+		}
 	}
 	if got := strings.TrimSpace(rb.repo.git("rev-parse", "someone-else")); got != elsewhere {
 		t.Errorf("somebody else's branch moved to %s, want %s", got, elsewhere)
@@ -476,5 +487,8 @@ func TestS17ARebaseThatCannotBeCarriedOutBlocksTheJob(t *testing.T) {
 	}
 	if got := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "HEAD")); got != before {
 		t.Errorf("the worktree is at %s, want where it was, %s", got, before)
+	}
+	if got := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "--abbrev-ref", "HEAD")); got != rb.branch(t) {
+		t.Errorf("the worktree is on %q, want the job's own branch", got)
 	}
 }

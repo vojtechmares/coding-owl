@@ -3,12 +3,12 @@
 All scenarios drive the built `owl` binary from the outside against a running
 daemon, with the stub agent of issue #5 first on the daemon's `PATH` in place of
 Claude Code. The XDG layout, the temporary repository and the stub are as
-`tests/behavior/issue-5.md` describes them, and Jobs are queued with `--no-plan`
-so that one `owl start` carries a Job into an execution Run.
+`tests/behavior/issue-5.md` describes them.
 
-A Job takes several Runs here, which is what makes a rebase possible at all: the
-first Run's branch is cut fresh from the base, and the base moves before the
-second one starts.
+A Job takes several Runs here, which is what makes a rebase possible at all, so
+Jobs are queued planned rather than with `--no-plan`: the planning Run's branch
+is cut fresh from the base, the Job goes back in the queue, and the base moves
+before its execution Run starts.
 
 "The Project's base branch" is the local branch the Project was registered
 against. Owl rebases the Job's own branch onto it and never moves anything else.
