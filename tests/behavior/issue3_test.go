@@ -806,3 +806,20 @@ func TestListIsPrintedInNameOrder(t *testing.T) {
 		t.Errorf("owl project list order = %s, want api,tools,web", got)
 	}
 }
+
+func TestS32TagDoesNotShadowTheBaseBranch(t *testing.T) {
+	l := newLayout(t)
+	daemonUp(t, l)
+	r := newRepo(t, l, "api")
+	r.commit(".coding-owl.yaml", owlConfig("branch/"), "config on main")
+	r.git("checkout", "-q", "-b", "other")
+	r.commit(".coding-owl.yaml", owlConfig("tag/"), "config on other")
+	r.git("tag", "main", "other")
+	r.git("checkout", "-q", "main")
+	addProject(t, l, r)
+
+	show := mustOwl(t, l, "project", "show", "api").stdout
+
+	wantLine(t, show, "branch prefix", "branch/")
+	wantLine(t, show, "config", "main:.coding-owl.yaml")
+}

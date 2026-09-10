@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -39,21 +40,34 @@ func Root(dir string) (string, error) {
 // CurrentBranch returns the branch HEAD points at in dir. It fails on a
 // detached HEAD, where there is no branch to name.
 func CurrentBranch(dir string) (string, error) {
-	out, _, code, err := run(dir, "symbolic-ref", "--short", "HEAD")
+	// Not --short: it shortens to the shortest unambiguous name, so a tag
+	// sharing the branch's name turns `main` into `heads/main`.
+	out, _, code, err := run(dir, "symbolic-ref", "HEAD")
 	if err != nil {
 		return "", err
 	}
 	if code != 0 {
 		return "", fmt.Errorf("%s is not on a branch; pass --base-branch", dir)
 	}
-	return strings.TrimSpace(string(out)), nil
+	ref := strings.TrimSpace(string(out))
+	branch, ok := strings.CutPrefix(ref, "refs/heads/")
+	if !ok {
+		return "", fmt.Errorf("%s has HEAD at %s, which is not a local branch; pass --base-branch", dir, ref)
+	}
+	return branch, nil
 }
+
+// branchRef is the full ref name of a local branch. Every read addresses a
+// branch this way: git resolves a bare name against tags before heads, so a
+// tag sharing a branch's name would otherwise shadow it - and pushing a tag
+// is not the same permission as pushing a protected branch.
+func branchRef(branch string) string { return "refs/heads/" + branch }
 
 // HasBranch reports whether dir has a local branch of exactly that name.
 // It verifies a ref rather than resolving a revision, so `main:path` and
 // `main@{1}` are not branches.
 func HasBranch(dir, branch string) (bool, error) {
-	_, stderr, code, err := run(dir, "show-ref", "--verify", "--quiet", "--", "refs/heads/"+branch)
+	_, stderr, code, err := run(dir, "show-ref", "--verify", "--quiet", "--", branchRef(branch))
 	if err != nil {
 		return false, err
 	}
@@ -67,10 +81,12 @@ func HasBranch(dir, branch string) (bool, error) {
 	}
 }
 
-// ShowFile returns the contents of path as it stands on ref. found is false
-// when ref carries no blob at that path, which includes the path naming a
-// directory. It fails when ref itself cannot be resolved.
-func ShowFile(dir, ref, path string) (data []byte, found bool, err error) {
+// ShowFileOnBranch returns the contents of path as it stands on the local
+// branch. found is false when the branch carries no blob at that path, which
+// includes the path naming a directory. It fails when the branch cannot be
+// resolved.
+func ShowFileOnBranch(dir, branch, path string) (data []byte, found bool, err error) {
+	ref := branchRef(branch)
 	// --end-of-options keeps a ref that begins with a dash out of option
 	// position; -z and --full-tree make the answer machine-readable.
 	out, stderr, code, err := run(dir, "ls-tree", "-z", "--full-tree", "--end-of-options", ref, "--", path)
@@ -78,7 +94,7 @@ func ShowFile(dir, ref, path string) (data []byte, found bool, err error) {
 		return nil, false, err
 	}
 	if code != 0 {
-		return nil, false, fmt.Errorf("reading %s:%s in %s: %s", ref, path, dir, message(stderr))
+		return nil, false, fmt.Errorf("reading %s:%s in %s: %s", branch, path, dir, message(stderr))
 	}
 	oid, ok := blobID(out)
 	if !ok {
@@ -90,7 +106,7 @@ func ShowFile(dir, ref, path string) (data []byte, found bool, err error) {
 		return nil, false, err
 	}
 	if code != 0 {
-		return nil, false, fmt.Errorf("reading %s:%s in %s: %s", ref, path, dir, message(stderr))
+		return nil, false, fmt.Errorf("reading %s:%s in %s: %s", branch, path, dir, message(stderr))
 	}
 	return blob, true, nil
 }
@@ -118,8 +134,11 @@ func run(dir string, args ...string) (stdout []byte, stderr string, code int, er
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	// A C locale keeps git's diagnostics in one language. Nothing below parses
-	// them, but they end up in messages users read.
-	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+	// them, but they end up in messages users read. The redirection variables
+	// are dropped because they override the repository chosen by cmd.Dir: a
+	// daemon started from inside a hook would otherwise read every Project out
+	// of whatever repository its environment happened to name.
+	cmd.Env = append(withoutGitRedirection(os.Environ()), "LC_ALL=C", "LANG=C")
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
@@ -133,6 +152,33 @@ func run(dir string, args ...string) (stdout []byte, stderr string, code int, er
 	default:
 		return nil, errb.String(), -1, fmt.Errorf("running git %s in %s: %w", args[0], dir, err)
 	}
+}
+
+// gitRedirection are the environment variables that move git away from the
+// directory it was pointed at.
+var gitRedirection = []string{
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_COMMON_DIR",
+	"GIT_INDEX_FILE",
+	"GIT_NAMESPACE",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_CEILING_DIRECTORIES",
+	"GIT_DISCOVERY_ACROSS_FILESYSTEM",
+}
+
+// withoutGitRedirection returns env with those variables removed.
+func withoutGitRedirection(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		name, _, _ := strings.Cut(e, "=")
+		if slices.Contains(gitRedirection, name) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // message trims git's diagnostic for embedding in an error, falling back to
