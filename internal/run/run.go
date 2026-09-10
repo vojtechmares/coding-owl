@@ -336,6 +336,13 @@ func (s *Service) promptFor(phase Phase, j store.Job) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The handoff in the worktree is what the last Run left and what the user
+	// may have edited since, so it wins. A Job whose worktree has lost the
+	// file still has its plan, which is what the handoff started as
+	// (ADR-0026).
+	if strings.TrimSpace(handoff) == "" {
+		handoff = j.Plan
+	}
 	return executePrompt(j.Prompt, handoff), nil
 }
 
