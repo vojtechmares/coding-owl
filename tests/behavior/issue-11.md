@@ -83,7 +83,7 @@ And the Run is still frozen, and resuming it still works
 ### S7 - the grace window ends a frozen Run
 Given a running daemon whose `graceWindow` is a second, and a frozen Run
 When the window passes
-Then the Run ends `interrupted` within ten seconds
+Then the Run ends `interrupted` within a few seconds
 And its Job is `pending` again
 And the heartbeat file is not growing, and the Agent and the child it started are both gone
 
@@ -101,7 +101,7 @@ And the Agent's prompt holds what the handoff said
 And the Job keeps the branch and worktree it already had
 
 ### S10 - the grace window is configurable
-Given a daemon whose `graceWindow` is `3s`, and a frozen Run
+Given a daemon whose `graceWindow` is `2s`, and a frozen Run
 When one second has passed
 Then the Run is still in progress
 And after the window has passed the Run is `interrupted`

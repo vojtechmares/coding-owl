@@ -11,6 +11,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -113,15 +114,38 @@ func sleep(d time.Duration) { time.Sleep(d) }
 func (b *beating) frozen(t *testing.T) (run, job string) {
 	t.Helper()
 	r := project(t, b.l, "api")
+	// Two Jobs queued and taken back, so that the Job that runs and the Run
+	// itself have different ids: a report that put them in each other's places
+	// would otherwise pass.
+	addJob(t, b.l, r.dir, "not this one", "--no-plan")
+	addJob(t, b.l, r.dir, "nor this one", "--no-plan")
+	mustOwl(t, b.l, "queue", "remove", "1")
+	mustOwl(t, b.l, "queue", "remove", "2")
 	addJob(t, b.l, r.dir, "work", "--no-plan")
 	run, job = startRun(t, b.l)
+	if run == job {
+		t.Fatalf("run %s and job %s have the same id, so this scenario cannot tell them apart", run, job)
+	}
 	b.started(t)
 
 	res := mustOwl(t, b.l, "pause")
-	if !strings.Contains(res.stdout, run) {
-		t.Fatalf("owl pause does not name the run it froze:\n%s", res.stdout)
+	if gotRun, gotJob := namedRun(t, res.stdout); gotRun != run || gotJob != job {
+		t.Fatalf("owl pause froze run %s of job %s, want run %s of job %s:\n%s",
+			gotRun, gotJob, run, job, res.stdout)
 	}
 	return run, job
+}
+
+// namedRunRE reads the run and the job out of what pause and resume print.
+var namedRunRE = regexp.MustCompile(`run (\d+) of job (\d+)`)
+
+func namedRun(t *testing.T, out string) (run, job string) {
+	t.Helper()
+	m := namedRunRE.FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("nothing named a run and a job:\n%s", out)
+	}
+	return m[1], m[2]
 }
 
 func TestS1PauseFreezesTheWholeProcessGroup(t *testing.T) {
@@ -155,8 +179,9 @@ func TestS2ResumeContinuesTheSameRun(t *testing.T) {
 
 	res := mustOwl(t, b.l, "resume")
 
-	if !strings.Contains(res.stdout, run) {
-		t.Errorf("owl resume does not name the run it continued:\n%s", res.stdout)
+	if gotRun, gotJob := namedRun(t, res.stdout); gotRun != run || gotJob != job {
+		t.Errorf("owl resume continued run %s of job %s, want run %s of job %s:\n%s",
+			gotRun, gotJob, run, job, res.stdout)
 	}
 	b.growing(t)
 	b.stub.let(t)
@@ -250,8 +275,10 @@ func TestS7GraceWindowEndsAFrozenRun(t *testing.T) {
 
 	started := time.Now()
 	row := waitRun(t, b.l, job, run)
-	if took := time.Since(started); took > 10*time.Second {
-		t.Errorf("the run took %s to end on a one second window", took.Round(time.Second))
+	// A few seconds: a one second window takes about one, and a window that
+	// fires late is a window nobody can rely on.
+	if took := time.Since(started); took > 4*time.Second {
+		t.Errorf("the run took %s to end on a one second window", took.Round(100*time.Millisecond))
 	}
 
 	if row.outcome != "interrupted" {
@@ -324,14 +351,14 @@ func TestS9NextRunContinuesFromTheHandoff(t *testing.T) {
 }
 
 func TestS10GraceWindowIsConfigurable(t *testing.T) {
-	b := beatingLayout(t, "apiVersion: codingowl.dev/v1\ngraceWindow: 3s\n")
+	b := beatingLayout(t, "apiVersion: codingowl.dev/v1\ngraceWindow: 2s\n")
 	daemonUp(t, b.l)
 	run, job := b.frozen(t)
 
 	sleep(time.Second)
 
 	if row := runRowOf(t, b.l, job, run); row.outcome != "running" && row.outcome != "paused" {
-		t.Errorf("run outcome = %q one second into a three second window, want it still in progress", row.outcome)
+		t.Errorf("run state = %q one second into a two second window, want it still in progress", row.outcome)
 	}
 	if row := waitRun(t, b.l, job, run); row.outcome != "interrupted" {
 		t.Errorf("run outcome = %q once the window passed, want interrupted", row.outcome)
@@ -377,8 +404,8 @@ func TestS12ResumingInsideTheWindowKeepsTheRun(t *testing.T) {
 
 	res := mustOwl(t, b.l, "resume")
 
-	if !strings.Contains(res.stdout, run) {
-		t.Errorf("owl resume continued a different run:\n%s", res.stdout)
+	if gotRun, _ := namedRun(t, res.stdout); gotRun != run {
+		t.Errorf("owl resume continued run %s, want the one that was frozen, %s:\n%s", gotRun, run, res.stdout)
 	}
 	b.stub.let(t)
 	if row := waitRun(t, b.l, job, run); row.outcome != "succeeded" {
@@ -541,14 +568,20 @@ func TestS17RecoveryQueuesWhatWasBeingCarriedOut(t *testing.T) {
 	addJob(t, b.l, r.dir, "work", "--no-plan")
 	run, job := startRun(t, b.l)
 	b.started(t)
+	// And a Job somebody has already decided about, which recovery must leave
+	// exactly where it is.
+	decided := addedJob(t, b.l, r.dir, "decided")
+
 	if err := d.cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
 	d.exit(t, 10*time.Second)
-	// The Run is closed but the Job was never put back: a daemon that died
-	// between the two halves of recovering.
+	// The Run is closed but the Job was never put back, and the decision was
+	// made before the daemon died: what a daemon that stopped between the two
+	// halves of recovering leaves behind.
 	closeRun(t, b.l, run)
-	if got := line(t, mustOwlNoDaemon(t, b.l, job), "state"); got != "active" {
+	setJobState(t, b.l, decided, "review")
+	if got := jobStateInStore(t, b.l, job); got != "active" {
 		t.Fatalf("state before the restart = %q, want the job still active", got)
 	}
 
@@ -557,6 +590,9 @@ func TestS17RecoveryQueuesWhatWasBeingCarriedOut(t *testing.T) {
 	if got := line(t, mustOwl(t, b.l, "jobs", "show", job).stdout, "state"); got != "pending" {
 		t.Errorf("state = %q, want pending: nothing is carrying that job out", got)
 	}
+	if got := line(t, mustOwl(t, b.l, "jobs", "show", decided).stdout, "state"); got != "review" {
+		t.Errorf("the job waiting for a decision is %q, want review: recovery does not undo a decision", got)
+	}
 	again, sameJob := startRun(t, b.l)
 	if sameJob != job || again == run {
 		t.Errorf("owl start began run %s of job %s, want a new run of job %s", again, sameJob, job)
@@ -564,9 +600,38 @@ func TestS17RecoveryQueuesWhatWasBeingCarriedOut(t *testing.T) {
 	mustOwl(t, b.l, "pause")
 }
 
-// mustOwlNoDaemon reads a Job straight from the database, for the moment
-// between one daemon dying and the next one starting.
-func mustOwlNoDaemon(t *testing.T, l *layout, job string) string {
+// addedJob queues a Job and returns its id.
+func addedJob(t *testing.T, l *layout, dir, prompt string) string {
+	t.Helper()
+	out := addJob(t, l, dir, prompt, "--no-plan").stdout
+	m := regexp.MustCompile(`job (\d+)`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("owl add did not name the job it queued:\n%s", out)
+	}
+	return m[1]
+}
+
+// setJobState puts a Job in a state by writing to the database, for a scenario
+// about what an earlier daemon left behind.
+func setJobState(t *testing.T, l *layout, job, state string) {
+	t.Helper()
+	id, err := strconv.ParseInt(job, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _, err := store.Open(filepath.Join(l.data, "coding-owl", "owl.db"))
+	if err != nil {
+		t.Fatalf("opening the database: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+	if err := st.SetJobState(context.Background(), id, state); err != nil {
+		t.Fatalf("SetJobState: %v", err)
+	}
+}
+
+// jobStateInStore reads a Job's state straight from the database, for the
+// moment between one daemon dying and the next one starting.
+func jobStateInStore(t *testing.T, l *layout, job string) string {
 	t.Helper()
 	id, err := strconv.ParseInt(job, 10, 64)
 	if err != nil {
@@ -581,7 +646,7 @@ func mustOwlNoDaemon(t *testing.T, l *layout, job string) string {
 	if err != nil {
 		t.Fatalf("GetJob: %v", err)
 	}
-	return "state: " + j.State + "\n"
+	return j.State
 }
 
 func TestS18StoppingTheDaemonEndsARunThatIsNotFrozen(t *testing.T) {
