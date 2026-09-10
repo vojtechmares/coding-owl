@@ -47,6 +47,7 @@ Given a running daemon and a Job whose Project configures a check that takes a f
 When `owl pause` runs while the checks are running
 Then it exits with a non-zero code
 And stderr says that Run is being verified rather than saying there is no run at all
+And `owl resume` says the same, in the words of the verb that was asked for
 
 ### S17 - what an earlier daemon was carrying out is queued again, however it died
 Given a database in which a Job is `active` and its Run was already recorded as interrupted, which is a daemon that died halfway through recovering
