@@ -120,7 +120,7 @@ Given `.github/workflows/release.yml`
 When it is read
 Then it triggers on pushed tags matching `v*` and on nothing else
 And its first job refuses a tag whose commit is not on `main`, and every other job waits for it
-And the publishing job runs `scripts/build-release.sh` and creates a GitHub release with the archive and the checksums
+And the publishing job runs `scripts/build-release.sh`, refuses to go on when it cannot work out the archive's checksum, and creates a GitHub release with the archive and the checksums file as its assets
 And the job that touches the tap refuses to start when `HOMEBREW_TAP_TOKEN` is not set, runs `scripts/bump-formula.sh`, and is skipped for a prerelease
 
 ### S21 - a formula that was committed but never pushed is pushed the next time

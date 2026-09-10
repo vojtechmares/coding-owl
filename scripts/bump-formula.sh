@@ -44,6 +44,10 @@ VERSION="${VERSION#v}"
 # is: owner/name, and nothing that could be read as Ruby.
 [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
 	die "REPO must be owner/name, got '$REPO'"
+# A branch is passed to git as an argument of its own, where a leading dash
+# would be read as an option rather than as a name.
+[[ "$TAP_BRANCH" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] ||
+	die "TAP_BRANCH must be a branch name, got '$TAP_BRANCH'"
 
 ARCHIVE="coding-owl_v${VERSION}_darwin_arm64.tar.gz"
 URL="https://github.com/$REPO/releases/download/v$VERSION/$ARCHIVE"
