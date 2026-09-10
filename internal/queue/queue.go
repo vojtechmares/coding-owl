@@ -253,7 +253,7 @@ func (s *Service) Reorder(ctx context.Context, id int64, position int) (Job, err
 		return Job{}, err
 	}
 	if position < 1 || position > n {
-		return Job{}, invalid("position %d is outside the queue: it holds %d job(s), so a position is between 1 and %d", position, n, n)
+		return Job{}, invalid("position %d is outside the queue; positions are between 1 and %d", position, n)
 	}
 	if err := s.store.MoveJob(ctx, id, position); err != nil {
 		return Job{}, err
