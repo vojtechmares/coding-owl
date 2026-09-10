@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"connectrpc.com/connect"
@@ -48,7 +49,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	for _, dir := range []string{opts.Paths.ConfigDir, opts.Paths.DataDir, opts.Paths.StateDir, filepath.Dir(sock)} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("creating %s: %w", dir, err)
 		}
 	}
@@ -60,6 +61,12 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("listening on %s: %w", sock, err)
 	}
+	// Only the owning user may connect; there is no authentication on the
+	// handler (ADR-0004 defers auth to a later TCP transport).
+	if err := os.Chmod(sock, 0o600); err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("restricting %s: %w", sock, err)
+	}
 	started := time.Now()
 
 	mux := http.NewServeMux()
@@ -68,7 +75,10 @@ func Run(ctx context.Context, opts Options) error {
 		socket:  sock,
 		started: started,
 	}))
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 
 	log.Info("daemon listening",
 		"socket", sock,
@@ -101,18 +111,28 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
-// removeStaleSocket unlinks a socket file nothing is listening on, and
-// returns ErrAlreadyListening when something is.
+// removeStaleSocket unlinks a socket that nothing is listening on, which is
+// what a crashed daemon leaves behind. It returns ErrAlreadyListening when a
+// daemon answers, and refuses to touch anything that is not a socket or that
+// is not clearly dead.
 func removeStaleSocket(sock string) error {
-	if _, err := os.Lstat(sock); errors.Is(err, fs.ErrNotExist) {
+	st, err := os.Lstat(sock)
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil
-	} else if err != nil {
+	}
+	if err != nil {
 		return err
+	}
+	if st.Mode()&fs.ModeSocket == 0 {
+		return fmt.Errorf("%s exists and is not a socket; refusing to remove it", sock)
 	}
 	conn, err := net.DialTimeout("unix", sock, time.Second)
 	if err == nil {
 		_ = conn.Close()
 		return fmt.Errorf("%w on %s", ErrAlreadyListening, sock)
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		return fmt.Errorf("%s did not answer but may be live (%v); refusing to remove it", sock, err)
 	}
 	if err := os.Remove(sock); err != nil {
 		return fmt.Errorf("removing stale socket %s: %w", sock, err)

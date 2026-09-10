@@ -20,6 +20,9 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/xdg"
 )
 
+// statusTimeout bounds owl daemon status so a wedged daemon cannot hang it.
+const statusTimeout = 5 * time.Second
+
 // Env is what the command tree needs from its process.
 type Env struct {
 	Paths  xdg.Paths
@@ -88,7 +91,12 @@ func newDaemonStatusCmd(env Env) *cobra.Command {
 		Short: "Report whether the daemon is running and reachable",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			st, err := client.New(env.Paths.SocketPath).DaemonStatus(cmd.Context())
+			if err := xdg.CheckSocketPath(env.Paths.SocketPath); err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), statusTimeout)
+			defer cancel()
+			st, err := client.New(env.Paths.SocketPath).DaemonStatus(ctx)
 			if err != nil {
 				return err
 			}

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -88,10 +89,10 @@ func newLayout(t *testing.T) *layout {
 	root := shortTempDir(t)
 	l := &layout{
 		root:   root,
-		home:   filepath.Join(root, "home"),
-		config: filepath.Join(root, "cfg"),
-		data:   filepath.Join(root, "data"),
-		state:  filepath.Join(root, "state"),
+		home:   filepath.Join(root, "h"),
+		config: filepath.Join(root, "c"),
+		data:   filepath.Join(root, "d"),
+		state:  filepath.Join(root, "s"),
 	}
 	for _, d := range []string{l.home, l.config, l.data, l.state} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -160,10 +161,15 @@ func runOwl(t *testing.T, l *layout, args ...string) result {
 // daemonProc is a running `owl daemon run` subprocess.
 type daemonProc struct {
 	cmd     *exec.Cmd
-	out     *syncBuffer
+	stdout  *syncBuffer
+	stderr  *syncBuffer
 	done    chan struct{} // closed once the process has been waited for
 	waitErr error
 }
+
+// out returns stdout and stderr together, for checks that only care that a
+// line was logged to one of them.
+func (p *daemonProc) out() string { return p.stdout.String() + p.stderr.String() }
 
 type syncBuffer struct {
 	mu sync.Mutex
@@ -186,13 +192,12 @@ func startDaemon(t *testing.T, l *layout) *daemonProc {
 	t.Helper()
 	cmd := exec.Command(owlBin, "daemon", "run")
 	cmd.Env = l.env
-	out := &syncBuffer{}
-	cmd.Stdout = out
-	cmd.Stderr = out
+	p := &daemonProc{cmd: cmd, stdout: &syncBuffer{}, stderr: &syncBuffer{}, done: make(chan struct{})}
+	cmd.Stdout = p.stdout
+	cmd.Stderr = p.stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	p := &daemonProc{cmd: cmd, out: out, done: make(chan struct{})}
 	go func() {
 		p.waitErr = cmd.Wait()
 		close(p.done)
@@ -228,7 +233,7 @@ func (p *daemonProc) exit(t *testing.T, within time.Duration) int {
 		}
 		return 0
 	case <-time.After(within):
-		t.Fatalf("daemon did not exit within %s; output:\n%s", within, p.out.String())
+		t.Fatalf("daemon did not exit within %s; output:\n%s", within, p.out())
 		return -1
 	}
 }
@@ -256,7 +261,7 @@ func waitForSocket(t *testing.T, path string) {
 func waitForLog(t *testing.T, p *daemonProc, substr string) {
 	t.Helper()
 	waitFor(t, "log containing "+strconv.Quote(substr), func() bool {
-		return strings.Contains(p.out.String(), substr)
+		return strings.Contains(p.out(), substr)
 	})
 }
 
@@ -277,8 +282,8 @@ func TestS1DaemonRunListensInForeground(t *testing.T) {
 	waitForSocket(t, l.socket())
 	waitForLog(t, p, "socket="+l.socket())
 
-	if want := "pid=" + strconv.Itoa(p.cmd.Process.Pid); !strings.Contains(p.out.String(), want) {
-		t.Errorf("daemon log does not report its own pid %s; the process forked or detached?\n%s", want, p.out.String())
+	if want := "pid=" + strconv.Itoa(p.cmd.Process.Pid); !strings.Contains(p.out(), want) {
+		t.Errorf("daemon log does not report its own pid %s; the process forked or detached?\n%s", want, p.out())
 	}
 
 	var pidFiles []string
@@ -305,10 +310,9 @@ func TestS2DaemonStatusReportsVersionUptimeSocket(t *testing.T) {
 	if got := line(t, res.stdout, "version"); got != testVersion {
 		t.Errorf("version = %q, want %q", got, testVersion)
 	}
-	if up := line(t, res.stdout, "uptime"); true {
-		if _, err := time.ParseDuration(up); err != nil {
-			t.Errorf("uptime %q does not parse as a duration: %v", up, err)
-		}
+	up := line(t, res.stdout, "uptime")
+	if _, err := time.ParseDuration(up); err != nil {
+		t.Errorf("uptime %q does not parse as a duration: %v", up, err)
 	}
 	if got := line(t, res.stdout, "socket"); got != l.socket() {
 		t.Errorf("socket = %q, want %q", got, l.socket())
@@ -334,7 +338,7 @@ func TestS3DaemonStatusWithoutDaemonFails(t *testing.T) {
 
 func TestS4SocketPathPrefersRuntimeDir(t *testing.T) {
 	l := newLayout(t)
-	runtime := filepath.Join(l.root, "run")
+	runtime := filepath.Join(l.root, "r")
 	if err := os.MkdirAll(runtime, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -375,14 +379,14 @@ func TestS6OverlongSocketPathRefused(t *testing.T) {
 	p := startDaemon(t, l)
 	code := p.exit(t, 5*time.Second)
 	if code == 0 {
-		t.Fatalf("expected non-zero exit, output: %s", p.out.String())
+		t.Fatalf("expected non-zero exit, output: %s", p.out())
 	}
-	out := p.out.String()
-	if !strings.Contains(out, "too long") {
-		t.Errorf("stderr does not say the path is too long: %q", out)
+	stderr := p.stderr.String()
+	if !strings.Contains(stderr, "too long") {
+		t.Errorf("stderr does not say the path is too long: %q", stderr)
 	}
-	if !strings.Contains(out, want) {
-		t.Errorf("stderr does not print the path %s: %q", want, out)
+	if !strings.Contains(stderr, want) {
+		t.Errorf("stderr does not print the path %s: %q", want, stderr)
 	}
 	if _, err := os.Stat(want); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("socket should not exist, stat err = %v", err)
@@ -395,7 +399,7 @@ func startupDirs(t *testing.T, p *daemonProc) map[string]string {
 	t.Helper()
 	waitForLog(t, p, "state=")
 	dirs := map[string]string{}
-	for _, m := range dirRe.FindAllStringSubmatch(p.out.String(), -1) {
+	for _, m := range dirRe.FindAllStringSubmatch(p.out(), -1) {
 		dirs[m[1]] = strings.Trim(m[2], `"`)
 	}
 	return dirs
@@ -502,7 +506,7 @@ func TestS9SigtermStopsCleanly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if code := p.exit(t, 5*time.Second); code != 0 {
-		t.Errorf("exit code = %d, want 0; output:\n%s", code, p.out.String())
+		t.Errorf("exit code = %d, want 0; output:\n%s", code, p.out())
 	}
 	if _, err := os.Stat(l.socket()); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("socket should be removed, stat err = %v", err)
@@ -511,19 +515,22 @@ func TestS9SigtermStopsCleanly(t *testing.T) {
 
 func TestS10StaleSocketReplaced(t *testing.T) {
 	l := newLayout(t)
-	if err := os.MkdirAll(filepath.Dir(l.socket()), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(l.socket()), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	// A leftover socket that nothing listens on: bind then close without
 	// unlinking, which is what a crashed daemon leaves behind.
-	stale, err := os.Create(l.socket())
+	ln, err := net.Listen("unix", l.socket())
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = stale.Close()
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	_ = ln.Close()
 
-	startDaemon(t, l)
-	waitForSocket(t, l.socket())
+	// The stale inode already exists, so wait for the daemon to say it is
+	// listening rather than for the file to appear.
+	p := startDaemon(t, l)
+	waitForLog(t, p, "daemon listening")
 	res := runOwl(t, l, "daemon", "status")
 	if res.code != 0 {
 		t.Fatalf("exit %d, stderr: %s", res.code, res.stderr)
@@ -537,10 +544,10 @@ func TestS11SecondDaemonRefused(t *testing.T) {
 
 	second := startDaemon(t, l)
 	if code := second.exit(t, 5*time.Second); code == 0 {
-		t.Fatalf("second daemon should fail; output: %s", second.out.String())
+		t.Fatalf("second daemon should fail; output: %s", second.stderr.String())
 	}
-	if !strings.Contains(second.out.String(), "already listening") {
-		t.Errorf("second daemon stderr should say a daemon is already listening: %q", second.out.String())
+	if !strings.Contains(second.stderr.String(), "already listening") {
+		t.Errorf("second daemon stderr should say a daemon is already listening: %q", second.stderr.String())
 	}
 
 	res := runOwl(t, l, "daemon", "status")
@@ -577,7 +584,14 @@ func TestS13CIRunsTestsLintAndBreaking(t *testing.T) {
 		t.Fatal(err)
 	}
 	ci := string(b)
-	for _, want := range []string{"push", "go test", "buf lint", "buf breaking", "main"} {
+	if !regexp.MustCompile(`(?m)^on:\s*\n\s+push:`).MatchString(ci) {
+		t.Errorf("ci.yml does not trigger on push:\n%s", ci)
+	}
+	for _, want := range []string{
+		"run: go test ./...",
+		"run: buf lint",
+		"buf breaking --against '.git#ref=origin/main'",
+	} {
 		if !strings.Contains(ci, want) {
 			t.Errorf("ci.yml does not contain %q", want)
 		}

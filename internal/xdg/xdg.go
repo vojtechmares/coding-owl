@@ -43,8 +43,15 @@ func ResolveFrom(getenv func(string) string) (Paths, error) {
 	if home == "" {
 		return Paths{}, errors.New("HOME is not set")
 	}
+	// The XDG spec says a relative value is invalid and must be ignored.
+	abs := func(envVar string) string {
+		if v := getenv(envVar); filepath.IsAbs(v) {
+			return v
+		}
+		return ""
+	}
 	base := func(envVar, fallback string) string {
-		if v := getenv(envVar); v != "" {
+		if v := abs(envVar); v != "" {
 			return filepath.Join(v, appDir)
 		}
 		return filepath.Join(home, fallback, appDir)
@@ -54,7 +61,7 @@ func ResolveFrom(getenv func(string) string) (Paths, error) {
 		DataDir:   base("XDG_DATA_HOME", filepath.Join(".local", "share")),
 		StateDir:  base("XDG_STATE_HOME", filepath.Join(".local", "state")),
 	}
-	if rt := getenv("XDG_RUNTIME_DIR"); rt != "" {
+	if rt := abs("XDG_RUNTIME_DIR"); rt != "" {
 		p.SocketPath = filepath.Join(rt, appDir, socketName)
 	} else {
 		p.SocketPath = filepath.Join(p.StateDir, socketName)
