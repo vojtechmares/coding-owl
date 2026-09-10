@@ -31,8 +31,11 @@ import (
 const testVersion = "1.2.3-test"
 
 var (
-	owlBin  string
-	repoDir string
+	owlBin string
+	// fakeClaudeDir holds the stub agent, built as `claude`, for the daemon's
+	// PATH in the issue #5 scenarios.
+	fakeClaudeDir string
+	repoDir       string
 )
 
 func TestMain(m *testing.M) {
@@ -58,6 +61,24 @@ func TestMain(m *testing.M) {
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "building owl:", err)
+		_ = os.RemoveAll(tmp)
+		os.Exit(1)
+	}
+
+	// The stub agent goes in a directory of its own, because what puts it in
+	// front of a real Claude Code is being first on the daemon's PATH.
+	fakeClaudeDir = filepath.Join(tmp, "agent")
+	if err := os.MkdirAll(fakeClaudeDir, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		_ = os.RemoveAll(tmp)
+		os.Exit(1)
+	}
+	stub := exec.Command("go", "build", "-o", filepath.Join(fakeClaudeDir, "claude"), "./tests/behavior/fakeclaude")
+	stub.Dir = repoDir
+	stub.Stdout = os.Stderr
+	stub.Stderr = os.Stderr
+	if err := stub.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "building the stub agent:", err)
 		_ = os.RemoveAll(tmp)
 		os.Exit(1)
 	}
