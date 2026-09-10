@@ -19,6 +19,11 @@ import (
 // nothingPending is what owl start prints when the queue holds nothing to run.
 const nothingPending = "nothing pending to run"
 
+// startTimeout bounds owl start, which waits for the Project's setup commands
+// before the Run begins. Each of those is bounded by the daemon; this only has
+// to outlast them.
+const startTimeout = time.Hour
+
 // noValue stands in for a field a Job does not have yet.
 const noValue = "(none)"
 
@@ -33,7 +38,12 @@ touches your checkout, and the Run continues in the daemon after this
 command returns. Follow it with owl logs.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
+			// Starting a Run includes the Project's setup commands, which
+			// fetch dependencies and are slow by nature. The daemon bounds
+			// each of them, so this only has to be longer than they are.
+			ctx, cancel := context.WithTimeout(cmd.Context(), startTimeout)
+			defer cancel()
+			return withTimeout(ctx, env, func(ctx context.Context, c *client.Client) error {
 				job, run, started, err := c.StartRun(ctx)
 				if err != nil {
 					return err
