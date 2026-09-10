@@ -160,7 +160,7 @@ func run(dir string, args ...string) (stdout []byte, stderr string, code int, er
 }
 
 // gitRedirection are the environment variables that move git away from the
-// directory it was pointed at.
+// directory it was pointed at, or change how the paths it is given are read.
 var gitRedirection = []string{
 	"GIT_DIR",
 	"GIT_WORK_TREE",
@@ -171,6 +171,12 @@ var gitRedirection = []string{
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
 	"GIT_CEILING_DIRECTORIES",
 	"GIT_DISCOVERY_ACROSS_FILESYSTEM",
+	// The pathspec settings are global and mutually exclusive, so leaving one
+	// set would make git refuse the literal setting below rather than obey it.
+	"GIT_ICASE_PATHSPECS",
+	"GIT_GLOB_PATHSPECS",
+	"GIT_NOGLOB_PATHSPECS",
+	"GIT_LITERAL_PATHSPECS",
 }
 
 // withoutGitRedirection returns env with those variables removed.
