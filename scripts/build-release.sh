@@ -50,8 +50,8 @@ mkdir -p "$DIST"
 echo "==> Packaging $ARCHIVE"
 tar -czf "$DIST/$ARCHIVE" -C "$STAGE" "$BINARY"
 
-# shasum is macOS's and sha256sum is the GNU one; the workflow builds on macOS
-# and a developer may well be on either.
+# shasum is macOS's and sha256sum is the GNU one; the workflow cross-compiles on
+# Linux and a developer is on either.
 echo "==> Checksumming"
 cd "$DIST"
 if command -v shasum >/dev/null; then

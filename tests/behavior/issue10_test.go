@@ -664,6 +664,19 @@ type workflow struct {
 	} `yaml:"jobs"`
 }
 
+// step returns the step of a job whose command holds needle, so a scenario can
+// say which step must do what rather than grepping the whole job.
+func (w workflow) step(t *testing.T, job, needle string) string {
+	t.Helper()
+	for _, s := range w.Jobs[job].Steps {
+		if strings.Contains(s.Run, needle) {
+			return s.Run
+		}
+	}
+	t.Fatalf("no step of the %s job runs %q:\n%s", job, needle, w.job(t, job))
+	return ""
+}
+
 func (w workflow) job(t *testing.T, name string) string {
 	t.Helper()
 	j, ok := w.Jobs[name]
@@ -695,8 +708,19 @@ func TestS14ReleaseWorkflowGuardsTheTagAndPublishes(t *testing.T) {
 	if got := w.On.Push.Tags; len(got) != 1 || got[0] != "v*" {
 		t.Errorf("the workflow triggers on tags %v, want v*", got)
 	}
-	if got := w.On.Push.Branches; len(got) != 0 {
-		t.Errorf("the workflow also triggers on branches %v; a release comes from a tag", got)
+	// On nothing else at all: a release comes from a tag pushed by the
+	// maintainer, and no other event may reach this workflow.
+	var triggers struct {
+		On map[string]map[string]any `yaml:"on"`
+	}
+	if err := yaml.Unmarshal(body, &triggers); err != nil {
+		t.Fatalf("reading the workflow's triggers: %v", err)
+	}
+	if len(triggers.On) != 1 || triggers.On["push"] == nil {
+		t.Errorf("the workflow triggers on %v, want a push and nothing else", keysOf(triggers.On))
+	}
+	if push := triggers.On["push"]; len(push) != 1 || push["tags"] == nil {
+		t.Errorf("the push trigger is filtered by %v, want tags alone", keysOf(push))
 	}
 	if got := w.Env["RELEASE_BRANCH"]; got != "main" {
 		t.Errorf("releases are cut from %q, want main", got)
@@ -716,10 +740,18 @@ func TestS14ReleaseWorkflowGuardsTheTagAndPublishes(t *testing.T) {
 			t.Errorf("the %s job does not wait for the guard: needs %v", name, j.Needs)
 		}
 	}
-	release := w.job(t, "release")
-	for _, want := range []string{"scripts/build-release.sh", "gh release create", "checksums.txt"} {
-		if !strings.Contains(release, want) {
-			t.Errorf("the release job does not %q:\n%s", want, release)
+	// The build step works out the checksum the formula will carry, and must
+	// not hand on one it could not find.
+	build := w.step(t, "release", "scripts/build-release.sh")
+	if !strings.Contains(build, "[0-9a-f]{64}") || !strings.Contains(build, "exit 1") {
+		t.Errorf("the build step does not refuse a checksum it could not work out:\n%s", build)
+	}
+	// The release is the assets: a release published without them leaves the
+	// formula pointing at a 404.
+	publish := w.step(t, "release", "gh release create")
+	for _, want := range []string{"coding-owl_", "_darwin_arm64.tar.gz", "checksums.txt"} {
+		if !strings.Contains(publish, want) {
+			t.Errorf("the publishing step does not carry %q as an asset:\n%s", want, publish)
 		}
 	}
 	formula := w.Jobs["formula"]
@@ -744,9 +776,19 @@ func TestS14ReleaseWorkflowGuardsTheTagAndPublishes(t *testing.T) {
 		t.Errorf("the formula job never renders the formula:\n%s", w.job(t, "formula"))
 	}
 	// The tap carries stable versions only, so a prerelease must not reach it.
-	if !strings.Contains(formula.If, "prerelease") || !strings.Contains(formula.If, "'false'") {
-		t.Errorf("the formula job runs when %q, which does not keep a prerelease out of the tap", formula.If)
+	// Matched whole: a condition that merely mentions both words can say the
+	// opposite of this one.
+	if want := "needs.release.outputs.prerelease == 'false'"; strings.TrimSpace(formula.If) != want {
+		t.Errorf("the formula job runs when %q, want %q", formula.If, want)
 	}
+}
+
+func keysOf[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func jobNames(w workflow) []string {
