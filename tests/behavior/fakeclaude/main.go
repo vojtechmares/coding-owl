@@ -15,6 +15,9 @@
 //	OWL_FAKE_CLAUDE_WRITE    JSON object of path to contents, written into the
 //	                         working directory before the script is emitted
 //	OWL_FAKE_CLAUDE_COMMIT   when set, commits what was written
+//
+// The invocation record also holds the names of the files in the working
+// directory, so a scenario can see what ran before the Agent did.
 package main
 
 import (
@@ -43,6 +46,9 @@ type invocation struct {
 	PID  int      `json:"pid"`
 	PPID int      `json:"ppid"`
 	Dir  string   `json:"dir"`
+	// Entries are the names in the working directory when the stub started,
+	// which is how a scenario sees what a setup command left there.
+	Entries []string `json:"entries"`
 }
 
 func main() {
@@ -86,7 +92,13 @@ func record(path string) error {
 	if err != nil {
 		return err
 	}
-	data, err := json.Marshal(invocation{Argv: os.Args, PID: os.Getpid(), PPID: os.Getppid(), Dir: dir})
+	entries, err := entryNames(dir)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(invocation{
+		Argv: os.Args, PID: os.Getpid(), PPID: os.Getppid(), Dir: dir, Entries: entries,
+	})
 	if err != nil {
 		return err
 	}
@@ -99,6 +111,21 @@ func record(path string) error {
 	defer func() { _ = f.Close() }()
 	_, err = f.Write(append(data, '\n'))
 	return err
+}
+
+// entryNames lists what is in the working directory, sorted so a scenario can
+// read it back without caring about order.
+func entryNames(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 // writeFiles puts the files of OWL_FAKE_CLAUDE_WRITE in the working directory,
