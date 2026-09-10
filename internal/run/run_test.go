@@ -467,3 +467,35 @@ func TestSystemPromptAppendsTheProjectsClausesAfterTheContract(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestRecoverEndsTheRunsAnEarlierDaemonLeftOpen(t *testing.T) {
+	ctx := context.Background()
+	hold := make(chan struct{})
+	started := make(chan struct{})
+	svc, st, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{hold: hold, started: started})
+	j := queueJob(t, st, "work")
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started
+	// A killed daemon records nothing, so the row is left as it was.
+	if _, ok, err := st.RunInProgress(ctx); err != nil || !ok {
+		t.Fatalf("RunInProgress = %v, %v, want the run that is going", ok, err)
+	}
+
+	if err := svc.Recover(ctx); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	if _, ok, err := st.RunInProgress(ctx); err != nil || ok {
+		t.Errorf("RunInProgress after Recover = %v, %v, want none", ok, err)
+	}
+	runs, err := st.ListRuns(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Outcome != string(run.OutcomeInterrupted) {
+		t.Errorf("runs = %+v, want the leftover run interrupted", runs)
+	}
+	close(hold)
+}

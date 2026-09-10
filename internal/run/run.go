@@ -153,6 +153,23 @@ func (s *Service) Close() error {
 	return nil
 }
 
+// Recover ends the Runs that were still going when the daemon last stopped.
+// Every Agent is a child of the daemon, so nothing it started is still running
+// after a restart, and a Run left open would otherwise report a Run in
+// progress forever. The Jobs themselves are left where they were: requeueing
+// them is a decision of its own (ADR-0011).
+func (s *Service) Recover(ctx context.Context) error {
+	n, err := s.opts.Store.InterruptRunsInProgress(ctx, s.now().UTC(),
+		string(OutcomeInterrupted), "the daemon stopped before this run ended")
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		s.opts.Logger.Info("runs left over from an earlier daemon", "interrupted", n)
+	}
+	return nil
+}
+
 // Start takes the Job at the head of the queue and runs it. started is false
 // when nothing is pending, which is not an error.
 func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bool, err error) {

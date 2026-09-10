@@ -105,6 +105,9 @@ func Run(ctx context.Context, opts Options) error {
 	// Agents outlive the request that started them, so they are stopped when
 	// the daemon stops rather than when a caller hangs up.
 	defer func() { _ = runs.Close() }()
+	if err := runs.Recover(ctx); err != nil {
+		return fmt.Errorf("closing the runs of an earlier daemon: %w", err)
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle(codingowlv1connect.NewDaemonServiceHandler(&daemonService{
