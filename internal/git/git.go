@@ -151,6 +151,48 @@ func AddWorktree(dir, path, branch, base string) error {
 	return nil
 }
 
+// owlIdentity is who Owl commits as. It commits only the handoff, and only
+// when the Agent left it uncommitted, so the identity is Owl's own rather than
+// the user's - and it does not depend on the user having configured one.
+var owlIdentity = []string{
+	"-c", "user.name=Coding Owl",
+	"-c", "user.email=owl@coding-owl.invalid",
+}
+
+// CommitPath commits one path in a worktree, if it has anything to commit.
+// committed is false when the path was already committed as it stands, which
+// is the ordinary case for an Agent that commits its own work (ADR-0017).
+func CommitPath(dir, path, msg string) (committed bool, err error) {
+	_, stderr, code, err := run(dir, "add", "--", path)
+	if err != nil {
+		return false, err
+	}
+	if code != 0 {
+		return false, fmt.Errorf("staging %s in %s: %s", path, dir, message(stderr))
+	}
+	// --quiet exits 1 when something is staged, which is the question here.
+	_, stderr, code, err = run(dir, "diff", "--cached", "--quiet", "--", path)
+	if err != nil {
+		return false, err
+	}
+	switch code {
+	case 0:
+		return false, nil
+	case 1:
+	default:
+		return false, fmt.Errorf("looking for changes to %s in %s: %s", path, dir, message(stderr))
+	}
+	args := append(append([]string{}, owlIdentity...), "commit", "-m", msg, "--", path)
+	_, stderr, code, err = run(dir, args...)
+	if err != nil {
+		return false, err
+	}
+	if code != 0 {
+		return false, fmt.Errorf("committing %s in %s: %s", path, dir, message(stderr))
+	}
+	return true, nil
+}
+
 // run executes git in dir and reports its exit status. err is returned only
 // when git could not be run at all - a missing directory, a missing binary -
 // which is a different thing from git running and saying no.

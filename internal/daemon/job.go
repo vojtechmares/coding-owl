@@ -27,6 +27,10 @@ func (s *jobService) AddJob(ctx context.Context, req *connect.Request[codingowlv
 		Project:    req.Msg.GetProject(),
 		Prompt:     req.Msg.GetPrompt(),
 		WorkingDir: req.Msg.GetWorkingDir(),
+		// Unspecified plans, because planning is the default (ADR-0026).
+		Planned: req.Msg.GetPlanMode() != codingowlv1.PlanMode_PLAN_MODE_NO_PLAN,
+		Model:   req.Msg.GetModel(),
+		Effort:  req.Msg.GetEffort(),
 	})
 	if err != nil {
 		return nil, rpcError(err)
@@ -83,9 +87,19 @@ func (s *jobService) GetJob(ctx context.Context, req *connect.Request[codingowlv
 		Job:          toJobProto(d.Job),
 		Runs:         make([]*codingowlv1.Run, 0, len(d.Runs)),
 		SystemPrompt: d.SystemPrompt,
+		Phases:       make([]*codingowlv1.PhaseSettings, 0, len(d.Phases)),
 	}
 	for _, r := range d.Runs {
 		res.Runs = append(res.Runs, toRunProto(r))
+	}
+	for _, p := range d.Phases {
+		res.Phases = append(res.Phases, &codingowlv1.PhaseSettings{
+			Phase:      string(p.Phase),
+			Model:      p.Model.Value,
+			ModelFrom:  p.Model.From,
+			Effort:     p.Effort.Value,
+			EffortFrom: p.Effort.From,
+		})
 	}
 	return connect.NewResponse(res), nil
 }
@@ -122,6 +136,7 @@ func toRunProto(r run.Run) *codingowlv1.Run {
 		Error:    r.Error,
 		ExitCode: int32(r.ExitCode),
 		LogPath:  r.LogPath,
+		Phase:    string(r.Phase),
 	}
 	if !r.Ended.IsZero() {
 		out.Ended = timestamppb.New(r.Ended)
@@ -151,6 +166,8 @@ func toJobProto(j queue.Job) *codingowlv1.Job {
 		State:     jobStates[j.State],
 		Branch:    j.Branch,
 		Worktree:  j.Worktree,
+		Planned:   j.Planned,
+		Plan:      j.Plan,
 		Position:  int32(j.Position),
 		Created:   timestamppb.New(j.Created),
 	}

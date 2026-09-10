@@ -31,6 +31,18 @@ type Run struct {
 	ExitCode int
 	// LogPath is where its structured output was captured.
 	LogPath string
+	// Phase is what the Run was carrying out: plan or execute.
+	Phase string
+}
+
+// PhaseSettings is what one phase of a Job runs at, and where each setting
+// came from.
+type PhaseSettings struct {
+	Phase      string
+	Model      string
+	ModelFrom  string
+	Effort     string
+	EffortFrom string
 }
 
 // JobDetails is what owl jobs show reports.
@@ -40,6 +52,9 @@ type JobDetails struct {
 	// SystemPrompt is the effective system prompt for the Job, exactly as the
 	// Agent is given it.
 	SystemPrompt string
+	// Phases is what each phase of the Job runs at, in the order it passes
+	// through them.
+	Phases []PhaseSettings
 }
 
 // StartRun runs the Job at the head of the queue. started is false when the
@@ -68,6 +83,15 @@ func (c *Client) GetJob(ctx context.Context, id int64) (JobDetails, error) {
 	}
 	for _, r := range res.Msg.GetRuns() {
 		d.Runs = append(d.Runs, runFromProto(r))
+	}
+	for _, p := range res.Msg.GetPhases() {
+		d.Phases = append(d.Phases, PhaseSettings{
+			Phase:      p.GetPhase(),
+			Model:      p.GetModel(),
+			ModelFrom:  p.GetModelFrom(),
+			Effort:     p.GetEffort(),
+			EffortFrom: p.GetEffortFrom(),
+		})
 	}
 	return d, nil
 }
@@ -107,6 +131,7 @@ func runFromProto(r *codingowlv1.Run) Run {
 		Error:    r.GetError(),
 		ExitCode: int(r.GetExitCode()),
 		LogPath:  r.GetLogPath(),
+		Phase:    r.GetPhase(),
 	}
 	if r.GetEnded() != nil {
 		out.Ended = r.GetEnded().AsTime()

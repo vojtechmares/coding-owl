@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -23,7 +24,8 @@ const noPosition = "-"
 const promptWidth = 60
 
 func newAddCmd(env Env) *cobra.Command {
-	var projectName string
+	var projectName, model, effort string
+	var plan, noPlan bool
 	cmd := &cobra.Command{
 		Use:   "add <prompt>",
 		Short: "Queue a Job against a Project",
@@ -32,11 +34,25 @@ func newAddCmd(env Env) *cobra.Command {
 Run inside a registered Project, the Job is queued against that Project;
 anywhere else, name one with --project. The queue is first in, first out:
 the Job goes behind everything already waiting, and owl queue reorder is
-how it gets ahead of them.`,
+how it gets ahead of them.
+
+A Job is planned before it is carried out, in a run of its own, and the
+plan becomes the handoff on the Job's branch. Pass --no-plan for work that
+needs no thinking through first.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if plan && noPlan {
+				return errors.New("--plan and --no-plan ask for opposite things; pass one or neither")
+			}
 			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
-				j, err := c.AddJob(ctx, projectName, args[0], env.workingDir())
+				j, err := c.AddJob(ctx, client.AddJobRequest{
+					Project:    projectName,
+					Prompt:     args[0],
+					WorkingDir: env.workingDir(),
+					Plan:       planChoice(plan, noPlan),
+					Model:      model,
+					Effort:     effort,
+				})
 				if err != nil {
 					return err
 				}
@@ -46,7 +62,26 @@ how it gets ahead of them.`,
 		},
 	}
 	cmd.Flags().StringVar(&projectName, "project", "", "Project to queue against (default: the Project the working directory is in)")
+	cmd.Flags().BoolVar(&plan, "plan", false, "plan the Job before carrying it out (the default)")
+	cmd.Flags().BoolVar(&noPlan, "no-plan", false, "carry the Job out without planning it first")
+	cmd.Flags().StringVar(&model, "model", "", "model every phase of this Job runs as (default: what the Project or Owl says)")
+	cmd.Flags().StringVar(&effort, "effort", "", "effort every phase of this Job runs at (default: what the Project or Owl says)")
 	return cmd
+}
+
+// planChoice reads the pair of flags. Neither leaves the choice to Owl, which
+// plans (ADR-0026).
+func planChoice(plan, noPlan bool) *bool {
+	switch {
+	case plan:
+		yes := true
+		return &yes
+	case noPlan:
+		no := false
+		return &no
+	default:
+		return nil
+	}
 }
 
 func newQueueCmd(env Env) *cobra.Command {

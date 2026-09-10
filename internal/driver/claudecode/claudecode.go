@@ -102,6 +102,21 @@ func (d *Driver) Command(req driver.Request) (agent.Invocation, error) {
 	if req.BudgetUSD > 0 {
 		args = append(args, "--max-budget-usd", formatUSD(req.BudgetUSD))
 	}
+	// A phase decides what the Agent runs as and how hard it thinks
+	// (ADR-0028). Both are values, never options, so a dash-leading one is
+	// refused rather than passed on.
+	for _, setting := range []struct{ flag, value string }{
+		{"--model", req.Model},
+		{"--effort", req.Effort},
+	} {
+		if setting.value == "" {
+			continue
+		}
+		if strings.HasPrefix(setting.value, "-") {
+			return agent.Invocation{}, fmt.Errorf("%s %q may not start with a dash", setting.flag, setting.value)
+		}
+		args = append(args, setting.flag, setting.value)
+	}
 	// The prompt is the user's text and may begin with a dash, so options end
 	// before it.
 	args = append(args, "--", req.Prompt)

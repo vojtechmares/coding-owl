@@ -32,6 +32,10 @@ type Job struct {
 	Branch string
 	// Worktree is where that branch is checked out, empty until it has one.
 	Worktree string
+	// Planned is whether the Job is planned before it is executed.
+	Planned bool
+	// Plan is what its planning Run decided, empty until there is one.
+	Plan string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -39,11 +43,36 @@ type Job struct {
 	Created time.Time
 }
 
-// AddJob queues a Job. project is optional: empty means the Project
-// workingDir is in, which the daemon resolves.
-func (c *Client) AddJob(ctx context.Context, project, prompt, workingDir string) (Job, error) {
+// AddJobRequest is what owl add carries. Project is optional: empty means the
+// Project WorkingDir is in, which the daemon resolves.
+type AddJobRequest struct {
+	Project    string
+	Prompt     string
+	WorkingDir string
+	// Plan is whether to plan the Job before executing it. Nil plans, which is
+	// the default (ADR-0026).
+	Plan *bool
+	// Model and Effort override what every phase of this Job runs at.
+	Model  string
+	Effort string
+}
+
+// AddJob queues a Job.
+func (c *Client) AddJob(ctx context.Context, req AddJobRequest) (Job, error) {
+	mode := codingowlv1.PlanMode_PLAN_MODE_UNSPECIFIED
+	if req.Plan != nil {
+		mode = codingowlv1.PlanMode_PLAN_MODE_PLAN
+		if !*req.Plan {
+			mode = codingowlv1.PlanMode_PLAN_MODE_NO_PLAN
+		}
+	}
 	res, err := c.jobs.AddJob(ctx, connect.NewRequest(&codingowlv1.AddJobRequest{
-		Project: project, Prompt: prompt, WorkingDir: workingDir,
+		Project:    req.Project,
+		Prompt:     req.Prompt,
+		WorkingDir: req.WorkingDir,
+		PlanMode:   mode,
+		Model:      req.Model,
+		Effort:     req.Effort,
 	}))
 	if err != nil {
 		return Job{}, c.wrap(err)
@@ -121,6 +150,8 @@ func jobFromProto(j *codingowlv1.Job) Job {
 		State:     state,
 		Branch:    j.GetBranch(),
 		Worktree:  j.GetWorktree(),
+		Planned:   j.GetPlanned(),
+		Plan:      j.GetPlan(),
 		Position:  int(j.GetPosition()),
 		Created:   j.GetCreated().AsTime(),
 	}

@@ -194,11 +194,13 @@ func worktreeDir(l *layout, job string) string {
 	return filepath.Join(l.data, "coding-owl", "worktrees", job)
 }
 
-// runnableJob registers a Project and queues one Job against it.
+// runnableJob registers a Project and queues one Job that runs in a single
+// Run. Planning is the default since issue #6, and these scenarios are about
+// carrying a Job out rather than about planning it.
 func runnableJob(t *testing.T, l *layout, prompt string) *repo {
 	t.Helper()
 	r := project(t, l, "api")
-	addJob(t, l, r.dir, prompt)
+	addJob(t, l, r.dir, prompt, "--no-plan")
 	return r
 }
 
@@ -551,7 +553,9 @@ func TestS11RunInvokesPrintModeWithoutPermissionPrompts(t *testing.T) {
 			t.Errorf("the agent was run with %s: %v", forbidden, inv.Argv)
 		}
 	}
-	if !inv.has("fix the flaky test") {
+	// The Job's prompt is carried inside the prompt the phase builds around
+	// it, so it is in an argument rather than being one.
+	if !strings.Contains(strings.Join(inv.Argv, "\n"), "fix the flaky test") {
 		t.Errorf("the job's prompt is not in the agent's argv: %v", inv.Argv)
 	}
 }

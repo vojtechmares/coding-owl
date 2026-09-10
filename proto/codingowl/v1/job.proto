@@ -71,6 +71,32 @@ message Job {
   string branch = 9;
   // Worktree is where that branch is checked out, empty until it has one.
   string worktree = 10;
+  // Planned is whether the Job is planned before it is executed (ADR-0026).
+  bool planned = 11;
+  // Plan is what its planning Run decided, empty until there is one.
+  string plan = 12;
+}
+
+// PlanMode is whether a Job is planned before it is executed. Planning is the
+// default, so leaving it unspecified plans (ADR-0026).
+enum PlanMode {
+  // PLAN_MODE_UNSPECIFIED plans, like PLAN_MODE_PLAN.
+  PLAN_MODE_UNSPECIFIED = 0;
+  // PLAN_MODE_PLAN plans the Job before executing it.
+  PLAN_MODE_PLAN = 1;
+  // PLAN_MODE_NO_PLAN executes it without planning first.
+  PLAN_MODE_NO_PLAN = 2;
+}
+
+// PhaseSettings is what one phase of a Job runs at, and where each setting
+// came from: the defaults, the daemon's configuration, the Project's, or the
+// Job itself (ADR-0028).
+message PhaseSettings {
+  string phase = 1;
+  string model = 2;
+  string model_from = 3;
+  string effort = 4;
+  string effort_from = 5;
 }
 
 // RunOutcome is how a Run ended (ADR-0027).
@@ -103,6 +129,8 @@ message Run {
   string error = 7;
   // LogPath is where its structured output was captured.
   string log_path = 8;
+  // Phase is what the Run was carrying out: planning the Job, or executing it.
+  string phase = 10;
   // ExitCode is what the Agent exited with, and -1 when it never got far
   // enough to have one.
   int32 exit_code = 9;
@@ -116,6 +144,12 @@ message AddJobRequest {
   string prompt = 2;
   // WorkingDir is an absolute path to the directory the caller ran in.
   string working_dir = 3;
+  // PlanMode is whether to plan the Job before executing it.
+  PlanMode plan_mode = 4;
+  // Model and Effort override what every phase of this Job runs at. Empty
+  // leaves it to the Project and the defaults.
+  string model = 5;
+  string effort = 6;
 }
 
 message AddJobResponse {
@@ -169,6 +203,9 @@ message GetJobResponse {
   // SystemPrompt is the unattended contract with the Project's own clauses
   // appended, exactly as the Agent is given it (ADR-0017).
   string system_prompt = 3;
+  // Phases is what each phase of the Job runs at, in the order it passes
+  // through them.
+  repeated PhaseSettings phases = 4;
 }
 
 message StreamRunLogRequest {

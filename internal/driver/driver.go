@@ -37,6 +37,10 @@ type Request struct {
 	WorkingDir string
 	// BudgetUSD caps the Run's spend when it is above zero.
 	BudgetUSD float64
+	// Model is what the Agent runs as, and Effort how hard it thinks
+	// (ADR-0028). Empty leaves the tool's own default alone.
+	Model  string
+	Effort string
 }
 
 // Driver knows one coding tool.
