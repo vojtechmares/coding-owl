@@ -39,6 +39,10 @@ service JobService {
   // ExtendJob gives a Job more attempts, returning it to the queue if it had
   // run out (ADR-0025).
   rpc ExtendJob(ExtendJobRequest) returns (ExtendJobResponse) {}
+  // PauseRun freezes the Run in progress and everything its Agent started.
+  rpc PauseRun(PauseRunRequest) returns (PauseRunResponse) {}
+  // ResumeRun continues a frozen Run where it was.
+  rpc ResumeRun(ResumeRunRequest) returns (ResumeRunResponse) {}
 }
 
 // JobState is the lifecycle of a Job (ADR-0025, ADR-0027).
@@ -173,12 +177,27 @@ message Run {
   string log_path = 8;
   // Phase is what the Run was carrying out: planning the Job, or executing it.
   string phase = 10;
+  // Paused is whether the Run is frozen right now (ADR-0011). Only a run this
+  // daemon is carrying out can be.
+  bool paused = 12;
   // ExitCode is what the Agent exited with, and -1 when it never got far
   // enough to have one.
   int32 exit_code = 9;
   // Skills is what this Run read, so that what an Agent did is attributable to
   // the instructions it had (ADR-0024).
   repeated Skill skills = 11;
+}
+
+message PauseRunRequest {}
+
+message PauseRunResponse {
+  Run run = 1;
+}
+
+message ResumeRunRequest {}
+
+message ResumeRunResponse {
+  Run run = 1;
 }
 
 message AddJobRequest {

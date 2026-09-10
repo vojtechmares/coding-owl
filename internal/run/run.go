@@ -101,6 +101,9 @@ type Run struct {
 	// Skills is what the Run read, so that what an Agent did is attributable
 	// to the instructions it had (ADR-0024).
 	Skills []skill.Locked
+	// Paused is whether the Run is frozen right now. Only a Run this daemon is
+	// carrying out can be (ADR-0011).
+	Paused bool
 }
 
 // Details is a Job with its Runs, the system prompt in force for it, and what
@@ -208,8 +211,11 @@ type Service struct {
 	// and the branch that decision was about.
 	disposing sync.Mutex
 
+	// mu guards what this daemon knows about the Runs that are in flight: who
+	// is following them, and which of them are frozen.
 	mu      sync.Mutex
 	brokers map[int64]*broker
+	live    map[int64]*live
 
 	// carrying is the Jobs this daemon has a Run going for, which is what
 	// makes "no daemon is running it" a question somebody can answer rather
@@ -230,6 +236,7 @@ func NewService(opts Options) *Service {
 		ctx:      ctx,
 		cancel:   cancel,
 		brokers:  map[int64]*broker{},
+		live:     map[int64]*live{},
 		carrying: map[int64]bool{},
 	}
 }
@@ -241,6 +248,11 @@ func (s *Service) Close() error {
 	// commands holds the lock below for as long as they take, and cancelling
 	// is what lets it give the lock back.
 	s.cancel()
+
+	// A frozen Agent cannot act on the signal cancelling just sent it, so
+	// every paused Run is continued: otherwise the daemon waits out the kill
+	// delay on processes that never heard it (ADR-0011).
+	s.releasePaused()
 
 	// Refusing new Runs under the same lock Start holds is what orders the two:
 	// a Start already under way finishes counting its Run in before the wait
@@ -265,12 +277,16 @@ func (s *Service) untilClosed(ctx context.Context) (context.Context, context.Can
 	}
 }
 
-// Recover ends the Runs that were still going when the daemon last stopped.
-// Every Agent is a child of the daemon, so nothing it started is still running
-// after a restart, and a Run left open would otherwise report a Run in
-// progress forever. The Jobs themselves are left where they were: requeueing
-// them is a decision of its own (ADR-0011).
+// Recover ends the Runs that were still going when the daemon last stopped and
+// puts their Jobs back in the queue. Every Agent is a child of the daemon, so
+// nothing it started survives a restart; the Job's worktree and branch do, so
+// the next Run carries on in place rather than from the Project's base branch
+// (ADR-0011).
 func (s *Service) Recover(ctx context.Context) error {
+	jobs, err := s.opts.Store.JobsOfRunsInProgress(ctx)
+	if err != nil {
+		return err
+	}
 	n, err := s.opts.Store.InterruptRunsInProgress(ctx, s.now().UTC(),
 		string(OutcomeInterrupted), "the daemon stopped before this run ended")
 	if err != nil {
@@ -279,6 +295,7 @@ func (s *Service) Recover(ctx context.Context) error {
 	if n > 0 {
 		s.opts.Logger.Info("runs left over from an earlier daemon", "interrupted", n)
 	}
+	s.requeueLeftOver(ctx, jobs)
 	return nil
 }
 
@@ -556,7 +573,7 @@ func (s *Service) Show(ctx context.Context, jobID int64) (Details, error) {
 				Name: sk.Name, Source: sk.Source, Ref: sk.Ref, Commit: sk.Commit, Digest: sk.Digest,
 			})
 		}
-		runs = append(runs, out)
+		runs = append(runs, s.paused(out))
 	}
 	details, err := s.opts.Projects.Show(ctx, j.Project)
 	if err != nil {
@@ -1090,6 +1107,11 @@ func (s *Service) execute(r store.Run, req driver.Request, b *broker) (Outcome, 
 		return OutcomeFailed, err.Error(), store.NoExitCode
 	}
 
+	// From here the Run can be frozen, released and ended from outside
+	// (ADR-0011).
+	forget := s.track(r.ID, r.JobID, proc)
+	defer forget()
+
 	sc := bufio.NewScanner(proc.Stdout())
 	sc.Buffer(make([]byte, 0, 64<<10), maxLine)
 	var writeErr error
@@ -1107,6 +1129,10 @@ func (s *Service) execute(r store.Run, req driver.Request, b *broker) (Outcome, 
 	code, waitErr := proc.Wait()
 
 	switch {
+	// The grace window ends a Run by stopping its Agent, so the Agent's death
+	// is how this one was meant to end rather than a failure of its own.
+	case s.interrupted(r.ID):
+		return OutcomeInterrupted, expiredReason, store.NoExitCode
 	case s.ctx.Err() != nil:
 		return OutcomeInterrupted, "the daemon stopped while the agent was working", store.NoExitCode
 	case waitErr != nil:

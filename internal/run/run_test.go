@@ -110,10 +110,10 @@ type fakeProcess struct {
 	done chan struct{}
 }
 
-func (p *fakeProcess) Stdout() io.Reader      { return p.out }
-func (p *fakeProcess) Signal(os.Signal) error { return nil }
-func (p *fakeProcess) Stderr() string         { return "" }
-func (p *fakeProcess) Wait() (int, error)     { <-p.done; return p.code, nil }
+func (p *fakeProcess) Stdout() io.Reader           { return p.out }
+func (p *fakeProcess) SignalGroup(os.Signal) error { return nil }
+func (p *fakeProcess) Stderr() string              { return "" }
+func (p *fakeProcess) Wait() (int, error)          { <-p.done; return p.code, nil }
 
 // fakeVerifier answers with what a scenario scripted rather than running
 // anything.

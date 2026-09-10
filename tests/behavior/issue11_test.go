@@ -269,9 +269,14 @@ func TestS9NextRunContinuesFromTheHandoff(t *testing.T) {
 	if again == run {
 		t.Errorf("the new run has the id of the one that was interrupted, %s", again)
 	}
-	prompt := strings.Join(b.stub.invoked(t).Argv, " ")
-	if !strings.Contains(prompt, "half way through the work") {
-		t.Errorf("the agent was not given what the handoff said:\n%s", prompt)
+	// The Agent records how it was called before it does anything else, but
+	// owl start returns as soon as it has started.
+	waitFor(t, "the second agent to record how it was called", func() bool {
+		return len(b.stub.invocations(t)) >= 2
+	})
+	asked := strings.Join(b.stub.invoked(t).Argv, " ")
+	if !strings.Contains(asked, "half way through the work") {
+		t.Errorf("the agent was not given what the handoff said:\n%s", asked)
 	}
 	after := mustOwl(t, b.l, "jobs", "show", job).stdout
 	for _, key := range []string{"branch", "worktree"} {
@@ -298,12 +303,15 @@ func TestS10GraceWindowIsConfigurable(t *testing.T) {
 }
 
 func TestS11AGraceWindowThatIsNotADurationIsRefused(t *testing.T) {
-	b := beatingLayout(t, "apiVersion: codingowl.dev/v1\ngraceWindow: soon\n")
+	b := beatingLayout(t, "")
 	daemonUp(t, b.l)
 	r := project(t, b.l, "api")
 	addJob(t, b.l, r.dir, "work", "--no-plan")
 	run, job := startRun(t, b.l)
 	b.started(t)
+	// Written once the Run is going: the daemon reads its configuration when
+	// it needs it, so this is what owl pause finds.
+	globalConfig(t, b.l, "apiVersion: codingowl.dev/v1\ngraceWindow: soon\n")
 
 	res := runOwl(t, b.l, "pause")
 
@@ -315,9 +323,15 @@ func TestS11AGraceWindowThatIsNotADurationIsRefused(t *testing.T) {
 			t.Errorf("stderr does not name %q:\n%s", want, res.stderr)
 		}
 	}
+	// Still running, not frozen: the refusal came before anything was
+	// signalled.
 	b.growing(t)
+
+	globalConfig(t, b.l, "apiVersion: codingowl.dev/v1\n")
 	b.stub.let(t)
-	waitRun(t, b.l, job, run)
+	if row := waitRun(t, b.l, job, run); row.outcome != "succeeded" {
+		t.Errorf("run outcome = %q, want succeeded: the refused pause left it alone", row.outcome)
+	}
 }
 
 func TestS12ResumingInsideTheWindowKeepsTheRun(t *testing.T) {
@@ -344,8 +358,13 @@ func TestS13DaemonRestartEndsTheRunsThatWereGoing(t *testing.T) {
 	run, job := startRun(t, b.l)
 	b.started(t)
 
-	stopDaemon(t, d)
-	daemonUp(t, b.l)
+	// Killed outright rather than asked to stop: nothing records how that Run
+	// ended, so what the next daemon does about it is the whole point.
+	if err := d.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	d.exit(t, 10*time.Second)
+	waitForLog(t, startDaemon(t, b.l), "daemon listening")
 
 	row := runRowOf(t, b.l, job, run)
 	if row.outcome != "interrupted" {

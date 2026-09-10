@@ -205,3 +205,18 @@ func TestOverviewCountsAJobInAStateItDoesNotKnow(t *testing.T) {
 		t.Errorf("counts = %+v, want one hibernating job", o.Counts)
 	}
 }
+
+func TestPauseAndResumeRefuseWhenThereIsNoRunToActOn(t *testing.T) {
+	svc, _, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{})
+
+	if _, err := svc.Pause(context.Background()); err == nil {
+		t.Error("Pause reported success with nothing running")
+	} else if !strings.Contains(err.Error(), "no run in progress") {
+		t.Errorf("Pause error = %q, want it to say there is nothing running", err)
+	}
+	if _, err := svc.Resume(context.Background()); err == nil {
+		t.Error("Resume reported success with nothing running")
+	} else if !strings.Contains(err.Error(), "no run in progress") {
+		t.Errorf("Resume error = %q, want it to say there is nothing running", err)
+	}
+}

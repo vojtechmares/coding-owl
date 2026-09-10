@@ -180,7 +180,8 @@ And it is not the Project's own path
 Given a running daemon whose stub agent is waiting, two pending Jobs, and a Run in progress for the first
 When the daemon is killed outright, so nothing records how that Run ended, and a daemon is started again
 Then `owl jobs show <first job>` reports that Run's outcome as `interrupted`
-And `owl start` starts a Run for the second Job rather than refusing because one is in progress
+And that Job is `pending` again, in the place it held, because a Run nobody finished is a Job to carry on with (ADR-0011, issue #11 - when this was written the Job was left where it was and the second Job ran instead)
+And `owl start` starts a new Run rather than refusing because one is in progress
 
 ### S24 - the daemon stops cleanly while a Run is being followed
 Given a running daemon, a pending Job whose stub agent is waiting for its release file, and an `owl logs <run-id> -f` attached to that Run

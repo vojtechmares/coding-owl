@@ -327,3 +327,38 @@ func TestParseRefusesASkillThatWouldRewriteTheTerminal(t *testing.T) {
 		}
 	}
 }
+
+func TestParseGlobalReadsTheGraceWindow(t *testing.T) {
+	cfg, err := config.ParseGlobal("config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\ngraceWindow: 90s\n"))
+
+	if err != nil {
+		t.Fatalf("ParseGlobal: %v", err)
+	}
+	if got, want := cfg.GraceWindow, 90*time.Second; got != want {
+		t.Errorf("graceWindow = %s, want %s", got, want)
+	}
+	// Unset is not zero-with-a-meaning: it leaves the daemon's own default in
+	// place, which the daemon decides.
+	unset, err := config.ParseGlobal("config.yaml", []byte("apiVersion: codingowl.dev/v1\n"))
+	if err != nil || unset.GraceWindow != 0 {
+		t.Errorf("an unset graceWindow = %s, %v, want no window and no error", unset.GraceWindow, err)
+	}
+}
+
+func TestParseGlobalRefusesAGraceWindowThatIsNotOne(t *testing.T) {
+	for _, value := range []string{"soon", "15", "-5m"} {
+		_, err := config.ParseGlobal("/somewhere/config.yaml", []byte(
+			"apiVersion: codingowl.dev/v1\ngraceWindow: "+value+"\n"))
+
+		if err == nil {
+			t.Errorf("ParseGlobal accepted graceWindow: %q", value)
+			continue
+		}
+		for _, want := range []string{"/somewhere/config.yaml", "graceWindow"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the error for %q does not name %q: %v", value, want, err)
+			}
+		}
+	}
+}

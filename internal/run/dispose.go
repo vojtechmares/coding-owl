@@ -217,7 +217,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 			s.opts.Logger.Warn("a run in progress has no job", "run", r.ID, "job", r.JobID)
 			continue
 		}
-		out.Running = append(out.Running, Running{Run: toRun(r), Job: queue.FromStore(j)})
+		out.Running = append(out.Running, Running{Run: s.paused(toRun(r)), Job: queue.FromStore(j)})
 	}
 	return out, nil
 }

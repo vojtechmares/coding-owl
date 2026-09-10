@@ -50,10 +50,10 @@ func printOverview(env Env, o client.Overview) {
 	if len(o.Running) > 0 {
 		_, _ = fmt.Fprintln(env.Stdout, "runs in progress:")
 		w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "RUN\tJOB\tPROJECT\tPHASE\tSTARTED")
+		_, _ = fmt.Fprintln(w, "RUN\tJOB\tPROJECT\tPHASE\tSTATE\tSTARTED")
 		for _, r := range o.Running {
-			_, _ = fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\n",
-				r.Run.ID, r.Job.ID, r.Job.Project, orNone(r.Run.Phase),
+			_, _ = fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\t%s\n",
+				r.Run.ID, r.Job.ID, r.Job.Project, orNone(r.Run.Phase), runState(r.Run),
 				r.Run.Started.UTC().Format(time.RFC3339))
 		}
 		_ = w.Flush()

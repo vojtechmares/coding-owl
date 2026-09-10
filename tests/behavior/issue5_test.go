@@ -864,15 +864,20 @@ func TestS23RunAnUnfinishedRunDoesNotHoldTheQueue(t *testing.T) {
 	if len(rows) != 1 || rows[0].id != run || rows[0].outcome != "interrupted" {
 		t.Fatalf("runs = %+v, want run %s reported as interrupted:\n%s", rows, run, out)
 	}
-	secondRun, secondJob := startRun(t, l)
-	if secondRun == run {
-		t.Errorf("owl start reported run %s again, want a new one", secondRun)
+	// The interrupted Job goes back in the queue, in the place it held
+	// (ADR-0011), so the queue is not held and the work is not abandoned.
+	if got := jobState(t, l, job); got != "pending" {
+		t.Errorf("state after the restart = %q, want the job pending again", got)
 	}
-	if secondJob == job {
-		t.Errorf("owl start ran job %s again, want the second job", secondJob)
+	nextRun, nextJob := startRun(t, l)
+	if nextRun == run {
+		t.Errorf("owl start reported run %s again, want a new one", nextRun)
 	}
-	if got := line(t, mustOwl(t, l, "jobs", "show", secondJob).stdout, "prompt"); got != "second" {
-		t.Errorf("owl start ran the job prompted %q, want second", got)
+	if nextJob != job {
+		t.Errorf("owl start ran job %s, want %s, which was at the head of the queue", nextJob, job)
+	}
+	if got := line(t, mustOwl(t, l, "jobs", "show", nextJob).stdout, "prompt"); got != "first" {
+		t.Errorf("owl start ran the job prompted %q, want first", got)
 	}
 }
 

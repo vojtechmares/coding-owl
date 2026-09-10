@@ -63,7 +63,9 @@ func waitRun(t *testing.T, l *layout, job, run string) runRow {
 	for time.Now().Before(deadline) {
 		out := mustOwl(t, l, "jobs", "show", job).stdout
 		for _, row := range runRows(t, out) {
-			if row.id == run && row.outcome != "running" {
+			// A frozen run has not ended: it is waiting to be continued
+			// (ADR-0011).
+			if row.id == run && row.outcome != "running" && row.outcome != "paused" {
 				return row
 			}
 		}

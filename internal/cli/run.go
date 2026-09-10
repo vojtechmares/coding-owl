@@ -104,6 +104,55 @@ ends.`,
 	return cmd
 }
 
+// interruptCmd builds owl pause and owl resume, which differ only in what they
+// ask the daemon to do to the Run in progress.
+func interruptCmd(env Env, verb, short, long string, act func(context.Context, *client.Client) (client.Run, error), done string) *cobra.Command {
+	return &cobra.Command{
+		Use:   verb,
+		Short: short,
+		Long:  long,
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
+				r, err := act(ctx, c)
+				if err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintf(env.Stdout, "run %d of job %d is %s\n", r.ID, r.JobID, done)
+				return nil
+			})
+		},
+	}
+}
+
+func newPauseCmd(env Env) *cobra.Command {
+	return interruptCmd(env, "pause",
+		"Freeze the Run in progress and give the machine back",
+		`Freeze the Run in progress and give the machine back.
+
+The Agent and everything it started - test runners, compilers, package
+managers - stop where they are, so the machine is yours again immediately.
+Nothing is lost: owl resume continues the same Run where it was.
+
+A Run that stays frozen for the whole grace window is ended rather than left
+holding its sockets, and its Job goes back in the queue to be carried on from
+its handoff. The window is graceWindow in the daemon's configuration, and is
+fifteen minutes unless that says otherwise.`,
+		func(ctx context.Context, c *client.Client) (client.Run, error) { return c.PauseRun(ctx) },
+		"frozen")
+}
+
+func newResumeCmd(env Env) *cobra.Command {
+	return interruptCmd(env, "resume",
+		"Continue the Run that is frozen",
+		`Continue the Run that is frozen.
+
+The same Run carries on where it was, with everything the Agent had in mind
+still in its head - nothing was ended, only stopped.`,
+		func(ctx context.Context, c *client.Client) (client.Run, error) { return c.ResumeRun(ctx) },
+		"running again")
+}
+
 func newJobsCmd(env Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "jobs",
@@ -273,7 +322,7 @@ func printJob(env Env, d client.JobDetails) {
 		_, _ = fmt.Fprintln(w, "RUN\tATTEMPT\tPHASE\tOUTCOME\tEXIT\tSTARTED\tENDED\tLOG")
 		for _, r := range d.Runs {
 			_, _ = fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.ID, r.Attempt, orNone(r.Phase), orRunning(r.Outcome), exitStatus(r.ExitCode),
+				r.ID, r.Attempt, orNone(r.Phase), runState(r), exitStatus(r.ExitCode),
 				r.Started.UTC().Format(time.RFC3339), stamp(r.Ended), r.LogPath)
 		}
 		_ = w.Flush()
@@ -391,12 +440,16 @@ func orNone(s string) string {
 	return s
 }
 
-// orRunning names the outcome of a Run that has not ended yet.
-func orRunning(outcome string) string {
-	if outcome == "" {
+// runState is how a Run ended, or what it is doing while it has not.
+func runState(r client.Run) string {
+	switch {
+	case r.Outcome != "":
+		return r.Outcome
+	case r.Paused:
+		return "paused"
+	default:
 		return "running"
 	}
-	return outcome
 }
 
 // exitStatus renders what the Agent exited with, or nothing for a Run that
