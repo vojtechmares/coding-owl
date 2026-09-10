@@ -22,7 +22,7 @@ func tempPaths(t *testing.T) xdg.Paths {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(root) })
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	return xdg.Paths{
 		ConfigDir:  filepath.Join(root, "cfg", "coding-owl"),
 		DataDir:    filepath.Join(root, "data", "coding-owl"),
@@ -106,7 +106,7 @@ func TestStaleSocketIsReplaced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	run(t, paths)
 	waitStatus(t, client.New(paths.SocketPath))

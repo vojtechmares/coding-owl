@@ -57,20 +57,20 @@ func TestMain(m *testing.M) {
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "building owl:", err)
-		os.RemoveAll(tmp)
+		_ = os.RemoveAll(tmp)
 		os.Exit(1)
 	}
 
 	code := m.Run()
-	os.RemoveAll(tmp)
+	_ = os.RemoveAll(tmp)
 	os.Exit(code)
 }
 
 // layout is a temporary XDG layout. Directories are created under a short
 // temp dir because unix socket paths are limited to about 104 bytes.
 type layout struct {
-	root, home, config, data, state, runtime string
-	env                                      []string
+	root, home, config, data, state string
+	env                             []string
 }
 
 func shortTempDir(t *testing.T) string {
@@ -79,7 +79,7 @@ func shortTempDir(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir
 }
 
@@ -520,7 +520,7 @@ func TestS10StaleSocketReplaced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stale.Close()
+	_ = stale.Close()
 
 	startDaemon(t, l)
 	waitForSocket(t, l.socket())

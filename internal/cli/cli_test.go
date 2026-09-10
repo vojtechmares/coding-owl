@@ -22,7 +22,7 @@ func tempPaths(t *testing.T) xdg.Paths {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(root) })
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	state := filepath.Join(root, "state", "coding-owl")
 	return xdg.Paths{
 		ConfigDir:  filepath.Join(root, "cfg", "coding-owl"),
