@@ -142,8 +142,17 @@ type result struct {
 
 func runOwl(t *testing.T, l *layout, args ...string) result {
 	t.Helper()
+	return runOwlIn(t, l, "", args...)
+}
+
+// runOwlIn runs owl with dir as its working directory, which is what tells
+// owl add which Project it was called from. An empty dir leaves the test
+// process's own.
+func runOwlIn(t *testing.T, l *layout, dir string, args ...string) result {
+	t.Helper()
 	cmd := exec.Command(owlBin, args...)
 	cmd.Env = l.env
+	cmd.Dir = dir
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
