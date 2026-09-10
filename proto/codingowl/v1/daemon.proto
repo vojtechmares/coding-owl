@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package codingowl.v1;
+
+import "google/protobuf/duration.proto";
+
+// DaemonService reports on the daemon itself. It is the first service and
+// grows per feature (ADR-0029); Buf breaking-change detection guards it.
+service DaemonService {
+  // GetStatus reports the running daemon's version, uptime and socket path.
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse) {}
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  // Version of the owl binary the daemon was built from.
+  string version = 1;
+  // Uptime since the daemon started listening.
+  google.protobuf.Duration uptime = 2;
+  // Socket path the daemon is listening on.
+  string socket_path = 3;
+}
