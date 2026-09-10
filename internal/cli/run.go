@@ -319,7 +319,7 @@ func printJob(env Env, d client.JobDetails) {
 	} else {
 		_, _ = fmt.Fprintln(env.Stdout, "runs:")
 		w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "RUN\tATTEMPT\tPHASE\tOUTCOME\tEXIT\tSTARTED\tENDED\tLOG")
+		_, _ = fmt.Fprintln(w, "RUN\tATTEMPT\tPHASE\tSTATE\tEXIT\tSTARTED\tENDED\tLOG")
 		for _, r := range d.Runs {
 			_, _ = fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				r.ID, r.Attempt, orNone(r.Phase), runState(r), exitStatus(r.ExitCode),

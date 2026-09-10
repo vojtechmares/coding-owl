@@ -220,3 +220,36 @@ func TestPauseAndResumeRefuseWhenThereIsNoRunToActOn(t *testing.T) {
 		t.Errorf("Resume error = %q, want it to say there is nothing running", err)
 	}
 }
+
+func TestRecoverQueuesWhatWasBeingCarriedOutAndLeavesDecisionsAlone(t *testing.T) {
+	ctx := context.Background()
+	svc, st, repo := newFixture(t, &fakeDriver{}, &fakeExecutor{})
+	// A job an earlier daemon was carrying out, whose run was already recorded
+	// as interrupted: a daemon that died halfway through recovering.
+	carried := queueJob(t, st, "carried out")
+	if err := st.SetJobState(ctx, carried.ID, string(queue.StateActive)); err != nil {
+		t.Fatalf("SetJobState: %v", err)
+	}
+	decided := reviewing(t, st, repo)
+
+	if err := svc.Recover(ctx); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	if got := stateOf(t, st, carried.ID); got != queue.StatePending {
+		t.Errorf("the job that was being carried out is %s, want pending", got)
+	}
+	// A job somebody decided about is not something recovery undoes.
+	if got := stateOf(t, st, decided.ID); got != queue.StateReview {
+		t.Errorf("the job waiting for a decision is %s, want review", got)
+	}
+}
+
+func stateOf(t *testing.T, st *store.Store, id int64) queue.State {
+	t.Helper()
+	j, err := st.GetJob(context.Background(), id)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	return queue.State(j.State)
+}

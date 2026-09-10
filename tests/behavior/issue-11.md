@@ -42,6 +42,18 @@ When `owl pause` runs
 Then it exits with a non-zero code
 And stderr says there is no run in progress
 
+### S16 - a Run being verified is not reported as one that is not there
+Given a running daemon and a Job whose Project configures a check that takes a few seconds, whose Agent has exited
+When `owl pause` runs while the checks are running
+Then it exits with a non-zero code
+And stderr says that Run is being verified rather than saying there is no run at all
+
+### S17 - what an earlier daemon was carrying out is queued again, however it died
+Given a database in which a Job is `active` and its Run was already recorded as interrupted, which is a daemon that died halfway through recovering
+When a daemon starts
+Then that Job is `pending`
+And a Job that was left in `review` is still in `review`
+
 ### S5 - resume with nothing frozen says so
 Given a running daemon and a Run in progress that is not frozen
 When `owl resume` runs
@@ -60,7 +72,7 @@ Given a running daemon whose `graceWindow` is a second, and a frozen Run
 When the window passes
 Then the Run ends `interrupted` within a few seconds
 And its Job is `pending` again
-And the heartbeat file is not growing: the Agent and its child are gone
+And the heartbeat file is not growing, and the Agent's own process is gone
 
 ### S8 - what a terminated Run leaves behind is kept
 Given the Job of S7
@@ -76,14 +88,14 @@ And the Agent's prompt holds what the handoff said
 And the Job keeps the branch and worktree it already had
 
 ### S10 - the grace window is configurable
-Given a daemon whose `graceWindow` is `2s`, and a frozen Run
+Given a daemon whose `graceWindow` is `3s`, and a frozen Run
 When one second has passed
 Then the Run is still in progress
 And after the window has passed the Run is `interrupted`
 
 ### S11 - a grace window that is not a duration is refused
-Given a daemon configuration whose `graceWindow` is `soon`
-When `owl pause` runs for a Run in progress
+Given a Run in progress, and a daemon configuration that then sets `graceWindow` to `soon`
+When `owl pause` runs
 Then it exits with a non-zero code
 And stderr names the configuration file and the setting
 And the Run is still running, not frozen
@@ -105,7 +117,7 @@ And `owl start` begins a new Run for it
 Given a running daemon and a frozen Run
 When the daemon is sent SIGTERM
 Then it exits within a few seconds
-And the Agent and its child are gone
+And the heartbeat file is not growing, and the Agent's own process is gone
 And the Run is `interrupted` and its Job `pending`
 
 ### S15 - pause and resume never touch the daemon itself
