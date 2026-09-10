@@ -438,11 +438,11 @@ func TestS18QueueJobsCarryTheLocalSourceAndAULIDReference(t *testing.T) {
 	c := client.New(l.socket())
 	ctx := context.Background()
 
-	first, err := c.AddJob(ctx, "", "first", r.dir)
+	first, err := c.AddJob(ctx, client.AddJobRequest{Prompt: "first", WorkingDir: r.dir})
 	if err != nil {
 		t.Fatalf("AddJob: %v", err)
 	}
-	second, err := c.AddJob(ctx, "api", "second", "")
+	second, err := c.AddJob(ctx, client.AddJobRequest{Project: "api", Prompt: "second"})
 	if err != nil {
 		t.Fatalf("AddJob: %v", err)
 	}

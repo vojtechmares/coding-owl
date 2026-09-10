@@ -47,6 +47,15 @@ func planningLayout(t *testing.T, plan string) (*layout, *stub) {
 	return writingLayout(t, map[string]string{handoffPath: plan}, true, agentScript)
 }
 
+// plannedJob registers a Project and queues one Job that is planned before it
+// is carried out, which is what owl add does when neither flag is given.
+func plannedJob(t *testing.T, l *layout, prompt string) *repo {
+	t.Helper()
+	r := project(t, l, "api")
+	addJob(t, l, r.dir, prompt)
+	return r
+}
+
 // waitRun waits for one Run of a Job to end and returns its row.
 func waitRun(t *testing.T, l *layout, job, run string) runRow {
 	t.Helper()
@@ -109,7 +118,7 @@ func committedHandoff(t *testing.T, r *repo, job, branch string) string {
 func TestS1PlanRunsBeforeExecute(t *testing.T) {
 	l, _ := planningLayout(t, planText)
 	daemonUp(t, l)
-	runnableJob(t, l, "fix the flaky test")
+	plannedJob(t, l, "fix the flaky test")
 
 	planned, job := phase(t, l)
 	between := jobState(t, l, job)
@@ -167,7 +176,7 @@ func TestS3PlanBothFlagsAreRefused(t *testing.T) {
 func TestS4PlanIsCommittedAsTheHandoffAndPrinted(t *testing.T) {
 	l, _ := planningLayout(t, planText)
 	daemonUp(t, l)
-	r := runnableJob(t, l, "work")
+	r := plannedJob(t, l, "work")
 
 	_, job := phase(t, l)
 
@@ -188,7 +197,7 @@ func TestS4PlanIsCommittedAsTheHandoffAndPrinted(t *testing.T) {
 func TestS5PlanOwlCommitsAHandoffTheAgentLeftBehind(t *testing.T) {
 	l, _ := writingLayout(t, map[string]string{handoffPath: planText}, false, agentScript)
 	daemonUp(t, l)
-	r := runnableJob(t, l, "work")
+	r := plannedJob(t, l, "work")
 
 	_, job := phase(t, l)
 
@@ -209,7 +218,7 @@ func TestS5PlanOwlCommitsAHandoffTheAgentLeftBehind(t *testing.T) {
 func TestS6PlanWithoutAHandoffBlocksTheJob(t *testing.T) {
 	l, _ := agentLayout(t, agentScript, 0)
 	daemonUp(t, l)
-	runnableJob(t, l, "work")
+	plannedJob(t, l, "work")
 
 	_, job := phase(t, l)
 
@@ -228,7 +237,7 @@ func TestS6PlanWithoutAHandoffBlocksTheJob(t *testing.T) {
 func TestS7PlanExecutionCarriesTheHandoffInAFreshInvocation(t *testing.T) {
 	l, s := planningLayout(t, planText)
 	daemonUp(t, l)
-	runnableJob(t, l, "fix the flaky test")
+	plannedJob(t, l, "fix the flaky test")
 
 	phase(t, l)
 	phase(t, l)
@@ -262,6 +271,13 @@ func TestS8PlanASecondExecutionReadsTheUpdatedHandoff(t *testing.T) {
 	r := project(t, l, "api")
 	addJob(t, l, r.dir, "work", "--no-plan")
 	_, job := startRun(t, l)
+	// The agent writes the handoff before it waits, and the point of the
+	// scenario is the run being interrupted after that.
+	handoff := filepath.Join(worktreeDir(l, job), handoffPath)
+	waitFor(t, "the agent's handoff at "+handoff, func() bool {
+		_, err := os.Stat(handoff)
+		return err == nil
+	})
 
 	stopDaemon(t, p)
 	daemonUp(t, l)
@@ -269,10 +285,14 @@ func TestS8PlanASecondExecutionReadsTheUpdatedHandoff(t *testing.T) {
 	if got := jobState(t, l, job); got != "pending" {
 		t.Fatalf("state after the interruption = %q, want the job pending again", got)
 	}
-	row, again := phase(t, l)
+	run, again := startRun(t, l)
 	if again != job {
 		t.Fatalf("owl start ran job %s, want the interrupted job %s", again, job)
 	}
+	// This run waits on the release file too, so it is let go once it has
+	// recorded how it was invoked.
+	s.let(t)
+	row := waitRun(t, l, job, run)
 	if row.phase != "execute" {
 		t.Errorf("phase = %q, want execute", row.phase)
 	}
@@ -285,7 +305,7 @@ func TestS8PlanASecondExecutionReadsTheUpdatedHandoff(t *testing.T) {
 func TestS9PlanAHandoffEditedByHandIsWhatTheNextRunReads(t *testing.T) {
 	l, s := planningLayout(t, planText)
 	daemonUp(t, l)
-	r := runnableJob(t, l, "work")
+	r := plannedJob(t, l, "work")
 	_, job := phase(t, l)
 	worktree := line(t, mustOwl(t, l, "jobs", "show", job).stdout, "worktree")
 
@@ -310,7 +330,7 @@ func TestS9PlanAHandoffEditedByHandIsWhatTheNextRunReads(t *testing.T) {
 func TestS10PlanModelAndEffortDefaultPerPhase(t *testing.T) {
 	l, s := planningLayout(t, planText)
 	daemonUp(t, l)
-	runnableJob(t, l, "work")
+	plannedJob(t, l, "work")
 
 	phase(t, l)
 	phase(t, l)
@@ -438,7 +458,7 @@ func phaseRows(t *testing.T, out string) []string {
 func TestS15PlanRunsRecordTheirPhase(t *testing.T) {
 	l, _ := planningLayout(t, planText)
 	daemonUp(t, l)
-	runnableJob(t, l, "work")
+	plannedJob(t, l, "work")
 
 	phase(t, l)
 	phase(t, l)

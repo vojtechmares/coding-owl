@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/driver"
 	"github.com/vojtechmares/coding-owl/internal/executor"
 	"github.com/vojtechmares/coding-owl/internal/git"
@@ -79,13 +80,19 @@ type Run struct {
 	ExitCode int
 	// LogPath is where its structured output was captured.
 	LogPath string
+	// Phase is what the Run was carrying out (ADR-0026).
+	Phase Phase
 }
 
-// Details is a Job with its Runs and the system prompt in force for it.
+// Details is a Job with its Runs, the system prompt in force for it, and what
+// each of its phases would run at.
 type Details struct {
 	Job          queue.Job
 	Runs         []Run
 	SystemPrompt string
+	// Phases is what each phase runs at and where each setting came from, in
+	// the order a Job passes through them (ADR-0028).
+	Phases []Settings
 }
 
 // Line is one line of an Agent's structured output, numbered from one so a
@@ -120,6 +127,10 @@ type Options struct {
 	WorktreeDir string
 	// LogDir holds one captured stream per Run.
 	LogDir string
+	// ConfigPath is the daemon's own configuration file, which sets what the
+	// phases of every Job run at unless something narrower says otherwise
+	// (ADR-0014, ADR-0028).
+	ConfigPath string
 	// Logger receives what a background Run cannot return to a caller.
 	Logger *slog.Logger
 }
@@ -223,6 +234,17 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	if err := s.opts.Driver.Check(ctx); err != nil {
 		return queue.Job{}, Run{}, false, &RefusedError{Err: err}
 	}
+	// So is what the phase runs at: a model nobody can run is the caller's
+	// mistake, not a failed Run.
+	global, err := s.global()
+	if err != nil {
+		return queue.Job{}, Run{}, false, err
+	}
+	phase := phaseOf(j)
+	settings, err := resolve(phase, global, details.Config, j)
+	if err != nil {
+		return queue.Job{}, Run{}, false, &RefusedError{Err: err}
+	}
 
 	if j.Branch == "" {
 		// The worktree and the branch belong to the Job, so a Job that takes
@@ -242,7 +264,16 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 		j.Branch, j.Worktree = branch, worktree
 	}
 
-	r, err := s.opts.Store.StartRun(ctx, store.Run{JobID: j.ID, Started: s.now().UTC()})
+	// The prompt is built after the worktree exists, because an execution Run
+	// reads the handoff that is in it.
+	prompt, err := s.promptFor(phase, j)
+	if err != nil {
+		return queue.Job{}, Run{}, false, err
+	}
+
+	r, err := s.opts.Store.StartRun(ctx, store.Run{
+		JobID: j.ID, Started: s.now().UTC(), Phase: string(phase),
+	})
 	if err != nil {
 		return queue.Job{}, Run{}, false, err
 	}
@@ -263,19 +294,78 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	}
 
 	req := driver.Request{
-		Prompt:       j.Prompt,
+		Prompt:       prompt,
 		SystemPrompt: SystemPrompt(details.Config.UnattendedClauses),
 		WorkingDir:   j.Worktree,
 		BudgetUSD:    details.Config.BudgetUSD,
+		Model:        settings.Model.Value,
+		Effort:       settings.Effort.Value,
 	}
 	// The broker is opened here rather than in the goroutine, so a follower
 	// that arrives the instant owl start returns finds the Run rather than an
 	// empty log it reads as the end of one.
 	b := s.openBroker(r.ID)
 	s.wg.Add(1)
-	go s.carryOut(r, req, b)
+	go s.carryOut(j, r, phase, req, b)
 
-	return toJob(j), toRun(r), true, nil
+	return queue.FromStore(j), toRun(r), true, nil
+}
+
+// phaseOf is what a Job's next Run carries out: a Job that is planned and has
+// no plan yet is planned first, and everything else is execution (ADR-0026).
+func phaseOf(j store.Job) Phase {
+	if j.Planned && strings.TrimSpace(j.Plan) == "" {
+		return PhasePlan
+	}
+	return PhaseExecute
+}
+
+// promptFor builds what the Agent is asked to do this Run. The execution
+// prompt carries the handoff as it stands in the Job's worktree, so a Run
+// reads what the last one left - and what the user edited since (ADR-0026).
+func (s *Service) promptFor(phase Phase, j store.Job) (string, error) {
+	if phase == PhasePlan {
+		return planPrompt(j.Prompt), nil
+	}
+	handoff, err := readHandoff(j.Worktree)
+	if err != nil {
+		return "", err
+	}
+	return executePrompt(j.Prompt, handoff), nil
+}
+
+// readHandoff reads a Job's handoff from its worktree. A Job that has none yet
+// is not an error: its first Run writes one.
+func readHandoff(worktree string) (string, error) {
+	if worktree == "" {
+		return "", nil
+	}
+	data, err := os.ReadFile(filepath.Join(worktree, HandoffPath))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", HandoffPath, err)
+	}
+	return string(data), nil
+}
+
+// recordPlan takes what a planning Run decided out of the handoff it wrote,
+// commits it if the Agent did not, and keeps it on the Job. A planning Run
+// that wrote nothing produced no plan, which is a failure however cleanly its
+// Agent exited.
+func (s *Service) recordPlan(ctx context.Context, j store.Job) error {
+	plan, err := readHandoff(j.Worktree)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(plan) == "" {
+		return fmt.Errorf("the planning run left no %s, so there is no plan to carry out", HandoffPath)
+	}
+	if _, err := git.CommitPath(j.Worktree, HandoffPath, "plan job "+strconv.FormatInt(j.ID, 10)); err != nil {
+		return err
+	}
+	return s.opts.Store.SetJobPlan(ctx, j.ID, plan)
 }
 
 // abandon ends a Run that never got as far as an Agent, and blocks its Job
@@ -312,10 +402,22 @@ func (s *Service) Show(ctx context.Context, jobID int64) (Details, error) {
 	if err != nil {
 		return Details{}, err
 	}
+	global, err := s.global()
+	if err != nil {
+		return Details{}, err
+	}
+	settings := make([]Settings, 0, len(phases))
+	for _, phase := range phases {
+		// A phase whose settings are unusable is still worth reporting: the
+		// value that is the problem is what a user needs to see.
+		resolved, _ := resolve(phase, global, details.Config, j)
+		settings = append(settings, resolved)
+	}
 	return Details{
-		Job:          toJob(j),
+		Job:          queue.FromStore(j),
 		Runs:         runs,
 		SystemPrompt: SystemPrompt(details.Config.UnattendedClauses),
+		Phases:       settings,
 	}, nil
 }
 
@@ -392,7 +494,7 @@ func (s *Service) sendFile(path string, send func(Line) error) (int64, error) {
 }
 
 // carryOut runs the Agent and records what became of the Job.
-func (s *Service) carryOut(r store.Run, req driver.Request, b *broker) {
+func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Request, b *broker) {
 	defer s.wg.Done()
 	outcome, reason, code := s.execute(r, req, b)
 	s.closeBroker(r.ID)
@@ -401,23 +503,53 @@ func (s *Service) carryOut(r store.Run, req driver.Request, b *broker) {
 	// Service's own context.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
 	defer cancel()
+
+	// A planning Run has one more thing to do: what it decided is in the
+	// handoff, and a planning Run that decided nothing has not succeeded.
+	if outcome == OutcomeSucceeded && phase == PhasePlan {
+		if err := s.recordPlan(ctx, j); err != nil {
+			outcome, reason = OutcomeFailed, err.Error()
+		}
+	}
+
 	if err := s.opts.Store.FinishRun(ctx, r.ID, s.now().UTC(), string(outcome), reason, code); err != nil {
 		s.opts.Logger.Error("recording the end of a run", "run", r.ID, "error", err)
 	}
-	// An interrupted Run leaves its Job where it was: it was not finished, and
-	// requeueing it is the daemon's business at restart (ADR-0011).
-	state := queue.StateReview
-	switch outcome {
-	case OutcomeInterrupted:
-		s.opts.Logger.Info("run interrupted", "run", r.ID, "job", r.JobID)
-		return
-	case OutcomeFailed:
-		state = queue.StateBlocked
+	s.opts.Logger.Info("run finished",
+		"run", r.ID, "job", r.JobID, "phase", phase, "outcome", outcome)
+
+	switch {
+	case outcome == OutcomeInterrupted:
+		// The Run did not finish, so the Job goes back into the queue at the
+		// place it kept while it ran (ADR-0011, ADR-0025).
+		if err := s.opts.Store.SetJobState(ctx, r.JobID, string(queue.StatePending)); err != nil {
+			s.opts.Logger.Error("returning an interrupted job to the queue", "job", r.JobID, "error", err)
+		}
+	case outcome == OutcomeFailed:
+		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateBlocked)); err != nil {
+			s.opts.Logger.Error("blocking a job", "job", r.JobID, "error", err)
+		}
+	case phase == PhasePlan:
+		// The Job is planned, not finished: it waits its turn to be carried
+		// out, in the place it already holds.
+		if err := s.opts.Store.SetJobState(ctx, r.JobID, string(queue.StatePending)); err != nil {
+			s.opts.Logger.Error("returning a planned job to the queue", "job", r.JobID, "error", err)
+		}
+	default:
+		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateReview)); err != nil {
+			s.opts.Logger.Error("recording where a job got to", "job", r.JobID, "error", err)
+		}
 	}
-	if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(state)); err != nil {
-		s.opts.Logger.Error("recording where a job got to", "job", r.JobID, "error", err)
+}
+
+// global reads the daemon's own configuration, so an edit takes effect on the
+// next Run rather than on the next restart.
+func (s *Service) global() (config.Global, error) {
+	if s.opts.ConfigPath == "" {
+		return config.Global{}, nil
 	}
-	s.opts.Logger.Info("run finished", "run", r.ID, "job", r.JobID, "outcome", outcome)
+	cfg, _, err := config.LoadGlobal(s.opts.ConfigPath)
+	return cfg, err
 }
 
 // execute starts the Agent, captures its output and reports how it ended, with
@@ -512,20 +644,6 @@ func toRun(r store.Run) Run {
 		Error:    r.Error,
 		ExitCode: r.ExitCode,
 		LogPath:  r.LogPath,
-	}
-}
-
-func toJob(j store.Job) queue.Job {
-	return queue.Job{
-		ID:        j.ID,
-		Source:    j.Source,
-		SourceRef: j.SourceRef,
-		Project:   j.Project,
-		Prompt:    j.Prompt,
-		State:     queue.State(j.State),
-		Branch:    j.Branch,
-		Worktree:  j.Worktree,
-		Position:  j.Position,
-		Created:   j.Created,
+		Phase:    Phase(r.Phase),
 	}
 }

@@ -88,6 +88,13 @@ type Job struct {
 	Branch string
 	// Worktree is where that branch is checked out, empty until it has one.
 	Worktree string
+	// Planned is whether the Job is planned before it is executed (ADR-0026).
+	Planned bool
+	// Plan is what its planning Run decided, empty until there is one.
+	Plan string
+	// Model and Effort are the Job's own overrides, empty when it has none.
+	Model  string
+	Effort string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -117,6 +124,13 @@ type AddRequest struct {
 	Prompt string
 	// WorkingDir is the absolute path the caller ran owl add in.
 	WorkingDir string
+	// Planned is whether the Job is planned before it is executed. Planning is
+	// the default (ADR-0026).
+	Planned bool
+	// Model and Effort override what every phase of this Job runs at
+	// (ADR-0028). Empty leaves it to the Project and the defaults.
+	Model  string
+	Effort string
 }
 
 // Add produces a Job through the Service's Source and queues it behind
@@ -134,18 +148,36 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Job, error) {
 	if err != nil {
 		return Job{}, fmt.Errorf("producing a reference for source %s: %w", s.source.Name(), err)
 	}
+	if err := usableSetting("model", req.Model); err != nil {
+		return Job{}, err
+	}
+	if err := usableSetting("effort", req.Effort); err != nil {
+		return Job{}, err
+	}
 	j, err := s.store.UpsertJob(ctx, store.Job{
 		Source:    s.source.Name(),
 		SourceRef: ref,
 		Project:   name,
 		Prompt:    prompt,
 		State:     string(StatePending),
+		Planned:   req.Planned,
+		Model:     req.Model,
+		Effort:    req.Effort,
 		Created:   s.now().UTC(),
 	})
 	if err != nil {
 		return Job{}, err
 	}
-	return toJob(j), nil
+	return FromStore(j), nil
+}
+
+// usableSetting refuses a model or effort that a tool would read as an option
+// rather than as a value.
+func usableSetting(what, value string) error {
+	if strings.HasPrefix(value, "-") {
+		return invalid("%s %q may not start with a dash", what, value)
+	}
+	return nil
 }
 
 // resolveProject names the Project a request is for: the one it asks for by
@@ -211,7 +243,7 @@ func (s *Service) List(ctx context.Context, all bool) ([]Job, error) {
 	}
 	out := make([]Job, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, toJob(r))
+		out = append(out, FromStore(r))
 	}
 	return out, nil
 }
@@ -225,7 +257,10 @@ func (s *Service) jobs(ctx context.Context, all bool) ([]store.Job, error) {
 	return s.store.ListQueue(ctx, string(StatePending))
 }
 
-func toJob(j store.Job) Job {
+// FromStore reads a Job out of the store's shape. It is exported because the
+// Runs a Job produces are carried out elsewhere, and one conversion that
+// forgets a field is one too many.
+func FromStore(j store.Job) Job {
 	return Job{
 		ID:        j.ID,
 		Source:    j.Source,
@@ -235,6 +270,10 @@ func toJob(j store.Job) Job {
 		State:     State(j.State),
 		Branch:    j.Branch,
 		Worktree:  j.Worktree,
+		Planned:   j.Planned,
+		Plan:      j.Plan,
+		Model:     j.Model,
+		Effort:    j.Effort,
 		Position:  j.Position,
 		Created:   j.Created,
 	}
@@ -253,7 +292,7 @@ func (s *Service) Cancel(ctx context.Context, id int64) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
-	return toJob(j), nil
+	return FromStore(j), nil
 }
 
 // Reorder moves a pending Job to position, counting from one. The Jobs it
@@ -277,7 +316,7 @@ func (s *Service) Reorder(ctx context.Context, id int64, position int) (Job, err
 	if err != nil {
 		return Job{}, err
 	}
-	return toJob(j), nil
+	return FromStore(j), nil
 }
 
 // pending returns the Job of that id, refusing one that has left the queue.
@@ -291,5 +330,5 @@ func (s *Service) pending(ctx context.Context, id int64) (Job, error) {
 	if State(j.State) != StatePending {
 		return Job{}, invalid("job %d is not pending, it is %s", id, j.State)
 	}
-	return toJob(j), nil
+	return FromStore(j), nil
 }

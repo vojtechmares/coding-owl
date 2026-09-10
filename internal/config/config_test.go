@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -84,5 +86,67 @@ func TestParseReadsAProjectsClausesAndSpendCap(t *testing.T) {
 	}
 	if _, err := config.Parse("f", []byte("apiVersion: codingowl.dev/v1\nbudgetUSD: -1\n")); err == nil {
 		t.Error("a negative spend cap was accepted")
+	}
+}
+
+func TestParseReadsPhases(t *testing.T) {
+	cfg, err := config.Parse("main:.coding-owl.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\nphases:\n  plan:\n    model: haiku\n  execute:\n    effort: medium\n"))
+
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := cfg.Phases[config.PhasePlan]; got.Model != "haiku" || got.Effort != "" {
+		t.Errorf("plan phase = %+v, want haiku and nothing said about effort", got)
+	}
+	if got := cfg.Phases[config.PhaseExecute]; got.Effort != "medium" || got.Model != "" {
+		t.Errorf("execute phase = %+v, want medium and nothing said about model", got)
+	}
+}
+
+func TestParseRefusesAPhaseNobodyRuns(t *testing.T) {
+	for name, body := range map[string]string{
+		"unknown phase": "apiVersion: codingowl.dev/v1\nphases:\n  review:\n    model: opus\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := config.Parse("f", []byte(body)); err == nil {
+				t.Errorf("Parse(%q) = nil, want an error", body)
+			}
+		})
+	}
+}
+
+func TestParseGlobalReadsPhasesAndRefusesAnUnknownAPIVersion(t *testing.T) {
+	cfg, err := config.ParseGlobal("config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\nphases:\n  execute:\n    effort: low\n"))
+
+	if err != nil {
+		t.Fatalf("ParseGlobal: %v", err)
+	}
+	if got := cfg.Phases[config.PhaseExecute].Effort; got != "low" {
+		t.Errorf("execute effort = %q, want low", got)
+	}
+	if _, err := config.ParseGlobal("config.yaml", []byte("apiVersion: codingowl.dev/v99\n")); err == nil {
+		t.Error("ParseGlobal accepted an apiVersion it does not recognise")
+	}
+}
+
+func TestLoadGlobalReportsAMissingFileAsAbsentRatherThanBroken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+
+	if _, found, err := config.LoadGlobal(path); err != nil || found {
+		t.Fatalf("LoadGlobal on a missing file = %v, %v, want absent and no error", found, err)
+	}
+	if err := os.WriteFile(path, []byte("apiVersion: codingowl.dev/v1\nphases:\n  plan:\n    model: sonnet\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, found, err := config.LoadGlobal(path)
+
+	if err != nil || !found {
+		t.Fatalf("LoadGlobal = %v, %v, want the file", found, err)
+	}
+	if got := cfg.Phases[config.PhasePlan].Model; got != "sonnet" {
+		t.Errorf("plan model = %q, want sonnet", got)
 	}
 }

@@ -242,8 +242,9 @@ func TestStartRunsTheJobAndLandsItInReview(t *testing.T) {
 	if got, want := string(data), strings.Join(lines, "\n")+"\n"; got != want {
 		t.Errorf("log = %q, want %q", got, want)
 	}
-	if got := d.given(); got.Prompt != "work" || got.WorkingDir != done.Worktree {
-		t.Errorf("the driver was asked for %+v, want the job's prompt in its worktree", got)
+	if got := d.given(); !strings.Contains(got.Prompt, "work") || got.WorkingDir != done.Worktree {
+		t.Errorf("the driver was asked for %q in %s, want the job's prompt in its worktree",
+			got.Prompt, got.WorkingDir)
 	}
 	if !strings.Contains(d.given().SystemPrompt, "unattended") {
 		t.Errorf("the driver was given no unattended contract: %q", d.given().SystemPrompt)
@@ -331,7 +332,7 @@ func TestStartRefusesAToolItDoesNotDrive(t *testing.T) {
 	}
 }
 
-func TestCloseInterruptsARunAndLeavesTheJobWhereItWas(t *testing.T) {
+func TestCloseInterruptsARunAndReturnsTheJobToTheQueue(t *testing.T) {
 	ctx := context.Background()
 	started := make(chan struct{})
 	svc, st, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{hold: make(chan struct{}), started: started})
@@ -356,8 +357,13 @@ func TestCloseInterruptsARunAndLeavesTheJobWhereItWas(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetJob: %v", err)
 	}
-	if queue.State(after.State) != queue.StateActive {
-		t.Errorf("state = %q, want the job left active for the daemon to requeue", after.State)
+	// A Run that did not finish leaves its Job waiting again, in the place it
+	// kept while it ran (ADR-0011, ADR-0025).
+	if queue.State(after.State) != queue.StatePending {
+		t.Errorf("state = %q, want the job back in the queue", after.State)
+	}
+	if after.Position != 1 {
+		t.Errorf("position = %d, want the place it held while it ran", after.Position)
 	}
 }
 

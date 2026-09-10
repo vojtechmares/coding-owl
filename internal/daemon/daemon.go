@@ -36,6 +36,7 @@ const (
 	databaseName = "owl.db"
 	worktreesDir = "worktrees"
 	logsDir      = "logs"
+	configName   = "config.yaml"
 )
 
 // ErrAlreadyListening is returned by Run when another daemon answers on the
@@ -100,6 +101,7 @@ func Run(ctx context.Context, opts Options) error {
 		Executor:    host.New(),
 		WorktreeDir: filepath.Join(opts.Paths.DataDir, worktreesDir),
 		LogDir:      filepath.Join(opts.Paths.StateDir, logsDir),
+		ConfigPath:  filepath.Join(opts.Paths.ConfigDir, configName),
 		Logger:      log,
 	})
 	// Agents outlive the request that started them, so they are stopped when

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -135,6 +136,7 @@ func printJob(env Env, d client.JobDetails) {
 		{"prompt", d.Job.Prompt},
 		{"branch", orNone(d.Job.Branch)},
 		{"worktree", orNone(d.Job.Worktree)},
+		{"planned", yesNo(d.Job.Planned)},
 		{"source", d.Job.Source + ":" + d.Job.SourceRef},
 		{"created", d.Job.Created.UTC().Format(time.RFC3339)},
 	} {
@@ -144,19 +146,44 @@ func printJob(env Env, d client.JobDetails) {
 		_, _ = fmt.Fprintf(env.Stdout, "reason: %s\n", reason)
 	}
 	if len(d.Runs) == 0 {
-		_, _ = fmt.Fprintf(env.Stdout, "runs: %s\n", "none")
+		// "none" rather than the placeholder used for a missing value: there
+		// is nothing missing about a Job that has not run yet.
+		_, _ = fmt.Fprintln(env.Stdout, "runs: none")
 	} else {
 		_, _ = fmt.Fprintln(env.Stdout, "runs:")
 		w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "RUN\tATTEMPT\tOUTCOME\tEXIT\tSTARTED\tENDED\tLOG")
+		_, _ = fmt.Fprintln(w, "RUN\tATTEMPT\tPHASE\tOUTCOME\tEXIT\tSTARTED\tENDED\tLOG")
 		for _, r := range d.Runs {
-			_, _ = fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\t%s\t%s\n",
-				r.ID, r.Attempt, orRunning(r.Outcome), exitStatus(r.ExitCode),
+			_, _ = fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.ID, r.Attempt, orNone(r.Phase), orRunning(r.Outcome), exitStatus(r.ExitCode),
 				r.Started.UTC().Format(time.RFC3339), stamp(r.Ended), r.LogPath)
 		}
 		_ = w.Flush()
 	}
+	printPhases(env, d.Phases)
+	if plan := strings.TrimRight(d.Job.Plan, "\n"); plan != "" {
+		_, _ = fmt.Fprintf(env.Stdout, "\nplan:\n%s\n", plan)
+	} else {
+		_, _ = fmt.Fprintf(env.Stdout, "\nplan: %s\n", noValue)
+	}
 	_, _ = fmt.Fprintf(env.Stdout, "\nsystem prompt:\n%s\n", d.SystemPrompt)
+}
+
+// printPhases reports what each phase of the Job would run at, and where each
+// setting came from, so a surprising value can be traced to the file that set
+// it (ADR-0028).
+func printPhases(env Env, phases []client.PhaseSettings) {
+	if len(phases) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(env.Stdout, "\nphases:")
+	w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "PHASE\tMODEL\tFROM\tEFFORT\tFROM")
+	for _, p := range phases {
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			p.Phase, orNone(p.Model), orNone(p.ModelFrom), orNone(p.Effort), orNone(p.EffortFrom))
+	}
+	_ = w.Flush()
 }
 
 // lastFailure is why the most recent Run did not succeed, which is what a
@@ -166,6 +193,14 @@ func lastFailure(runs []client.Run) string {
 		return ""
 	}
 	return runs[len(runs)-1].Error
+}
+
+// yesNo renders a flag the way a person reads one.
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 func orNone(s string) string {

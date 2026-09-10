@@ -36,6 +36,14 @@ type Job struct {
 	Branch string
 	// Worktree is where that branch is checked out, empty until it has one.
 	Worktree string
+	// Planned is whether the Job is planned before it is executed (ADR-0026).
+	Planned bool
+	// Plan is what its planning Run decided, empty until there is one.
+	Plan string
+	// Model and Effort are the Job's own overrides, empty when it has none
+	// and the Project or the defaults decide (ADR-0028).
+	Model  string
+	Effort string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -44,7 +52,8 @@ type Job struct {
 }
 
 // jobColumns is the select list every Job read shares, in scanJob's order.
-const jobColumns = `id, source, source_ref, project, prompt, state, branch, worktree, position, created`
+const jobColumns = `id, source, source_ref, project, prompt, state, branch, worktree,
+	planned, plan, model, effort, position, created`
 
 // UpsertJob produces j. A Job with that source and reference is not made
 // twice: the second production rewrites the prompt of the Job already in the
@@ -60,11 +69,11 @@ func (s *Store) UpsertJob(ctx context.Context, j Job) (Job, error) {
 	// NULLs of the Jobs that have left the queue, so their positions are not
 	// held against the ones still in it.
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO jobs (source, source_ref, project, prompt, state, position, created)
-		 VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM jobs), ?)
+		`INSERT INTO jobs (source, source_ref, project, prompt, state, planned, model, effort, position, created)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM jobs), ?)
 		 ON CONFLICT (source, source_ref) DO UPDATE SET prompt = excluded.prompt
 		   WHERE jobs.position IS NOT NULL`,
-		j.Source, j.SourceRef, j.Project, j.Prompt, j.State,
+		j.Source, j.SourceRef, j.Project, j.Prompt, j.State, boolToInt(j.Planned), j.Model, j.Effort,
 		j.Created.UTC().Format(timeFormat)); err != nil {
 		return Job{}, err
 	}
@@ -126,6 +135,20 @@ func (s *Store) SetJobState(ctx context.Context, id int64, state string) error {
 	return s.affectOneJob(ctx, id, `UPDATE jobs SET state = ? WHERE id = ?`, state, id)
 }
 
+// SetJobPlan records what a Job's planning Run decided, which is also what is
+// committed as the handoff on its branch (ADR-0026).
+func (s *Store) SetJobPlan(ctx context.Context, id int64, plan string) error {
+	return s.affectOneJob(ctx, id, `UPDATE jobs SET plan = ? WHERE id = ?`, plan, id)
+}
+
+// boolToInt renders a flag for a STRICT table, which has no boolean type.
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // SetJobWorkspace records the branch a Job's work lands on and the worktree it
 // is checked out in. Both belong to the Job, not to one Run (ADR-0007).
 func (s *Store) SetJobWorkspace(ctx context.Context, id int64, branch, worktree string) error {
@@ -170,12 +193,14 @@ func (s *Store) listJobs(ctx context.Context, query string, args ...any) ([]Job,
 func scanJob(sc scanner) (Job, error) {
 	var j Job
 	var position sql.NullInt64
+	var planned int
 	var created string
 	if err := sc.Scan(&j.ID, &j.Source, &j.SourceRef, &j.Project, &j.Prompt, &j.State,
-		&j.Branch, &j.Worktree, &position, &created); err != nil {
+		&j.Branch, &j.Worktree, &planned, &j.Plan, &j.Model, &j.Effort, &position, &created); err != nil {
 		return Job{}, err
 	}
 	j.Position = int(position.Int64)
+	j.Planned = planned != 0
 	t, err := time.Parse(timeFormat, created)
 	if err != nil {
 		return Job{}, fmt.Errorf("job %d has an unreadable created time %q: %w", j.ID, created, err)

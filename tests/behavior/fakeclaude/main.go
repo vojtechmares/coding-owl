@@ -130,6 +130,11 @@ func writeFiles() error {
 	if err := git(append([]string{"add", "--"}, paths...)); err != nil {
 		return err
 	}
+	// A run that wrote what was already there has nothing to commit, which is
+	// not a failure.
+	if err := git([]string{"diff", "--cached", "--quiet"}); err == nil {
+		return nil
+	}
 	return git([]string{"commit", "-m", "the agent's own commit"})
 }
 
