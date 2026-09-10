@@ -1291,7 +1291,7 @@ func TestRebaseCarriesNoOtherBranchWithIt(t *testing.T) {
 	}
 }
 
-func TestRebaseDoesNotRunARepositorysHooks(t *testing.T) {
+func TestRebaseDoesNotAskARepositorysPreRebaseHook(t *testing.T) {
 	dir := newRepo(t)
 	worktree := filepath.Join(t.TempDir(), "job")
 	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
@@ -1299,7 +1299,8 @@ func TestRebaseDoesNotRunARepositorysHooks(t *testing.T) {
 	}
 	commit(t, worktree, "work.txt", "the agent's work\n")
 	commit(t, dir, "from-base.txt", "moved on\n")
-	// A hook in the repository the worktree shares, which an Agent can write.
+	// The hook that decides whether a rebase may happen at all, in the
+	// repository the worktree shares - which an Agent can write.
 	hooks := strings.TrimSpace(run(t, dir, "rev-parse", "--git-path", "hooks"))
 	if !filepath.IsAbs(hooks) {
 		hooks = filepath.Join(dir, hooks)
@@ -1319,7 +1320,7 @@ func TestRebaseDoesNotRunARepositorysHooks(t *testing.T) {
 		t.Fatalf("Rebase = %+v, %v; a hook of somebody else's refused it", conflict, err)
 	}
 	if _, err := os.Stat(ran); err == nil {
-		t.Errorf("the repository's pre-rebase hook was run")
+		t.Errorf("the repository's pre-rebase hook was asked")
 	}
 }
 
@@ -1336,5 +1337,28 @@ func TestHeadBranchTellsADetachedWorktreeFromAFailure(t *testing.T) {
 	// Somewhere that is not a repository at all is a different answer.
 	if _, err := git.HeadBranch(t.TempDir()); err == nil {
 		t.Error("HeadBranch reported success outside a repository")
+	}
+}
+
+func TestFetchBaseRunsNoCommandARemoteUrlNames(t *testing.T) {
+	dir := newRepo(t)
+	tmp := t.TempDir()
+	ran := filepath.Join(tmp, "ran")
+	helper := filepath.Join(tmp, "helper")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\ntouch "+ran+"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// An ext:: remote is a command for git to run, and a remote URL is
+	// configuration an Agent can write.
+	run(t, dir, "remote", "add", "origin", "ext::"+helper)
+	run(t, dir, "config", "protocol.ext.allow", "always")
+
+	err := git.FetchBase(context.Background(), dir, "main")
+
+	if err == nil {
+		t.Error("FetchBase reported success for a remote that names a command")
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Errorf("the command the remote url names was run")
 	}
 }

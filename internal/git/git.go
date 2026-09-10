@@ -696,8 +696,10 @@ func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 	// commits it rewrites, and rebase.updateRefs is a setting a user may have
 	// on globally - or an Agent may set in the repository the worktree shares.
 	// Owl rebases its own Job branch and nothing else (ADR-0016).
-	// --no-verify: a pre-rebase hook is somebody else's code, and this runs
-	// unattended, exactly as the commit below does.
+	// --no-verify: the pre-rebase hook is somebody else's code deciding
+	// whether this may happen, and this runs unattended, exactly as the commit
+	// below does. Git's other hooks still run - they are told what happened
+	// rather than asked.
 	// commit.gpgsign=false: replaying Owl's own Job branch is not the user's
 	// signature to give, and a signing program that wants a passphrase would
 	// wait for somebody who is not there.
@@ -791,7 +793,11 @@ func FetchBase(ctx context.Context, dir, base string) error {
 	// updated, nothing the user has is moved, and neither side can be read as
 	// a tag of the same name.
 	refspec := fmt.Sprintf("+%s:refs/remotes/%s/%s", branchRef(base), remote, base)
-	_, stderr, code, err := runWithin(ctx, dir, "fetch", "--quiet", "--", remote, refspec)
+	// protocol.ext.allow=never: a remote URL is configuration, and an ext::
+	// one is a command for git to run. Owl fetches from remotes, not from
+	// whatever a repository's configuration would like it to execute.
+	_, stderr, code, err := runWithin(ctx, dir,
+		"-c", "protocol.ext.allow=never", "fetch", "--quiet", "--", remote, refspec)
 	if err != nil {
 		return err
 	}
