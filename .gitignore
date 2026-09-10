@@ -1,0 +1,6 @@
+# build output
+/bin/
+/dist/
+
+# local agent state
+.claude/*.local.md
