@@ -244,7 +244,9 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	s.starting.Lock()
 	defer s.starting.Unlock()
 
-	if s.stopping {
+	// The flag and the context are set a moment apart, and either of them
+	// means the same thing: nothing new starts now.
+	if s.stopping || s.ctx.Err() != nil {
 		return queue.Job{}, Run{}, false, refused("the daemon is stopping; nothing new is started now")
 	}
 	if r, ok, err := s.opts.Store.RunInProgress(ctx); err != nil {
@@ -654,12 +656,14 @@ func (s *Service) prepare(ctx context.Context, j store.Job, setup []string) erro
 		res, err := shell.Run(ctx, j.Worktree, cmd, setupTimeout)
 		failure := ""
 		switch {
+		case res.Cancelled || ctx.Err() != nil:
+			// The daemon is stopping, or the caller hung up: the Job has not
+			// failed at anything, so it stays where it was. This comes first,
+			// because a command that never started reports the cancellation as
+			// its own error.
+			return fmt.Errorf("setup was stopped before %q finished", cmd)
 		case err != nil:
 			failure = fmt.Sprintf("the setup command %q could not be run: %v", cmd, err)
-		case res.Cancelled:
-			// The daemon is stopping, or the caller hung up: the Job has not
-			// failed at anything, so it stays where it was.
-			return fmt.Errorf("setup was stopped before %q finished", cmd)
 		case res.TimedOut:
 			failure = fmt.Sprintf("the setup command %q timed out after %s", cmd, setupTimeout)
 		case res.ExitCode != 0:
@@ -667,9 +671,13 @@ func (s *Service) prepare(ctx context.Context, j store.Job, setup []string) erro
 		default:
 			continue
 		}
-		if err := s.opts.Store.DequeueJob(ctx, j.ID, string(queue.StateBlocked), failure); err != nil {
+		// Writing down why is bookkeeping, and outlives the context the
+		// command itself ran under.
+		write, cancelWrite := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
+		if err := s.opts.Store.DequeueJob(write, j.ID, string(queue.StateBlocked), failure); err != nil {
 			s.opts.Logger.Error("blocking a job whose setup failed", "job", j.ID, "error", err)
 		}
+		cancelWrite()
 		return errors.New(failure)
 	}
 	return nil
@@ -755,6 +763,9 @@ func (s *Service) execute(r store.Run, req driver.Request, b *broker) (Outcome, 
 	}
 	proc, err := s.opts.Executor.Start(s.ctx, inv)
 	if err != nil {
+		if s.ctx.Err() != nil {
+			return OutcomeInterrupted, "the daemon stopped before the agent started", store.NoExitCode
+		}
 		return OutcomeFailed, err.Error(), store.NoExitCode
 	}
 
