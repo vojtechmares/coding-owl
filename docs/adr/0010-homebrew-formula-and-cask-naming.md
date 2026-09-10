@@ -28,6 +28,12 @@ CDN at `releases.codingowl.dev` and a plugin registry at
   daemon rather than only a CLI.
 - The cask dependency guarantees exactly one daemon per machine instead of the
   app bundling a second copy that drifts out of sync with the CLI.
+- The cask follows the maintainer's existing Reviewdeck cask: ad-hoc signed,
+  not notarised, quarantine cleared by a postflight step, rendered from scratch
+  by the release workflow on every release. The formula follows the tap's
+  existing GoReleaser-generated `statica` formula. Both are pushed to the tap by
+  CI with a `contents:write` token. Versions are ZeroVer (`v0.x.y`) with no
+  prereleases until SemVer is adopted.
 - Two artifacts must be released in lockstep, and users will inevitably run a
   desktop app against an older daemon. ADR-0004's Buf breaking-change detection
   is what makes that safe.

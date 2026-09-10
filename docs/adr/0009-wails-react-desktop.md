@@ -34,9 +34,11 @@ Visual direction: liquid glass, night-sky and navy blues.
   daemon directly, no TypeScript client is generated from the protobufs. This
   is worth stating because it removes what looks like an obvious argument for
   gRPC in ADR-0004 - the real argument there is streaming.
-- Shipping a macOS cask means codesigning and notarization, which needs an
-  Apple Developer Program membership. That is administrative lead time, not
-  engineering time, and it is the likeliest thing to block a first release.
+- Shipping a macOS cask eventually means codesigning and notarization, which
+  needs an Apple Developer Program membership. **For now the app is ad-hoc
+  signed and not notarised**, following the maintainer's Reviewdeck cask: the
+  cask clears the quarantine flag itself in a postflight step. Notarisation is
+  deferred, and with it the only administrative dependency a first release had.
 
 ## Alternatives considered
 
