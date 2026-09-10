@@ -624,7 +624,8 @@ func TestS13ReleaseRefusesAVersionThatAlreadyExists(t *testing.T) {
 	if res := rc.release(t, "--yes", "v0.2.0"); res.code != 0 {
 		t.Fatalf("the first release exited %d\n%s", res.code, res.stderr)
 	}
-	// A second machine would not have the tag locally, only on the remote.
+	// Gone from this checkout, still on the remote - which is what a second
+	// machine, or a tag somebody deleted locally, looks like.
 	rc.git(t, "tag", "-d", "v0.2.0")
 
 	res := rc.release(t, "--yes", "v0.2.0")
@@ -654,12 +655,15 @@ type workflow struct {
 		} `yaml:"push"`
 	} `yaml:"on"`
 	Jobs map[string]struct {
-		Needs any    `yaml:"needs"`
-		If    string `yaml:"if"`
-		Steps []struct {
-			Name string            `yaml:"name"`
-			Run  string            `yaml:"run"`
-			Env  map[string]string `yaml:"env"`
+		Needs           any               `yaml:"needs"`
+		If              string            `yaml:"if"`
+		Outputs         map[string]string `yaml:"outputs"`
+		ContinueOnError bool              `yaml:"continue-on-error"`
+		Steps           []struct {
+			Name            string            `yaml:"name"`
+			Run             string            `yaml:"run"`
+			Env             map[string]string `yaml:"env"`
+			ContinueOnError bool              `yaml:"continue-on-error"`
 		} `yaml:"steps"`
 	} `yaml:"jobs"`
 }
@@ -672,6 +676,19 @@ func (w workflow) step(t *testing.T, job, needle string) string {
 	for _, s := range w.Jobs[job].Steps {
 		if run := uncommented(s.Run); strings.Contains(run, needle) {
 			return run
+		}
+	}
+	t.Fatalf("no step of the %s job runs %q:\n%s", job, needle, w.job(t, job))
+	return ""
+}
+
+// rawStep is step without the comments taken out, for a scenario that runs the
+// step rather than reading it: a heredoc's own lines are not comments.
+func (w workflow) rawStep(t *testing.T, job, needle string) string {
+	t.Helper()
+	for _, s := range w.Jobs[job].Steps {
+		if strings.Contains(uncommented(s.Run), needle) {
+			return s.Run
 		}
 	}
 	t.Fatalf("no step of the %s job runs %q:\n%s", job, needle, w.job(t, job))
@@ -706,6 +723,50 @@ func (w workflow) job(t *testing.T, name string) string {
 	return b.String()
 }
 
+// guardRepo is a repository with a bare origin carrying main, and one commit
+// that is on main and one that is not.
+func guardRepo(t *testing.T) (rc *releaseClone, onMain, offMain string) {
+	t.Helper()
+	rc = newReleaseClone(t)
+	onMain = strings.TrimSpace(rc.git(t, "rev-parse", "HEAD"))
+	rc.git(t, "checkout", "-q", "-b", "wip")
+	if err := os.WriteFile(filepath.Join(rc.dir, "wip.txt"), []byte("not on main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rc.git(t, "add", "--", "wip.txt")
+	rc.git(t, "commit", "-m", "work that never landed")
+	offMain = strings.TrimSpace(rc.git(t, "rev-parse", "HEAD"))
+	return rc, onMain, offMain
+}
+
+// runStep runs one step's script the way the runner would, with the workflow's
+// own environment and whatever else the scenario sets.
+func runStep(t *testing.T, w workflow, run string, env ...string) result {
+	t.Helper()
+	script := filepath.Join(t.TempDir(), "step.sh")
+	if err := os.WriteFile(script, []byte(run), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range w.Env {
+		env = append(env, name+"="+value)
+	}
+	return runScript(t, "/bin/bash", t.TempDir(), env, script)
+}
+
+// runGuard runs the workflow's guard step, exactly as the runner would, over a
+// checkout sitting on commit.
+func runGuard(t *testing.T, w workflow, rc *releaseClone, commit string) result {
+	t.Helper()
+	rc.git(t, "checkout", "-q", "--detach", commit)
+	script := filepath.Join(t.TempDir(), "guard.sh")
+	if err := os.WriteFile(script, []byte(w.rawStep(t, "guard", "merge-base --is-ancestor")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := append(append([]string{}, rc.env...),
+		"RELEASE_BRANCH="+w.Env["RELEASE_BRANCH"], "GITHUB_REF_NAME=v0.2.0")
+	return runScript(t, "/bin/bash", rc.dir, env, script)
+}
+
 func TestS14ReleaseWorkflowGuardsTheTagAndPublishes(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join(repoDir, ".github", "workflows", "release.yml"))
 	if err != nil {
@@ -736,14 +797,29 @@ func TestS14ReleaseWorkflowGuardsTheTagAndPublishes(t *testing.T) {
 	if got := w.Env["RELEASE_BRANCH"]; got != "main" {
 		t.Errorf("releases are cut from %q, want main", got)
 	}
-	// The guard has to refuse, not merely work the answer out: the negation is
-	// matched with it, so a check whose result is thrown away fails here.
-	guard := w.step(t, "guard", "merge-base --is-ancestor")
-	if !strings.Contains(guard, `if ! git merge-base --is-ancestor`) {
-		t.Errorf("the guard step does not refuse a commit that is not on the release branch:\n%s", guard)
+	// The guard is run rather than read: what it refuses is the point, and no
+	// amount of reading its text says whether it refuses the right side.
+	rc, onMain, offMain := guardRepo(t)
+	if got := runGuard(t, w, rc, onMain); got.code != 0 {
+		t.Errorf("the guard refused a tag on main, exit %d\nstdout:\n%s\nstderr:\n%s", got.code, got.stdout, got.stderr)
 	}
-	if !strings.Contains(guard, "RELEASE_BRANCH") || !strings.Contains(guard, "exit 1") {
-		t.Errorf("the guard step does not exit on a tag off the release branch:\n%s", guard)
+	// A step that refuses is no guard at all if the job goes on regardless.
+	for name, j := range w.Jobs {
+		if j.ContinueOnError {
+			t.Errorf("the %s job carries on when it fails", name)
+		}
+		for _, step := range j.Steps {
+			if step.ContinueOnError {
+				t.Errorf("the %s job carries on when its %q step fails", name, step.Name)
+			}
+		}
+	}
+	refused := runGuard(t, w, rc, offMain)
+	if refused.code == 0 {
+		t.Errorf("the guard let through a tag on a commit that is not on main\nstdout:\n%s", refused.stdout)
+	}
+	if !strings.Contains(refused.stdout+refused.stderr, "main") {
+		t.Errorf("the guard does not say which branch releases are cut from:\n%s%s", refused.stdout, refused.stderr)
 	}
 	for name, j := range w.Jobs {
 		if name == "guard" {
@@ -781,12 +857,27 @@ func TestS14ReleaseWorkflowGuardsTheTagAndPublishes(t *testing.T) {
 		}
 	}
 	if tokenVar == "" {
-		t.Errorf("the formula job's first step (%q) does not read HOMEBREW_TAP_TOKEN: %v", guardStep.Name, guardStep.Env)
-	} else if !strings.Contains(guardStep.Run, "-z \"$"+tokenVar+"\"") || !strings.Contains(guardStep.Run, "exit 1") {
-		t.Errorf("the formula job's first step does not refuse an unset token:\n%s", guardStep.Run)
+		t.Fatalf("the formula job's first step (%q) does not read HOMEBREW_TAP_TOKEN: %v", guardStep.Name, guardStep.Env)
 	}
-	if !strings.Contains(w.job(t, "formula"), "scripts/bump-formula.sh") {
-		t.Errorf("the formula job never renders the formula:\n%s", w.job(t, "formula"))
+	// Run it both ways: an unset secret arrives as an empty variable, and the
+	// step exists to refuse exactly that.
+	if got := runStep(t, w, guardStep.Run, tokenVar+"="); got.code == 0 {
+		t.Errorf("the formula job starts with no token set\nstdout:\n%s", got.stdout)
+	}
+	if got := runStep(t, w, guardStep.Run, tokenVar+"=a-token"); got.code != 0 {
+		t.Errorf("the formula job refuses to start with a token set, exit %d\nstdout:\n%s\nstderr:\n%s",
+			got.code, got.stdout, got.stderr)
+	}
+	// The step that renders the formula, not a comment mentioning it.
+	w.step(t, "formula", "scripts/bump-formula.sh")
+	// The condition above depends on what the release job hands on, so the
+	// release job has to declare it - and the values the formula is rendered
+	// from with it.
+	for _, output := range []string{"prerelease", "version", "sha256"} {
+		if w.Jobs["release"].Outputs[output] == "" {
+			t.Errorf("the release job declares no %s output, so the formula job cannot see one: %v",
+				output, w.Jobs["release"].Outputs)
+		}
 	}
 	// The tap carries stable versions only, so a prerelease must not reach it.
 	// Matched whole: a condition that merely mentions both words can say the

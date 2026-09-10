@@ -162,8 +162,11 @@ fi
 # checkout says: a run that failed at the push has to be repeatable, and one
 # with nothing to commit must not report success while the remote is still on
 # the version before.
-git fetch --quiet origin "$TAP_BRANCH" 2>/dev/null || true
-if [[ "$(git rev-parse HEAD)" == "$(git rev-parse --verify --quiet FETCH_HEAD || echo none)" ]]; then
+REMOTE_HEAD="none"
+if git fetch --quiet origin "$TAP_BRANCH" 2>/dev/null; then
+	REMOTE_HEAD="$(git rev-parse --verify --quiet FETCH_HEAD || echo none)"
+fi
+if [[ "$(git rev-parse HEAD)" == "$REMOTE_HEAD" ]]; then
 	echo "==> $TAP_REPO already serves coding-owl $VERSION"
 	exit 0
 fi
