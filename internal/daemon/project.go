@@ -60,25 +60,22 @@ func (s *projectService) GetProject(ctx context.Context, req *connect.Request[co
 }
 
 func (s *projectService) MoveProject(ctx context.Context, req *connect.Request[codingowlv1.MoveProjectRequest]) (*connect.Response[codingowlv1.MoveProjectResponse], error) {
-	if err := s.projects.Move(ctx, req.Msg.GetName(), req.Msg.GetPath()); err != nil {
-		return nil, rpcError(err)
-	}
-	d, err := s.projects.Show(ctx, req.Msg.GetName())
+	// The response is built from the row the move wrote, never by re-running
+	// configuration discovery: a Project whose configuration cannot be loaded
+	// must not be told its move failed after the move happened.
+	p, err := s.projects.Move(ctx, req.Msg.GetName(), req.Msg.GetPath())
 	if err != nil {
 		return nil, rpcError(err)
 	}
-	return connect.NewResponse(&codingowlv1.MoveProjectResponse{Project: toProto(d.Project)}), nil
+	return connect.NewResponse(&codingowlv1.MoveProjectResponse{Project: toProto(p)}), nil
 }
 
 func (s *projectService) RenameProject(ctx context.Context, req *connect.Request[codingowlv1.RenameProjectRequest]) (*connect.Response[codingowlv1.RenameProjectResponse], error) {
-	if err := s.projects.Rename(ctx, req.Msg.GetName(), req.Msg.GetNewName()); err != nil {
-		return nil, rpcError(err)
-	}
-	d, err := s.projects.Show(ctx, req.Msg.GetNewName())
+	p, err := s.projects.Rename(ctx, req.Msg.GetName(), req.Msg.GetNewName())
 	if err != nil {
 		return nil, rpcError(err)
 	}
-	return connect.NewResponse(&codingowlv1.RenameProjectResponse{Project: toProto(d.Project)}), nil
+	return connect.NewResponse(&codingowlv1.RenameProjectResponse{Project: toProto(p)}), nil
 }
 
 func (s *projectService) RemoveProject(ctx context.Context, req *connect.Request[codingowlv1.RemoveProjectRequest]) (*connect.Response[codingowlv1.RemoveProjectResponse], error) {
