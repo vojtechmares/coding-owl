@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -72,6 +73,16 @@ func (b *beating) growing(t *testing.T) {
 	t.Helper()
 	before := b.count(t)
 	waitFor(t, "the agent's child to beat again", func() bool { return b.count(t) > before })
+}
+
+// gone asserts the Agent's own process is no longer there, which a heartbeat
+// that stopped does not say by itself: a frozen process is not a dead one.
+func (b *beating) gone(t *testing.T) {
+	t.Helper()
+	pid := b.stub.invoked(t).PID
+	waitFor(t, "the agent's process to be gone", func() bool {
+		return syscall.Kill(pid, syscall.Signal(0)) != nil
+	})
 }
 
 // sleep is a pause the test itself takes, where waiting for a condition would
@@ -228,6 +239,7 @@ func TestS7GraceWindowEndsAFrozenRun(t *testing.T) {
 	if !b.still(t) {
 		t.Errorf("the agent's child is still beating after the grace window ended the run")
 	}
+	b.gone(t)
 }
 
 func TestS8TerminatedRunKeepsItsWork(t *testing.T) {
@@ -390,6 +402,7 @@ func TestS14StoppingTheDaemonWhileFrozenDoesNotHang(t *testing.T) {
 	if !b.still(t) {
 		t.Errorf("the agent's child is still beating after the daemon stopped")
 	}
+	b.gone(t)
 	daemonUp(t, b.l)
 	if row := runRowOf(t, b.l, job, run); row.outcome != "interrupted" {
 		t.Errorf("run outcome = %q, want interrupted", row.outcome)
@@ -437,4 +450,35 @@ func contains(row []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func TestS16VerifyingRunIsNotReportedAsAbsent(t *testing.T) {
+	b := beatingLayout(t, "")
+	daemonUp(t, b.l)
+	// A check that takes long enough to ask about: the Agent has exited and
+	// the Run is still in progress.
+	r := newRepo(t, b.l, "api")
+	r.commit(".coding-owl.yaml", "apiVersion: codingowl.dev/v1\nchecks:\n  - name: slow\n    run: sleep 5\n", "configure owl")
+	addProject(t, b.l, r)
+	addJob(t, b.l, r.dir, "work", "--no-plan")
+	run, job := startRun(t, b.l)
+	b.started(t)
+	b.stub.let(t)
+	// The Agent is gone once its heartbeat child has been reaped with it.
+	waitFor(t, "the agent to exit and its checks to start", func() bool {
+		return syscall.Kill(b.stub.invoked(t).PID, syscall.Signal(0)) != nil
+	})
+
+	res := runOwl(t, b.l, "pause")
+
+	if res.code == 0 {
+		t.Fatalf("owl pause froze something during verification\nstdout:\n%s", res.stdout)
+	}
+	if strings.Contains(res.stderr, "no run in progress") {
+		t.Errorf("stderr says there is no run at all, while one is being verified:\n%s", res.stderr)
+	}
+	if !strings.Contains(res.stderr, "verif") {
+		t.Errorf("stderr does not say the run is being verified:\n%s", res.stderr)
+	}
+	waitRun(t, b.l, job, run)
 }

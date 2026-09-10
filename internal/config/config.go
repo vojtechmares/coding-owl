@@ -410,8 +410,10 @@ func parseGraceWindow(source, value string) (time.Duration, error) {
 	if err != nil {
 		return 0, fmt.Errorf("%s: graceWindow: %q is not a duration like 15m", source, value)
 	}
-	if d < 0 {
-		return 0, fmt.Errorf("%s: graceWindow: %s is negative", source, value)
+	if d <= 0 {
+		return 0, fmt.Errorf(
+			"%s: graceWindow: %s would end a run the moment it was frozen; leave it out for the default",
+			source, value)
 	}
 	return d, nil
 }

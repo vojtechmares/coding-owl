@@ -283,10 +283,6 @@ func (s *Service) untilClosed(ctx context.Context) (context.Context, context.Can
 // the next Run carries on in place rather than from the Project's base branch
 // (ADR-0011).
 func (s *Service) Recover(ctx context.Context) error {
-	jobs, err := s.opts.Store.JobsOfRunsInProgress(ctx)
-	if err != nil {
-		return err
-	}
 	n, err := s.opts.Store.InterruptRunsInProgress(ctx, s.now().UTC(),
 		string(OutcomeInterrupted), "the daemon stopped before this run ended")
 	if err != nil {
@@ -295,7 +291,7 @@ func (s *Service) Recover(ctx context.Context) error {
 	if n > 0 {
 		s.opts.Logger.Info("runs left over from an earlier daemon", "interrupted", n)
 	}
-	s.requeueLeftOver(ctx, jobs)
+	s.requeueLeftOver(ctx)
 	return nil
 }
 

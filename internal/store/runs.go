@@ -243,25 +243,6 @@ func (s *Store) LatestRun(ctx context.Context, jobID int64) (Run, bool, error) {
 	return r, true, nil
 }
 
-// JobsOfRunsInProgress returns the Jobs of every Run that has not ended, which
-// is what a daemon starting up has to decide about.
-func (s *Store) JobsOfRunsInProgress(ctx context.Context) ([]int64, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT job_id FROM runs WHERE outcome = '' ORDER BY id`)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var out []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
-}
-
 // RunInProgress returns the Run that has not ended yet, if there is one. Only
 // one Agent runs at a time in this milestone (ADR-0029).
 func (s *Store) RunInProgress(ctx context.Context) (Run, bool, error) {

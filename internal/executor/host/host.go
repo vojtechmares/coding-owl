@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -80,16 +81,36 @@ type process struct {
 	cmd    *exec.Cmd
 	stdout io.ReadCloser
 	stderr limitedBuffer
+	// reaped is set once Wait has returned. After that the pid is the
+	// system's to hand out again, and signalling it would be signalling
+	// somebody else.
+	reaped atomic.Bool
 }
 
 // Stdout is the Agent's structured output.
 func (p *process) Stdout() io.Reader { return p.stdout }
+
+// Pid is the Agent's own pid, which is also the id of the process group it
+// leads.
+func (p *process) Pid() int {
+	if p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
+}
 
 // SignalGroup passes a signal to the Agent and everything it started.
 func (p *process) SignalGroup(sig os.Signal) error {
 	signal, ok := sig.(syscall.Signal)
 	if !ok {
 		return fmt.Errorf("%v cannot be sent to a process group", sig)
+	}
+	// Signalling a group by its negated pid goes straight to the kernel,
+	// without the guard os.Process.Signal keeps against a process that has
+	// been waited for. That guard is the whole reason a reaped pid is not
+	// signalled: the system is free to give the number to somebody else.
+	if p.reaped.Load() {
+		return os.ErrProcessDone
 	}
 	return signalGroup(p.cmd, signal)
 }
@@ -110,6 +131,7 @@ func signalGroup(cmd *exec.Cmd, sig syscall.Signal) error {
 // status is an answer, not an error.
 func (p *process) Wait() (int, error) {
 	err := p.cmd.Wait()
+	p.reaped.Store(true)
 	if err == nil {
 		return 0, nil
 	}

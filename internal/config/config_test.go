@@ -347,7 +347,7 @@ func TestParseGlobalReadsTheGraceWindow(t *testing.T) {
 }
 
 func TestParseGlobalRefusesAGraceWindowThatIsNotOne(t *testing.T) {
-	for _, value := range []string{"soon", "15", "-5m"} {
+	for _, value := range []string{"soon", "15", "-5m", "0s"} {
 		_, err := config.ParseGlobal("/somewhere/config.yaml", []byte(
 			"apiVersion: codingowl.dev/v1\ngraceWindow: "+value+"\n"))
 

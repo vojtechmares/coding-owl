@@ -66,7 +66,12 @@ func (s *Service) Pause(ctx context.Context) (Run, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	runID, l, err := s.onlyLive()
+	// A daemon that is stopping has already asked its Agents to stop, and
+	// freezing one now would leave it unable to hear that.
+	if s.ctx.Err() != nil {
+		return Run{}, refused("the daemon is stopping; nothing is frozen now")
+	}
+	runID, l, err := s.onlyLive(ctx)
 	if err != nil {
 		return Run{}, err
 	}
@@ -74,7 +79,9 @@ func (s *Service) Pause(ctx context.Context) (Run, error) {
 		return Run{}, refused("run %d is already paused; owl resume continues it", runID)
 	}
 	if err := l.proc.SignalGroup(syscall.SIGSTOP); err != nil {
-		return Run{}, err
+		// The Agent exited between the lookup and the signal, which is the
+		// Run ending rather than anything going wrong.
+		return Run{}, refused("run %d ended before it could be paused", runID)
 	}
 	l.paused = true
 	l.window = time.AfterFunc(window, func() { s.expire(runID) })
@@ -87,7 +94,7 @@ func (s *Service) Pause(ctx context.Context) (Run, error) {
 func (s *Service) Resume(ctx context.Context) (Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	runID, l, err := s.onlyLive()
+	runID, l, err := s.onlyLive(ctx)
 	if err != nil {
 		return Run{}, err
 	}
@@ -95,7 +102,8 @@ func (s *Service) Resume(ctx context.Context) (Run, error) {
 		return Run{}, refused("run %d is not paused", runID)
 	}
 	if err := l.proc.SignalGroup(syscall.SIGCONT); err != nil {
-		return Run{}, err
+		l.release()
+		return Run{}, refused("run %d ended while it was paused", runID)
 	}
 	l.release()
 	s.opts.Logger.Info("run resumed", "run", runID, "job", l.jobID)
@@ -112,12 +120,19 @@ func (l *live) release() {
 	}
 }
 
-// onlyLive is the Run in progress. One Agent runs at a time in this milestone
-// (ADR-0029), so pausing and resuming take no argument. The caller holds the
-// lock.
-func (s *Service) onlyLive() (int64, *live, error) {
+// onlyLive is the Run whose Agent this daemon can still reach. One Agent runs
+// at a time in this milestone (ADR-0029), so pausing and resuming take no
+// argument. The caller holds the lock.
+func (s *Service) onlyLive(ctx context.Context) (int64, *live, error) {
 	for id, l := range s.live {
 		return id, l, nil
+	}
+	// A Run whose Agent has exited is still in progress until its Project's
+	// checks have had their say (ADR-0013), and those are nobody's to freeze:
+	// saying there is no run at all would not be true.
+	if r, ok, err := s.opts.Store.RunInProgress(ctx); err == nil && ok {
+		return 0, nil, refused(
+			"run %d is being verified rather than carried out by an agent, and cannot be paused", r.ID)
 	}
 	return 0, nil, refused("there is no run in progress")
 }
@@ -203,22 +218,27 @@ func (s *Service) graceWindow() (time.Duration, error) {
 	return DefaultGraceWindow, nil
 }
 
-// requeueLeftOver puts the Jobs of Runs that were going when the daemon
-// stopped back in the queue. Their worktree and branch are left alone, so the
-// next Run carries on in place rather than from the Project's base branch
-// (ADR-0011).
-func (s *Service) requeueLeftOver(ctx context.Context, jobIDs []int64) {
-	for _, id := range jobIDs {
-		j, err := s.opts.Store.GetJob(ctx, id)
-		if err != nil {
-			s.opts.Logger.Error("reading a job left over from an earlier daemon", "job", id, "error", err)
-			continue
-		}
-		// Only a Job that was being carried out: anything else has been
-		// decided since, and a decision is not something to undo.
+// requeueLeftOver puts every Job that was being carried out back in the queue. No
+// Agent survives a restart, so a Job left active is a Job nothing is working
+// on; its worktree and branch are left alone, so the next Run carries on in
+// place rather than from the Project's base branch (ADR-0011).
+//
+// It asks what is active rather than what the Runs it just ended belonged to,
+// which means a daemon that died halfway through recovering finishes the job
+// next time rather than stranding a Job in a state no command can reach.
+func (s *Service) requeueLeftOver(ctx context.Context) {
+	jobs, err := s.opts.Store.ListAllJobs(ctx)
+	if err != nil {
+		s.opts.Logger.Error("reading the jobs an earlier daemon left behind", "error", err)
+		return
+	}
+	for _, j := range jobs {
+		// Anything else has been decided since, and a decision is not
+		// something to undo.
 		if queue.State(j.State) != queue.StateActive {
 			continue
 		}
-		s.requeue(ctx, id, "returning a job left over from an earlier daemon to the queue")
+		s.requeue(ctx, j.ID, "returning a job an earlier daemon was carrying out to the queue")
+		s.opts.Logger.Info("a job an earlier daemon was carrying out is queued again", "job", j.ID)
 	}
 }
