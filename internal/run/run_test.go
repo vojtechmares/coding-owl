@@ -527,3 +527,24 @@ func TestStartRefusesOnceTheDaemonIsStopping(t *testing.T) {
 		t.Errorf("error %q does not say the daemon is stopping", err)
 	}
 }
+
+func TestExecutionFallsBackToThePlanWhenTheWorktreeLostItsHandoff(t *testing.T) {
+	ctx := context.Background()
+	d := &fakeDriver{}
+	svc, st, _ := newFixture(t, d, &fakeExecutor{})
+	j := queueJob(t, st, "work")
+	// A Job past planning, whose worktree no longer holds the handoff the plan
+	// was written to.
+	if err := st.SetJobPlan(ctx, j.ID, "step one: read the tests"); err != nil {
+		t.Fatalf("SetJobPlan: %v", err)
+	}
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	awaitState(t, st, j.ID, queue.StateReview)
+
+	if got := d.given().Prompt; !strings.Contains(got, "step one: read the tests") {
+		t.Errorf("the execution prompt lost the plan when the worktree had no handoff:\n%s", got)
+	}
+}

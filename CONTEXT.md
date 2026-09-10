@@ -20,7 +20,8 @@ _Avoid_: task, ticket, item, request
 
 **Run**:
 One attempt to carry out a Job. A Job may take several, because a Run can end
-before its Job is finished. A Run is not a Session - several Runs share one.
+before its Job is finished. Each Run holds a Session of its own, and what
+carries between them is the Handoff (ADR-0026).
 _Avoid_: execution, attempt, invocation
 
 **Session**:

@@ -5,8 +5,9 @@ daemon, except S21, which is about the test suite itself.
 
 Since issue #6, a Job is planned before it is carried out unless it is added
 with `--no-plan`. These scenarios are about running a Job rather than about
-planning one, so they queue their Jobs with `--no-plan` and each one is a single
-Run.
+planning one, so every Job they run is queued with `--no-plan` and is a single
+Run. A Job's own prompt reaches the Agent inside the prompt that phase builds
+around it.
 
 "XDG layout" is the temporary directory tree of issue #2: `HOME`,
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` point into it and
