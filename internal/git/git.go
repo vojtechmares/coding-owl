@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -168,6 +169,26 @@ func RemoveWorktree(dir, path string, force bool) error {
 		return fmt.Errorf("removing the worktree at %s: %s", path, message(stderr))
 	}
 	return nil
+}
+
+// IsWorktree reports whether path is a worktree git can still work in. A
+// directory that is gone, or that has lost the .git file linking it to its
+// repository - what an interrupted removal leaves behind, and what git itself
+// calls prunable - is not one.
+func IsWorktree(path string) (bool, error) {
+	// The .git file is checked first: without it, git would resolve upwards
+	// and answer about whatever repository happens to be above the directory.
+	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	out, _, code, err := run(path, "rev-parse", "--is-inside-work-tree")
+	if err != nil {
+		return false, err
+	}
+	return code == 0 && strings.TrimSpace(string(out)) == "true", nil
 }
 
 // WorktreeIsClean reports whether a worktree holds nothing uncommitted -

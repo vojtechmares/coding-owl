@@ -171,6 +171,11 @@ type Service struct {
 	starting sync.Mutex
 	stopping bool
 
+	// disposing serialises accepting and dropping Jobs, so that the state a
+	// disposal decided on cannot change while it is reclaiming the worktree
+	// and the branch that decision was about.
+	disposing sync.Mutex
+
 	mu      sync.Mutex
 	brokers map[int64]*broker
 }
