@@ -23,11 +23,39 @@ import (
 // statusTimeout bounds owl daemon status so a wedged daemon cannot hang it.
 const statusTimeout = 5 * time.Second
 
+// callTimeout bounds every other command that talks to the daemon, for the
+// same reason.
+const callTimeout = 30 * time.Second
+
 // Env is what the command tree needs from its process.
 type Env struct {
 	Paths  xdg.Paths
 	Stdout io.Writer
 	Stderr io.Writer
+	// WorkingDir is the directory owl was run in, which is what tells owl add
+	// which Project it was called from. Empty asks the process.
+	WorkingDir string
+}
+
+// workingDir is the directory to resolve a Project from. A directory that
+// cannot be determined is not an error in itself: --project may name one
+// anyway, and the daemon says so when nothing does.
+func (e Env) workingDir() string {
+	if e.WorkingDir != "" {
+		return e.WorkingDir
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
+// withDaemon runs fn against the daemon under a timeout.
+func withDaemon(cmd *cobra.Command, env Env, fn func(context.Context, *client.Client) error) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), callTimeout)
+	defer cancel()
+	return fn(ctx, client.New(env.Paths.SocketPath))
 }
 
 // Run executes args against the command tree and returns the exit code.
@@ -51,7 +79,7 @@ func newRoot(env Env) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newDaemonCmd(env), newProjectCmd(env))
+	root.AddCommand(newDaemonCmd(env), newProjectCmd(env), newAddCmd(env), newQueueCmd(env))
 	return root
 }
 

@@ -58,6 +58,7 @@ type Client struct {
 	socket   string
 	daemon   codingowlv1connect.DaemonServiceClient
 	projects codingowlv1connect.ProjectServiceClient
+	jobs     codingowlv1connect.JobServiceClient
 }
 
 // New returns a client for the daemon listening on socketPath. It does not
@@ -76,6 +77,7 @@ func New(socketPath string) *Client {
 		socket:   socketPath,
 		daemon:   codingowlv1connect.NewDaemonServiceClient(httpClient, "http://owl"),
 		projects: codingowlv1connect.NewProjectServiceClient(httpClient, "http://owl"),
+		jobs:     codingowlv1connect.NewJobServiceClient(httpClient, "http://owl"),
 	}
 }
 

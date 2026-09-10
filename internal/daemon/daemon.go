@@ -21,6 +21,7 @@ import (
 	codingowlv1 "github.com/vojtechmares/coding-owl/gen/codingowl/v1"
 	"github.com/vojtechmares/coding-owl/gen/codingowl/v1/codingowlv1connect"
 	"github.com/vojtechmares/coding-owl/internal/project"
+	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/store"
 	"github.com/vojtechmares/coding-owl/internal/xdg"
 )
@@ -90,6 +91,9 @@ func Run(ctx context.Context, opts Options) error {
 	}))
 	mux.Handle(codingowlv1connect.NewProjectServiceHandler(&projectService{
 		projects: project.NewService(db, opts.Paths.ConfigDir),
+	}))
+	mux.Handle(codingowlv1connect.NewJobServiceHandler(&jobService{
+		jobs: queue.NewService(db, queue.Local{}),
 	}))
 	srv := &http.Server{
 		Handler:           mux,

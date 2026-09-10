@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package codingowl.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// JobService queues work against a Project and controls the order it will run
+// in. A Job is a standing intent to do one piece of work (ADR-0027); the queue
+// is the Jobs still pending, in the order the scheduler will consider them
+// (ADR-0025).
+service JobService {
+  // AddJob queues a Job, producing it through the local queue Source.
+  rpc AddJob(AddJobRequest) returns (AddJobResponse) {}
+  // ListJobs returns the queue, or every Job whatever its state.
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse) {}
+  // CancelJob takes a pending Job out of the queue.
+  rpc CancelJob(CancelJobRequest) returns (CancelJobResponse) {}
+  // ReorderJob moves a pending Job to a position in the queue.
+  rpc ReorderJob(ReorderJobRequest) returns (ReorderJobResponse) {}
+}
+
+// JobState is the lifecycle of a Job (ADR-0025, ADR-0027).
+enum JobState {
+  JOB_STATE_UNSPECIFIED = 0;
+  // JOB_STATE_PENDING is queued and waiting to be run.
+  JOB_STATE_PENDING = 1;
+  // JOB_STATE_ACTIVE is being run right now.
+  JOB_STATE_ACTIVE = 2;
+  // JOB_STATE_BLOCKED is stuck on something wrong with the work.
+  JOB_STATE_BLOCKED = 3;
+  // JOB_STATE_REVIEW is finished and waiting for a decision.
+  JOB_STATE_REVIEW = 4;
+  // JOB_STATE_DONE is finished and accepted.
+  JOB_STATE_DONE = 5;
+  // JOB_STATE_CANCELLED was taken out of the queue by hand.
+  JOB_STATE_CANCELLED = 6;
+  // JOB_STATE_EXHAUSTED ran out of attempts.
+  JOB_STATE_EXHAUSTED = 7;
+}
+
+// Job is one standing intent to do a piece of work in one Project.
+message Job {
+  // Id identifies the Job. It is what owl queue commands take.
+  int64 id = 1;
+  // Source names the producer the Job came from; the local queue is "local".
+  string source = 2;
+  // SourceRef is the Job's reference within that Source, unique with it
+  // (ADR-0032). The local queue generates a ulid.
+  string source_ref = 3;
+  // Project is the name of the Project the Job is queued against.
+  string project = 4;
+  // Prompt is the work to do.
+  string prompt = 5;
+  // State is where the Job is in its lifecycle.
+  JobState state = 6;
+  // Position is the Job's place in the queue, counting from one. It is zero
+  // for a Job that is not queued.
+  int32 position = 7;
+  // Created is when the Job was first produced.
+  google.protobuf.Timestamp created = 8;
+}
+
+message AddJobRequest {
+  // Project names the Project to queue against. Empty means the Project the
+  // working directory is in.
+  string project = 1;
+  // Prompt is the work to do.
+  string prompt = 2;
+  // WorkingDir is an absolute path to the directory the caller ran in.
+  string working_dir = 3;
+}
+
+message AddJobResponse {
+  Job job = 1;
+}
+
+message ListJobsRequest {
+  // All returns every Job whatever its state, rather than only the queue.
+  bool all = 1;
+}
+
+message ListJobsResponse {
+  repeated Job jobs = 1;
+}
+
+message CancelJobRequest {
+  int64 id = 1;
+}
+
+message CancelJobResponse {
+  Job job = 1;
+}
+
+message ReorderJobRequest {
+  int64 id = 1;
+  // Position counts from one.
+  int32 position = 2;
+}
+
+message ReorderJobResponse {
+  Job job = 1;
+}

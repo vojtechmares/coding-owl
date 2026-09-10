@@ -12,9 +12,6 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/client"
 )
 
-// projectTimeout bounds a project command so a wedged daemon cannot hang it.
-const projectTimeout = 30 * time.Second
-
 // noConfigFound is what owl project show prints when no configuration file was
 // found anywhere in the discovery order and the defaults apply.
 const noConfigFound = "(none)"
@@ -33,13 +30,6 @@ func newProjectCmd(env Env) *cobra.Command {
 		newProjectRemoveCmd(env),
 	)
 	return cmd
-}
-
-// withDaemon runs fn against the daemon under a timeout.
-func withDaemon(cmd *cobra.Command, env Env, fn func(context.Context, *client.Client) error) error {
-	ctx, cancel := context.WithTimeout(cmd.Context(), projectTimeout)
-	defer cancel()
-	return fn(ctx, client.New(env.Paths.SocketPath))
 }
 
 // userPath makes a path absolute against the user's working directory, since
