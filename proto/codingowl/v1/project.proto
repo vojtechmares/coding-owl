@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package codingowl.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// ProjectService registers git repositories as Projects and reports how each
+// one is configured. A Project is identified by its name (ADR-0031) and its
+// configuration is discovered from its base branch (ADR-0014).
+service ProjectService {
+  // AddProject registers a repository.
+  rpc AddProject(AddProjectRequest) returns (AddProjectResponse) {}
+  // ListProjects returns every Project, ordered by name.
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse) {}
+  // GetProject returns one Project with the configuration in force for it.
+  rpc GetProject(GetProjectRequest) returns (GetProjectResponse) {}
+  // MoveProject points a Project at a new path, leaving its identity alone.
+  rpc MoveProject(MoveProjectRequest) returns (MoveProjectResponse) {}
+  // RenameProject changes a Project's name and moves its configuration
+  // directory with it.
+  rpc RenameProject(RenameProjectRequest) returns (RenameProjectResponse) {}
+  // RemoveProject deregisters a Project.
+  rpc RemoveProject(RemoveProjectRequest) returns (RemoveProjectResponse) {}
+}
+
+// Project is a registered git repository.
+message Project {
+  // Name identifies the Project and names its configuration directory.
+  string name = 1;
+  // Path is where the repository sits now.
+  string path = 2;
+  // BaseBranch is the branch Jobs branch from and configuration is read from.
+  string base_branch = 3;
+  // Registered is when the Project was first added.
+  google.protobuf.Timestamp registered = 4;
+}
+
+// ProjectConfig is the configuration in force for a Project.
+message ProjectConfig {
+  // Source names the file it came from: "<branch>:<path>" for an in-repo
+  // form, an absolute path for the config-home fallback, empty when no file
+  // was found and the defaults apply.
+  string source = 1;
+  // BranchPrefix is prepended to the branch of every Job in the Project.
+  string branch_prefix = 2;
+}
+
+message AddProjectRequest {
+  // Path is an absolute path to the repository root.
+  string path = 1;
+  // Name overrides the directory basename when set.
+  string name = 2;
+  // BaseBranch overrides the repository's current branch when set.
+  string base_branch = 3;
+}
+
+message AddProjectResponse {
+  Project project = 1;
+}
+
+message ListProjectsRequest {}
+
+message ListProjectsResponse {
+  repeated Project projects = 1;
+}
+
+message GetProjectRequest {
+  string name = 1;
+}
+
+message GetProjectResponse {
+  Project project = 1;
+  ProjectConfig config = 2;
+}
+
+message MoveProjectRequest {
+  string name = 1;
+  // Path is an absolute path to the repository's new root.
+  string path = 2;
+}
+
+message MoveProjectResponse {
+  Project project = 1;
+}
+
+message RenameProjectRequest {
+  string name = 1;
+  string new_name = 2;
+}
+
+message RenameProjectResponse {
+  Project project = 1;
+}
+
+message RemoveProjectRequest {
+  string name = 1;
+}
+
+message RemoveProjectResponse {}

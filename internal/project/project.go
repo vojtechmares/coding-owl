@@ -30,6 +30,31 @@ var inRepoCandidates = []string{
 	".meta/.coding-owl.yaml",
 }
 
+// InvalidError marks a failure the user can fix by asking for something
+// different: a path that is not a repository, a name that cannot be a
+// directory, a branch that does not exist, a configuration file Owl will not
+// load. Everything else is Owl's problem, not theirs.
+type InvalidError struct{ Err error }
+
+func (e *InvalidError) Error() string { return e.Err.Error() }
+func (e *InvalidError) Unwrap() error { return e.Err }
+
+// invalid builds an InvalidError, keeping the message the caller wrote.
+func invalid(format string, a ...any) error {
+	return &InvalidError{Err: fmt.Errorf(format, a...)}
+}
+
+// ConflictError marks a name that is already in use. Names are the identity
+// of a Project (ADR-0031), so a collision is a conflict, not bad input.
+type ConflictError struct{ Err error }
+
+func (e *ConflictError) Error() string { return e.Err.Error() }
+func (e *ConflictError) Unwrap() error { return e.Err }
+
+func conflict(format string, a ...any) error {
+	return &ConflictError{Err: fmt.Errorf(format, a...)}
+}
+
 // Service is the Project half of the daemon's state.
 type Service struct {
 	store      *store.Store
@@ -89,7 +114,7 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Project, error) {
 	base := req.BaseBranch
 	if base == "" {
 		if base, err = git.CurrentBranch(path); err != nil {
-			return Project{}, err
+			return Project{}, &InvalidError{Err: err}
 		}
 	} else {
 		ok, err := git.HasBranch(path, base)
@@ -97,13 +122,13 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Project, error) {
 			return Project{}, err
 		}
 		if !ok {
-			return Project{}, fmt.Errorf("%s has no branch %q", path, base)
+			return Project{}, invalid("%s has no branch %q", path, base)
 		}
 	}
 	p := Project{Name: name, Path: path, BaseBranch: base, Registered: s.now().UTC()}
 	if err := s.store.AddProject(ctx, store.Project(p)); err != nil {
 		if errors.Is(err, store.ErrNameTaken) {
-			return Project{}, fmt.Errorf("a project named %q is already registered; pass --name to choose another", name)
+			return Project{}, conflict("a project named %q is already registered; pass --name to choose another", name)
 		}
 		return Project{}, err
 	}
@@ -142,14 +167,20 @@ func (s *Service) discover(p Project) (string, config.Config, error) {
 			}
 			source := p.BaseBranch + ":" + candidate
 			cfg, err := config.Parse(source, data)
-			return source, cfg, err
+			if err != nil {
+				return "", config.Config{}, &InvalidError{Err: err}
+			}
+			return source, cfg, nil
 		}
 	}
 	fallback := s.configPath(p.Name)
 	data, err := os.ReadFile(fallback)
 	if err == nil {
 		cfg, err := config.Parse(fallback, data)
-		return fallback, cfg, err
+		if err != nil {
+			return "", config.Config{}, &InvalidError{Err: err}
+		}
+		return fallback, cfg, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return "", config.Config{}, fmt.Errorf("reading %s: %w", fallback, err)
@@ -168,7 +199,7 @@ func (s *Service) configPath(name string) string {
 // repoRoot resolves path and checks it is the root of a git repository.
 func repoRoot(path string) (string, error) {
 	if path == "" {
-		return "", errors.New("a path is required")
+		return "", invalid("a path is required")
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -177,7 +208,7 @@ func repoRoot(path string) (string, error) {
 	abs = filepath.Clean(abs)
 	root, err := git.Root(abs)
 	if err != nil {
-		return "", err
+		return "", &InvalidError{Err: err}
 	}
 	// Root resolves symlinks, so compare like with like before deciding the
 	// caller pointed at a subdirectory.
@@ -186,7 +217,7 @@ func repoRoot(path string) (string, error) {
 		resolved = abs
 	}
 	if resolved != root {
-		return "", fmt.Errorf("%s is not the root of its git repository; register %s instead", abs, root)
+		return "", invalid("%s is not the root of its git repository; register %s instead", abs, root)
 	}
 	return abs, nil
 }
@@ -246,7 +277,7 @@ func (s *Service) Rename(ctx context.Context, from, to string) error {
 		return err
 	}
 	if _, err := s.store.GetProject(ctx, to); err == nil {
-		return fmt.Errorf("a project named %q is already registered", to)
+		return conflict("a project named %q is already registered", to)
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
@@ -277,7 +308,7 @@ func (s *Service) moveConfigDir(from, to string) (bool, error) {
 		return false, err
 	}
 	if _, err := os.Stat(dst); err == nil {
-		return false, fmt.Errorf("%s already exists; move or remove it before renaming", dst)
+		return false, invalid("%s already exists; move or remove it before renaming", dst)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
