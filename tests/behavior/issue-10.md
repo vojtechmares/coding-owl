@@ -112,6 +112,7 @@ Given the clone of S12, whose remote already carries `v0.2.0`
 When `scripts/release.sh --yes v0.2.0` runs again
 Then it exits with a non-zero code
 And stderr says the tag already exists
+And it refuses before it starts tagging, rather than letting git fail
 And the remote still carries exactly one `v0.2.0`
 
 ### S14 - the release workflow runs on version tags, guards the branch, and publishes
@@ -122,13 +123,20 @@ And its first job refuses a tag whose commit is not on `main`, and every other j
 And the publishing job runs `scripts/build-release.sh` and creates a GitHub release with the archive and the checksums
 And the job that touches the tap refuses to start when `HOMEBREW_TAP_TOKEN` is not set, runs `scripts/bump-formula.sh`, and is skipped for a prerelease
 
+### S21 - a formula that was committed but never pushed is pushed the next time
+Given a temporary tap checkout whose remote refuses the push, and a run that failed on it
+When the remote is reachable again and `scripts/bump-formula.sh` runs for the same version
+Then it exits 0
+And the remote carries the formula for that version
+
 ### S15 - owl daemon install writes a launchd agent that runs the daemon
 Given a temporary HOME on macOS
 When `owl daemon install` runs
 Then it exits 0
 And `$HOME/Library/LaunchAgents/dev.codingowl.owld.plist` exists
-And it names the label `dev.codingowl.owld`, runs the absolute path of the running `owl` with `daemon run`, keeps it alive, runs it at load, and writes its output to a log file under the state directory
+And read as a property list it names the label `dev.codingowl.owld`, runs the path of the running `owl` with the arguments `daemon run`, has `KeepAlive` and `RunAtLoad` set true, and writes both its output streams to a log file under the state directory
 And it is a plist `plutil -lint` accepts
+And the state directory it logs into is readable only by its owner
 
 ### S16 - owl daemon install hands the agent to launchctl
 Given the temporary HOME of S15 and a stub `launchctl` first on the PATH

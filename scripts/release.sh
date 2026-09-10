@@ -147,6 +147,8 @@ fi
 REPO_URL="$(git remote get-url "$REMOTE")"
 REPO_URL="${REPO_URL%.git}"
 REPO_URL="${REPO_URL/git@github.com:/https://github.com/}"
+# A remote can carry a token in its URL, and this line goes on the screen.
+REPO_URL="$(printf '%s' "$REPO_URL" | sed -E 's#^(https?://)[^/@]*@#\1#')"
 echo
 echo "==> Released $VERSION"
 echo "    The release workflow is building it: $REPO_URL/actions/workflows/release.yml"

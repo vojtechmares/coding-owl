@@ -40,6 +40,10 @@ VERSION="${VERSION#v}"
 	die "VERSION must be a version like 0.1.0, got '${VERSION:-<empty>}'"
 [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]] ||
 	die "SHA256 must be a 64 character hex digest, got '${SHA256:-<empty>}'"
+# REPO is rendered into the formula, so it is checked like everything else that
+# is: owner/name, and nothing that could be read as Ruby.
+[[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
+	die "REPO must be owner/name, got '$REPO'"
 
 ARCHIVE="coding-owl_v${VERSION}_darwin_arm64.tar.gz"
 URL="https://github.com/$REPO/releases/download/v$VERSION/$ARCHIVE"
@@ -79,18 +83,18 @@ cat >"$FORMULA" <<RUBY
 class CodingOwl < Formula
   desc "Runs coding agents on your machine while it is otherwise idle"
   homepage "https://github.com/$REPO"
-  version "$VERSION"
   url "$URL"
+  version "$VERSION"
   sha256 "$SHA256"
-
-  # darwin/arm64 is the only platform the MVP releases for (ADR-0010).
-  depends_on arch: :arm64
-  depends_on :macos
 
   livecheck do
     url :stable
     strategy :github_latest
   end
+
+  # darwin/arm64 is the only platform the MVP releases for (ADR-0010).
+  depends_on arch: :arm64
+  depends_on :macos
 
   def install
     bin.install "owl"
@@ -127,26 +131,38 @@ RUBY
 cd "$TAP_DIR"
 git add Formula/coding-owl.rb
 
+CHANGED=1
 if git diff --cached --quiet; then
-	echo "==> Formula/coding-owl.rb already points at $VERSION, nothing to do"
-	exit 0
+	CHANGED=0
+	echo "==> Formula/coding-owl.rb already points at $VERSION"
+else
+	git --no-pager diff --cached
 fi
-
-git --no-pager diff --cached
 
 if [[ "$DRY_RUN" == "1" ]]; then
 	echo "==> Dry run, stopping here"
 	exit 0
 fi
 
-# CI runners have no git identity; locally the global one is already set.
-if ! git config user.email >/dev/null 2>&1; then
-	git config user.name "github-actions[bot]"
-	git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+if ((CHANGED)); then
+	# CI runners have no git identity; locally the global one is already set.
+	if ! git config user.email >/dev/null 2>&1; then
+		git config user.name "github-actions[bot]"
+		git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+	fi
+	echo "==> Committing"
+	git commit --quiet --signoff -m "chore(coding-owl): bump formula to $VERSION"
 fi
 
-echo "==> Committing"
-git commit --quiet --signoff -m "chore(coding-owl): bump formula to $VERSION"
+# What the tap serves is what its branch on the remote says, not what this
+# checkout says: a run that failed at the push has to be repeatable, and one
+# with nothing to commit must not report success while the remote is still on
+# the version before.
+git fetch --quiet origin "$TAP_BRANCH" 2>/dev/null || true
+if [[ "$(git rev-parse HEAD)" == "$(git rev-parse --verify --quiet FETCH_HEAD || echo none)" ]]; then
+	echo "==> $TAP_REPO already serves coding-owl $VERSION"
+	exit 0
+fi
 
 echo "==> Pushing to $TAP_BRANCH"
 git push --quiet origin "HEAD:refs/heads/$TAP_BRANCH"
