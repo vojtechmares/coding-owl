@@ -15,6 +15,19 @@ import (
 // (ADR-0016). A Job whose branch cannot be replayed is blocked with what is in
 // the way, and nothing else in the Project is touched.
 func (s *Service) rebase(ctx context.Context, j store.Job, details project.Details) error {
+	// A worktree that is not there any more - cleared by hand, or left behind
+	// by a disposal that failed partway - is a Job nothing can carry out. It
+	// is blocked rather than reported as an error, or every later owl start
+	// would fail on it and nothing behind it in the queue would ever run.
+	live, err := git.IsWorktree(j.Worktree)
+	if err != nil {
+		return err
+	}
+	if !live {
+		return s.blocked(j, fmt.Sprintf(
+			"%s is not a worktree git can work in any more, so this job cannot be carried out where it was", j.Worktree))
+	}
+
 	// A worktree somebody left mid-rebase is not Owl's to finish or throw
 	// away. Saying so is the honest answer; reconciling it belongs to garbage
 	// collection (ADR-0015, ADR-0016). It is asked first: a rebase leaves HEAD
@@ -53,7 +66,7 @@ func (s *Service) rebase(ctx context.Context, j store.Job, details project.Detai
 			"project", details.Name, "branch", details.BaseBranch, "error", err)
 	}
 
-	conflict, err := git.Rebase(j.Worktree, details.BaseBranch)
+	conflict, err := git.Rebase(ctx, j.Worktree, details.BaseBranch)
 	switch {
 	case err != nil:
 		// A rebase that could not be carried out at all is not something the

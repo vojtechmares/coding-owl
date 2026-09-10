@@ -95,6 +95,12 @@ Then it exits with a non-zero code
 And `owl jobs show <job>` reports the Job as `blocked`, saying a rebase is already in progress
 And that rebase is still in progress, untouched
 
+### S14 - a Job blocked by a conflict keeps its work
+Given the blocked Job of S4
+When the Project is inspected
+Then the Job's worktree is still on disk and its branch still exists
+And the commit the Agent made is still on that branch
+
 ### S15 - a worktree that is not on the Job's branch is not rebased
 Given a Job whose worktree an Agent left checked out on another branch
 When `owl start` runs for it
@@ -110,14 +116,16 @@ And the reason names the file and says the changes are in the repository's stash
 And `git stash list` in the Project reports that stash
 
 ### S17 - a rebase that cannot be carried out blocks the Job and leaves no rebase in progress
-Given a Job whose Project is configured to sign commits with a program that is not there
-When `owl start` runs for it after the base branch has moved
+Given a Job whose worktree holds a file nobody put in git's hands, and a commit on the base branch adding that same path
+When `owl start` runs for it
 Then it exits with a non-zero code
 And `owl jobs show <job>` reports the Job as `blocked`, saying the rebase could not be carried out
 And the worktree has no rebase in progress, and is back on the Job's branch
 
-### S14 - a Job blocked by a conflict keeps its work
-Given the blocked Job of S4
-When the Project is inspected
-Then the Job's worktree is still on disk and its branch still exists
-And the commit the Agent made is still on that branch
+### S18 - a worktree that is not there any more blocks the Job rather than the queue
+Given a Job whose worktree has been removed from disk
+When `owl start` runs for it
+Then it exits with a non-zero code
+And `owl jobs show <job>` reports the Job as `blocked`, saying the worktree is not one git can work in
+And a second `owl start` runs the next Job in the queue rather than failing on the same one
+

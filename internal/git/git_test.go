@@ -1002,7 +1002,7 @@ func TestRebaseReplaysABranchOntoAMovedBase(t *testing.T) {
 	commit(t, worktree, "work.txt", "the agent's work\n")
 	commit(t, dir, "from-base.txt", "moved on\n")
 
-	conflict, err := git.Rebase(worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, "main")
 
 	if err != nil || conflict.Conflicted() {
 		t.Fatalf("Rebase = %+v, %v, want a clean rebase", conflict, err)
@@ -1028,7 +1028,7 @@ func TestRebaseAbortsAConflictAndNamesThePaths(t *testing.T) {
 	before := strings.TrimSpace(run(t, worktree, "rev-parse", "HEAD"))
 	commit(t, dir, "both.txt", "what the base says\n")
 
-	conflict, err := git.Rebase(worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, "main")
 
 	if err != nil {
 		t.Fatalf("Rebase: %v", err)
@@ -1064,7 +1064,7 @@ func TestRebaseKeepsWhatNobodyCommitted(t *testing.T) {
 	}
 	commit(t, dir, "from-base.txt", "moved on\n")
 
-	conflict, err := git.Rebase(worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, "main")
 
 	if err != nil || conflict.Conflicted() {
 		t.Fatalf("Rebase = %+v, %v, want a clean rebase", conflict, err)
@@ -1084,7 +1084,7 @@ func TestRebaseReportsABaseThatIsNotThere(t *testing.T) {
 		t.Fatalf("AddWorktree: %v", err)
 	}
 
-	conflict, err := git.Rebase(worktree, "no-such-branch")
+	conflict, err := git.Rebase(context.Background(), worktree, "no-such-branch")
 
 	if err == nil {
 		t.Fatalf("Rebase onto a branch that is not there reported %+v and no error", conflict)
@@ -1193,7 +1193,7 @@ func TestRebaseIsOntoTheBranchNotATagOfTheSameName(t *testing.T) {
 	run(t, worktree, "tag", "main", "HEAD")
 	commit(t, dir, "from-base.txt", "moved on\n")
 
-	conflict, err := git.Rebase(worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, "main")
 
 	if err != nil || conflict.Conflicted() {
 		t.Fatalf("Rebase = %+v, %v, want a clean rebase", conflict, err)
@@ -1218,7 +1218,7 @@ func TestRebaseReportsAConflictInWhatNobodyCommitted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conflict, err := git.Rebase(worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, "main")
 
 	if err != nil {
 		t.Fatalf("Rebase: %v", err)
@@ -1235,7 +1235,7 @@ func TestRebaseReportsAConflictInWhatNobodyCommitted(t *testing.T) {
 	}
 }
 
-func TestRebaseLeavesNoRebaseInProgressWhenItCannotCommit(t *testing.T) {
+func TestRebaseLeavesNoRebaseInProgressWhenItCannotStart(t *testing.T) {
 	dir := newRepo(t)
 	worktree := filepath.Join(t.TempDir(), "job")
 	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
@@ -1243,13 +1243,14 @@ func TestRebaseLeavesNoRebaseInProgressWhenItCannotCommit(t *testing.T) {
 	}
 	commit(t, worktree, "work.txt", "the agent's work\n")
 	before := strings.TrimSpace(run(t, worktree, "rev-parse", "HEAD"))
+	// A file nobody put in git's hands, which the base branch then commits:
+	// git refuses to overwrite it and stops before it has begun.
+	if err := os.WriteFile(filepath.Join(worktree, "from-base.txt"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	commit(t, dir, "from-base.txt", "moved on\n")
-	// Signing that cannot work, which is what a daemon with no terminal gets
-	// from an ordinary developer's configuration.
-	run(t, dir, "config", "commit.gpgsign", "true")
-	run(t, dir, "config", "gpg.program", filepath.Join(t.TempDir(), "no-such-gpg"))
 
-	conflict, err := git.Rebase(worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, "main")
 
 	if err == nil {
 		t.Fatalf("Rebase = %+v and no error, want the failure reported", conflict)
@@ -1280,7 +1281,7 @@ func TestRebaseCarriesNoOtherBranchWithIt(t *testing.T) {
 	run(t, dir, "config", "rebase.updateRefs", "true")
 	commit(t, dir, "from-base.txt", "moved on\n")
 
-	conflict, err := git.Rebase(worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, "main")
 
 	if err != nil || conflict.Conflicted() {
 		t.Fatalf("Rebase = %+v, %v, want a clean rebase", conflict, err)
@@ -1312,7 +1313,7 @@ func TestRebaseDoesNotRunARepositorysHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conflict, err := git.Rebase(worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, "main")
 
 	if err != nil || conflict.Conflicted() {
 		t.Fatalf("Rebase = %+v, %v; a hook of somebody else's refused it", conflict, err)
