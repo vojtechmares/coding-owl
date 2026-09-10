@@ -51,10 +51,17 @@ func (e Env) workingDir() string {
 	return dir
 }
 
-// withDaemon runs fn against the daemon under a timeout.
+// withDaemon runs fn against the daemon under the ordinary timeout, which a
+// wedged daemon cannot outlast.
 func withDaemon(cmd *cobra.Command, env Env, fn func(context.Context, *client.Client) error) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), callTimeout)
 	defer cancel()
+	return withTimeout(ctx, env, fn)
+}
+
+// withTimeout runs fn against the daemon under a deadline the caller chose,
+// for the commands that wait on work rather than on an answer.
+func withTimeout(ctx context.Context, env Env, fn func(context.Context, *client.Client) error) error {
 	return fn(ctx, client.New(env.Paths.SocketPath))
 }
 
