@@ -38,6 +38,14 @@ func (*Executor) Name() string { return "host" }
 // Start launches the Agent as a direct child of the daemon. Cancelling ctx
 // asks it to stop with SIGTERM, and kills it if it will not.
 func (*Executor) Start(ctx context.Context, inv agent.Invocation) (agent.Process, error) {
+	// An empty Dir is not an error to os/exec: it means the daemon's own
+	// working directory, which is wherever the user started it - very possibly
+	// the checkout an Agent must never touch. With no sandbox, the worktree is
+	// the only structural bound there is (ADR-0006, ADR-0007), so it is
+	// required rather than assumed.
+	if inv.Dir == "" {
+		return nil, errors.New("an agent must be given a working directory to run in")
+	}
 	cmd := exec.CommandContext(ctx, inv.Path, inv.Args...)
 	cmd.Dir = inv.Dir
 	// The Agent inherits the user's already-authenticated environment

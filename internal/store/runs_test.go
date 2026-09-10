@@ -29,7 +29,7 @@ func TestStartRunNumbersTheAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
-	if err := s.FinishRun(ctx, first.ID, now, "succeeded", ""); err != nil {
+	if err := s.FinishRun(ctx, first.ID, now, "succeeded", "", 0); err != nil {
 		t.Fatalf("FinishRun: %v", err)
 	}
 	second, err := s.StartRun(ctx, store.Run{JobID: j.ID, Started: now, LogPath: "/logs/2.jsonl"})
@@ -42,6 +42,9 @@ func TestStartRunNumbersTheAttempts(t *testing.T) {
 	}
 	if first.Outcome != "" || !first.Ended.IsZero() {
 		t.Errorf("a run starts with outcome %q ended %v, want neither", first.Outcome, first.Ended)
+	}
+	if first.ExitCode != store.NoExitCode {
+		t.Errorf("a run starts with exit code %d, want none", first.ExitCode)
 	}
 }
 
@@ -56,7 +59,7 @@ func TestFinishRunRecordsTheOutcome(t *testing.T) {
 	}
 
 	ended := started.Add(time.Minute)
-	if err := s.FinishRun(ctx, r.ID, ended, "failed", "agent exited with status 3"); err != nil {
+	if err := s.FinishRun(ctx, r.ID, ended, "failed", "agent exited with status 3", 3); err != nil {
 		t.Fatalf("FinishRun: %v", err)
 	}
 
@@ -67,10 +70,13 @@ func TestFinishRunRecordsTheOutcome(t *testing.T) {
 	if got.Outcome != "failed" || got.Error != "agent exited with status 3" {
 		t.Errorf("run = %+v, want a failed run carrying its reason", got)
 	}
+	if got.ExitCode != 3 {
+		t.Errorf("exit code = %d, want the 3 the agent exited with", got.ExitCode)
+	}
 	if !got.Ended.Equal(ended) {
 		t.Errorf("ended = %v, want %v", got.Ended, ended)
 	}
-	if err := s.FinishRun(ctx, 999, ended, "failed", ""); !errors.Is(err, store.ErrRunNotFound) {
+	if err := s.FinishRun(ctx, 999, ended, "failed", "", 0); !errors.Is(err, store.ErrRunNotFound) {
 		t.Errorf("FinishRun on an unknown run = %v, want ErrRunNotFound", err)
 	}
 	if _, err := s.GetRun(ctx, 999); !errors.Is(err, store.ErrRunNotFound) {
@@ -99,7 +105,7 @@ func TestRunInProgressFindsTheOneStillRunning(t *testing.T) {
 	if got.ID != r.ID || got.JobID != j.ID {
 		t.Errorf("RunInProgress = %+v, want run %d for job %d", got, r.ID, j.ID)
 	}
-	if err := s.FinishRun(ctx, r.ID, time.Now().UTC(), "succeeded", ""); err != nil {
+	if err := s.FinishRun(ctx, r.ID, time.Now().UTC(), "succeeded", "", 0); err != nil {
 		t.Fatalf("FinishRun: %v", err)
 	}
 	if _, ok, _ := s.RunInProgress(ctx); ok {
@@ -118,7 +124,7 @@ func TestListRunsReturnsAJobsRunsInOrder(t *testing.T) {
 		if err != nil {
 			t.Fatalf("StartRun: %v", err)
 		}
-		if err := s.FinishRun(ctx, r.ID, now, "succeeded", ""); err != nil {
+		if err := s.FinishRun(ctx, r.ID, now, "succeeded", "", 0); err != nil {
 			t.Fatalf("FinishRun: %v", err)
 		}
 	}

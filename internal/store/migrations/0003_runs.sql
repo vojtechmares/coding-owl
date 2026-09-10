@@ -13,6 +13,9 @@ CREATE TABLE runs (
     ended    TEXT NOT NULL DEFAULT '',
     outcome  TEXT NOT NULL DEFAULT '',
     error    TEXT NOT NULL DEFAULT '',
+    -- exit_code is what the Agent exited with, and -1 when it never got far
+    -- enough to have one.
+    exit_code INTEGER NOT NULL DEFAULT -1,
     log_path TEXT NOT NULL
 ) STRICT;
 

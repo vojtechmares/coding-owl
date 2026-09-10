@@ -299,7 +299,10 @@ type Run struct {
 	// Error is why it did not succeed.
 	Error string `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
 	// LogPath is where its structured output was captured.
-	LogPath       string `protobuf:"bytes,8,opt,name=log_path,json=logPath,proto3" json:"log_path,omitempty"`
+	LogPath string `protobuf:"bytes,8,opt,name=log_path,json=logPath,proto3" json:"log_path,omitempty"`
+	// ExitCode is what the Agent exited with, and -1 when it never got far
+	// enough to have one.
+	ExitCode      int32 `protobuf:"varint,9,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -388,6 +391,13 @@ func (x *Run) GetLogPath() string {
 		return x.LogPath
 	}
 	return ""
+}
+
+func (x *Run) GetExitCode() int32 {
+	if x != nil {
+		return x.ExitCode
+	}
+	return 0
 }
 
 type AddJobRequest struct {
@@ -1091,7 +1101,7 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\acreated\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\acreated\x12\x16\n" +
 	"\x06branch\x18\t \x01(\tR\x06branch\x12\x1a\n" +
 	"\bworktree\x18\n" +
-	" \x01(\tR\bworktree\"\x93\x02\n" +
+	" \x01(\tR\bworktree\"\xb0\x02\n" +
 	"\x03Run\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\x03R\x05jobId\x12\x18\n" +
@@ -1100,7 +1110,8 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\x05ended\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x05ended\x122\n" +
 	"\aoutcome\x18\x06 \x01(\x0e2\x18.codingowl.v1.RunOutcomeR\aoutcome\x12\x14\n" +
 	"\x05error\x18\a \x01(\tR\x05error\x12\x19\n" +
-	"\blog_path\x18\b \x01(\tR\alogPath\"b\n" +
+	"\blog_path\x18\b \x01(\tR\alogPath\x12\x1b\n" +
+	"\texit_code\x18\t \x01(\x05R\bexitCode\"b\n" +
 	"\rAddJobRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x16\n" +
 	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x1f\n" +

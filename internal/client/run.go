@@ -26,6 +26,9 @@ type Run struct {
 	Outcome string
 	// Error is why the Run did not succeed.
 	Error string
+	// ExitCode is what the Agent exited with, and negative when it never got
+	// far enough to have one.
+	ExitCode int
 	// LogPath is where its structured output was captured.
 	LogPath string
 }
@@ -96,13 +99,14 @@ var runOutcomes = map[codingowlv1.RunOutcome]string{
 
 func runFromProto(r *codingowlv1.Run) Run {
 	out := Run{
-		ID:      r.GetId(),
-		JobID:   r.GetJobId(),
-		Attempt: int(r.GetAttempt()),
-		Started: r.GetStarted().AsTime(),
-		Outcome: runOutcomes[r.GetOutcome()],
-		Error:   r.GetError(),
-		LogPath: r.GetLogPath(),
+		ID:       r.GetId(),
+		JobID:    r.GetJobId(),
+		Attempt:  int(r.GetAttempt()),
+		Started:  r.GetStarted().AsTime(),
+		Outcome:  runOutcomes[r.GetOutcome()],
+		Error:    r.GetError(),
+		ExitCode: int(r.GetExitCode()),
+		LogPath:  r.GetLogPath(),
 	}
 	if r.GetEnded() != nil {
 		out.Ended = r.GetEnded().AsTime()

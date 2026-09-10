@@ -26,7 +26,7 @@ func script(t *testing.T, body string) string {
 func TestStartRunsTheAgentAndReportsItsOutput(t *testing.T) {
 	path := script(t, "echo one\necho two\necho oops >&2\nexit 0\n")
 
-	p, err := host.New().Start(context.Background(), agent.Invocation{Path: path})
+	p, err := host.New().Start(context.Background(), agent.Invocation{Path: path, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestStartRunsTheAgentAndReportsItsOutput(t *testing.T) {
 }
 
 func TestStartReportsANonZeroExitAsAStatusNotAnError(t *testing.T) {
-	p, err := host.New().Start(context.Background(), agent.Invocation{Path: script(t, "exit 3\n")})
+	p, err := host.New().Start(context.Background(), agent.Invocation{Path: script(t, "exit 3\n"), Dir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -109,7 +109,7 @@ func resolve(t *testing.T, path string) string {
 
 func TestStartStopsTheAgentWhenTheContextIsCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	p, err := host.New().Start(ctx, agent.Invocation{Path: script(t, "echo started\nsleep 60\n")})
+	p, err := host.New().Start(ctx, agent.Invocation{Path: script(t, "echo started\nsleep 60\n"), Dir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -134,9 +134,22 @@ func TestStartStopsTheAgentWhenTheContextIsCancelled(t *testing.T) {
 }
 
 func TestStartReportsAProgramThatIsNotThere(t *testing.T) {
-	_, err := host.New().Start(context.Background(), agent.Invocation{Path: filepath.Join(t.TempDir(), "nothing")})
+	_, err := host.New().Start(context.Background(), agent.Invocation{
+		Path: filepath.Join(t.TempDir(), "nothing"), Dir: t.TempDir(),
+	})
 
 	if err == nil {
 		t.Fatal("Start on a missing program = nil, want an error")
+	}
+}
+
+func TestStartRefusesAnAgentWithNoWorkingDirectory(t *testing.T) {
+	_, err := host.New().Start(context.Background(), agent.Invocation{Path: script(t, "pwd\n")})
+
+	if err == nil {
+		t.Fatal("Start with no working directory = nil, want an error: it would inherit the daemon's own")
+	}
+	if !strings.Contains(err.Error(), "working directory") {
+		t.Errorf("error %q does not say what is missing", err)
 	}
 }

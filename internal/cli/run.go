@@ -148,10 +148,10 @@ func printJob(env Env, d client.JobDetails) {
 	} else {
 		_, _ = fmt.Fprintln(env.Stdout, "runs:")
 		w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "RUN\tATTEMPT\tOUTCOME\tSTARTED\tENDED\tLOG")
+		_, _ = fmt.Fprintln(w, "RUN\tATTEMPT\tOUTCOME\tEXIT\tSTARTED\tENDED\tLOG")
 		for _, r := range d.Runs {
-			_, _ = fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\t%s\n",
-				r.ID, r.Attempt, orRunning(r.Outcome),
+			_, _ = fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\t%s\t%s\n",
+				r.ID, r.Attempt, orRunning(r.Outcome), exitStatus(r.ExitCode),
 				r.Started.UTC().Format(time.RFC3339), stamp(r.Ended), r.LogPath)
 		}
 		_ = w.Flush()
@@ -181,6 +181,15 @@ func orRunning(outcome string) string {
 		return "running"
 	}
 	return outcome
+}
+
+// exitStatus renders what the Agent exited with, or nothing for a Run that
+// never got far enough to have a status.
+func exitStatus(code int) string {
+	if code < 0 {
+		return noValue
+	}
+	return strconv.Itoa(code)
 }
 
 func stamp(t time.Time) string {

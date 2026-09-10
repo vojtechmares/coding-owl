@@ -41,6 +41,10 @@ const maxLine = 8 << 20
 // reason the Job is blocked with.
 const stderrTail = 500
 
+// bookkeepingTimeout bounds the writes that record how a Run ended, which
+// happen while the daemon may already be stopping.
+const bookkeepingTimeout = 10 * time.Second
+
 // Outcome is how a Run ended (ADR-0027).
 type Outcome string
 
@@ -69,6 +73,9 @@ type Run struct {
 	Outcome Outcome
 	// Error is why it did not succeed.
 	Error string
+	// ExitCode is what the Agent exited with, and store.NoExitCode when it
+	// never got far enough to have one.
+	ExitCode int
 	// LogPath is where its structured output was captured.
 	LogPath string
 }
@@ -126,6 +133,11 @@ type Service struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
+	// starting serialises owl start, so the one-Agent-at-a-time cap is not a
+	// check two callers can pass at once. Only one daemon can hold the socket,
+	// so a lock in this process is the whole story.
+	starting sync.Mutex
+
 	mu      sync.Mutex
 	brokers map[int64]*broker
 }
@@ -173,6 +185,9 @@ func (s *Service) Recover(ctx context.Context) error {
 // Start takes the Job at the head of the queue and runs it. started is false
 // when nothing is pending, which is not an error.
 func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bool, err error) {
+	s.starting.Lock()
+	defer s.starting.Unlock()
+
 	if r, ok, err := s.opts.Store.RunInProgress(ctx); err != nil {
 		return queue.Job{}, Run{}, false, err
 	} else if ok {
@@ -201,6 +216,9 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 		id := strconv.FormatInt(j.ID, 10)
 		branch := details.Config.BranchPrefix + "job-" + id
 		worktree := filepath.Join(s.opts.WorktreeDir, id)
+		if err := mkdirPrivate(s.opts.WorktreeDir); err != nil {
+			return queue.Job{}, Run{}, false, err
+		}
 		if err := git.AddWorktree(details.Path, worktree, branch, details.BaseBranch); err != nil {
 			return queue.Job{}, Run{}, false, err
 		}
@@ -214,12 +232,19 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	if err != nil {
 		return queue.Job{}, Run{}, false, err
 	}
+	// From here the Run exists, and a Run left open would report a Run in
+	// progress until the daemon restarts. Anything that goes wrong now ends it.
+	defer func() {
+		if err != nil {
+			s.abandon(r.ID, j.ID, err)
+		}
+	}()
 	logPath := filepath.Join(s.opts.LogDir, strconv.FormatInt(r.ID, 10)+logSuffix)
-	if err := s.opts.Store.SetRunLog(ctx, r.ID, logPath); err != nil {
+	if err = s.opts.Store.SetRunLog(ctx, r.ID, logPath); err != nil {
 		return queue.Job{}, Run{}, false, err
 	}
 	r.LogPath = logPath
-	if err := s.opts.Store.SetJobState(ctx, j.ID, string(queue.StateActive)); err != nil {
+	if err = s.opts.Store.SetJobState(ctx, j.ID, string(queue.StateActive)); err != nil {
 		return queue.Job{}, Run{}, false, err
 	}
 
@@ -233,6 +258,21 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	go s.carryOut(r, req)
 
 	return toJob(j), toRun(r), true, nil
+}
+
+// abandon ends a Run that never got as far as an Agent, and blocks its Job
+// with the reason, so a failure between the Run being recorded and the Agent
+// starting does not leave the queue waiting on a Run that is not happening.
+func (s *Service) abandon(runID, jobID int64, cause error) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
+	defer cancel()
+	if err := s.opts.Store.FinishRun(ctx, runID, s.now().UTC(),
+		string(OutcomeFailed), cause.Error(), store.NoExitCode); err != nil {
+		s.opts.Logger.Error("ending a run that never started", "run", runID, "error", err)
+	}
+	if err := s.opts.Store.DequeueJob(ctx, jobID, string(queue.StateBlocked)); err != nil {
+		s.opts.Logger.Error("blocking a job whose run never started", "job", jobID, "error", err)
+	}
 }
 
 // Show returns a Job with its Runs and the system prompt in force for it, so
@@ -271,27 +311,31 @@ func (s *Service) Log(ctx context.Context, runID int64, follow bool, send func(L
 	// Subscribing before the file is read is what makes the two halves meet:
 	// a line written between them arrives on the channel carrying the number
 	// it had in the file, and is skipped as already sent.
-	var live <-chan Line
+	var live subscription
+	following := false
 	if follow {
-		var stop func()
-		live, stop = s.subscribe(runID)
-		if stop != nil {
-			defer stop()
+		var ok bool
+		if live, ok = s.subscribe(runID); ok {
+			following = true
+			defer live.stop()
 		}
 	}
 	sent, err := s.sendFile(r.LogPath, send)
 	if err != nil {
 		return err
 	}
-	if live == nil {
+	if !following {
 		return nil
 	}
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case ln, ok := <-live:
+		case ln, ok := <-live.lines:
 			if !ok {
+				if live.behind() {
+					return fmt.Errorf("this run wrote faster than the log could be followed; read it again with owl logs %d", runID)
+				}
 				return nil
 			}
 			if ln.Seq <= sent {
@@ -333,14 +377,14 @@ func (s *Service) sendFile(path string, send func(Line) error) (int64, error) {
 func (s *Service) carryOut(r store.Run, req driver.Request) {
 	defer s.wg.Done()
 	b := s.openBroker(r.ID)
-	outcome, reason := s.execute(r, req, b)
+	outcome, reason, code := s.execute(r, req, b)
 	s.closeBroker(r.ID)
 
 	// The daemon may be stopping, so the bookkeeping does not run under the
 	// Service's own context.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
 	defer cancel()
-	if err := s.opts.Store.FinishRun(ctx, r.ID, s.now().UTC(), string(outcome), reason); err != nil {
+	if err := s.opts.Store.FinishRun(ctx, r.ID, s.now().UTC(), string(outcome), reason, code); err != nil {
 		s.opts.Logger.Error("recording the end of a run", "run", r.ID, "error", err)
 	}
 	// An interrupted Run leaves its Job where it was: it was not finished, and
@@ -359,24 +403,25 @@ func (s *Service) carryOut(r store.Run, req driver.Request) {
 	s.opts.Logger.Info("run finished", "run", r.ID, "job", r.JobID, "outcome", outcome)
 }
 
-// execute starts the Agent, captures its output and reports how it ended.
-func (s *Service) execute(r store.Run, req driver.Request, b *broker) (Outcome, string) {
-	if err := os.MkdirAll(filepath.Dir(r.LogPath), 0o700); err != nil {
-		return OutcomeFailed, fmt.Sprintf("preparing the run's log: %v", err)
+// execute starts the Agent, captures its output and reports how it ended, with
+// the status it exited with when it got far enough to have one.
+func (s *Service) execute(r store.Run, req driver.Request, b *broker) (Outcome, string, int) {
+	if err := mkdirPrivate(filepath.Dir(r.LogPath)); err != nil {
+		return OutcomeFailed, fmt.Sprintf("preparing the run's log: %v", err), store.NoExitCode
 	}
 	f, err := os.OpenFile(r.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return OutcomeFailed, fmt.Sprintf("opening the run's log: %v", err)
+		return OutcomeFailed, fmt.Sprintf("opening the run's log: %v", err), store.NoExitCode
 	}
 	defer func() { _ = f.Close() }()
 
 	inv, err := s.opts.Driver.Command(req)
 	if err != nil {
-		return OutcomeFailed, err.Error()
+		return OutcomeFailed, err.Error(), store.NoExitCode
 	}
 	proc, err := s.opts.Executor.Start(s.ctx, inv)
 	if err != nil {
-		return OutcomeFailed, err.Error()
+		return OutcomeFailed, err.Error(), store.NoExitCode
 	}
 
 	sc := bufio.NewScanner(proc.Stdout())
@@ -393,16 +438,26 @@ func (s *Service) execute(r store.Run, req driver.Request, b *broker) (Outcome, 
 
 	switch {
 	case s.ctx.Err() != nil:
-		return OutcomeInterrupted, "the daemon stopped while the agent was working"
+		return OutcomeInterrupted, "the daemon stopped while the agent was working", store.NoExitCode
 	case waitErr != nil:
-		return OutcomeFailed, fmt.Sprintf("waiting for the agent: %v", waitErr)
+		return OutcomeFailed, fmt.Sprintf("waiting for the agent: %v", waitErr), store.NoExitCode
 	case code != 0:
-		return OutcomeFailed, fmt.Sprintf("the agent exited with status %d%s", code, quote(proc.Stderr()))
+		return OutcomeFailed, fmt.Sprintf("the agent exited with status %d%s", code, quote(proc.Stderr())), code
 	case readErr != nil:
-		return OutcomeFailed, fmt.Sprintf("reading the agent's output: %v", readErr)
+		return OutcomeFailed, fmt.Sprintf("reading the agent's output: %v", readErr), code
 	default:
-		return OutcomeSucceeded, ""
+		return OutcomeSucceeded, "", code
 	}
+}
+
+// mkdirPrivate creates a directory only this user may read, and tightens one
+// that is already there: MkdirAll leaves an existing directory's mode alone,
+// and a Job's worktree and a Run's log are nobody else's business.
+func mkdirPrivate(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.Chmod(dir, 0o700)
 }
 
 // quote renders the tail of an Agent's standard error for the reason a Job is
@@ -425,14 +480,15 @@ func trimTail(s string, n int) string {
 
 func toRun(r store.Run) Run {
 	return Run{
-		ID:      r.ID,
-		JobID:   r.JobID,
-		Attempt: r.Attempt,
-		Started: r.Started,
-		Ended:   r.Ended,
-		Outcome: Outcome(r.Outcome),
-		Error:   r.Error,
-		LogPath: r.LogPath,
+		ID:       r.ID,
+		JobID:    r.JobID,
+		Attempt:  r.Attempt,
+		Started:  r.Started,
+		Ended:    r.Ended,
+		Outcome:  Outcome(r.Outcome),
+		Error:    r.Error,
+		ExitCode: r.ExitCode,
+		LogPath:  r.LogPath,
 	}
 }
 
