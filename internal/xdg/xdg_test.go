@@ -59,6 +59,20 @@ func TestResolveFromPrefersRuntimeDirForSocket(t *testing.T) {
 	}
 }
 
+func TestResolveFromIgnoresRelativeValues(t *testing.T) {
+	p, err := ResolveFrom(env(map[string]string{
+		"HOME":            "/Users/o",
+		"XDG_STATE_HOME":  "state",
+		"XDG_RUNTIME_DIR": "run",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.SocketPath != "/Users/o/.local/state/coding-owl/owld.sock" {
+		t.Errorf("relative XDG values must be ignored, got socket %q", p.SocketPath)
+	}
+}
+
 func TestResolveFromWithoutHomeFails(t *testing.T) {
 	if _, err := ResolveFrom(env(map[string]string{})); err == nil {
 		t.Fatal("expected an error when HOME is unset")

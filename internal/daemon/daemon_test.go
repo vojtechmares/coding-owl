@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,19 +98,44 @@ func TestStatusOverSocketThenNotRunningAfterStop(t *testing.T) {
 	}
 }
 
-func TestStaleSocketIsReplaced(t *testing.T) {
-	paths := tempPaths(t)
-	if err := os.MkdirAll(filepath.Dir(paths.SocketPath), 0o755); err != nil {
+// leaveStaleSocket binds a unix socket and closes it without unlinking,
+// which is exactly what a crashed daemon leaves behind.
+func leaveStaleSocket(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	f, err := os.Create(paths.SocketPath)
+	ln, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = f.Close()
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	_ = ln.Close()
+}
+
+func TestStaleSocketIsReplaced(t *testing.T) {
+	paths := tempPaths(t)
+	leaveStaleSocket(t, paths.SocketPath)
 
 	run(t, paths)
 	waitStatus(t, client.New(paths.SocketPath))
+}
+
+func TestNonSocketFileAtSocketPathIsRefused(t *testing.T) {
+	paths := tempPaths(t)
+	if err := os.MkdirAll(filepath.Dir(paths.SocketPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.SocketPath, []byte("not a socket"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := daemon.Run(context.Background(), daemon.Options{Paths: paths, Version: "t"})
+	if err == nil || !strings.Contains(err.Error(), "not a socket") {
+		t.Fatalf("err = %v, want a refusal naming a non-socket", err)
+	}
+	if b, rerr := os.ReadFile(paths.SocketPath); rerr != nil || string(b) != "not a socket" {
+		t.Errorf("file must be left untouched, got %q %v", b, rerr)
+	}
 }
 
 func TestSecondDaemonOnSameSocketIsRefused(t *testing.T) {
