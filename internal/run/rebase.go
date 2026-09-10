@@ -15,22 +15,10 @@ import (
 // (ADR-0016). A Job whose branch cannot be replayed is blocked with what is in
 // the way, and nothing else in the Project is touched.
 func (s *Service) rebase(ctx context.Context, j store.Job, details project.Details) error {
-	// Owl rebases its own Job branches and nothing else (ADR-0016). A worktree
-	// that is on something else is one an Agent moved, and replaying whatever
-	// is checked out there would be rewriting somebody else's history.
-	// A worktree on no branch at all answers with an error rather than a name,
-	// and means the same thing here: whatever is checked out, it is not the
-	// Job's branch.
-	on, err := git.CurrentBranch(j.Worktree)
-	if err != nil || on != j.Branch {
-		return s.blocked(j, fmt.Sprintf(
-			"the worktree %s is on %s rather than the job's own branch %s, so there is nothing here to rebase",
-			j.Worktree, describe(on), j.Branch))
-	}
-
 	// A worktree somebody left mid-rebase is not Owl's to finish or throw
 	// away. Saying so is the honest answer; reconciling it belongs to garbage
-	// collection (ADR-0015, ADR-0016).
+	// collection (ADR-0015, ADR-0016). It is asked first: a rebase leaves HEAD
+	// detached, which the branch check below would otherwise answer for.
 	inProgress, err := git.RebaseInProgress(j.Worktree)
 	if err != nil {
 		return err
@@ -38,6 +26,19 @@ func (s *Service) rebase(ctx context.Context, j store.Job, details project.Detai
 	if inProgress {
 		return s.blocked(j, fmt.Sprintf(
 			"a rebase is already in progress in %s; finish or abort it before this job runs again", j.Worktree))
+	}
+
+	// Owl rebases its own Job branches and nothing else (ADR-0016). A worktree
+	// that is on something else is one an Agent moved, and replaying whatever
+	// is checked out there would be rewriting somebody else's history.
+	// A worktree on no branch answers with an error rather than a name, and
+	// means the same thing here: whatever is checked out, it is not the Job's
+	// branch.
+	on, err := git.CurrentBranch(j.Worktree)
+	if err != nil || on != j.Branch {
+		return s.blocked(j, fmt.Sprintf(
+			"the worktree %s is on %s rather than the job's own branch %s, so there is nothing here to rebase",
+			j.Worktree, describe(on), j.Branch))
 	}
 
 	// What the remote knows is worth having before the branch is replayed, but

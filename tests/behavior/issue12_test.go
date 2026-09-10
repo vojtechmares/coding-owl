@@ -95,11 +95,14 @@ func TestS1RebaseBringsTheMovedBaseIntoTheWorktree(t *testing.T) {
 	} else if string(body) != "added while the job was waiting\n" {
 		t.Errorf("the base branch's new file reads %q", body)
 	}
-	// The base is an ancestor of the Job's branch, which is what a rebase
-	// leaves behind and a merge would not.
+	// What a rebase leaves behind: the base is an ancestor, and the branch is
+	// linear on top of it rather than joined to it by a merge.
 	base := strings.TrimSpace(rb.repo.git("rev-parse", "main"))
 	if out := rb.gitInWorktree(t, "merge-base", "--is-ancestor", base, "HEAD"); out != "" {
 		t.Errorf("the base is not an ancestor of the job's branch: %s", out)
+	}
+	if merges := strings.TrimSpace(rb.gitInWorktree(t, "rev-list", "--count", "--merges", base+"..HEAD")); merges != "0" {
+		t.Errorf("the job's branch carries %s merges above the base, want none", merges)
 	}
 	rb.stub.let(t)
 }
@@ -354,8 +357,8 @@ func TestS13AWorktreeLeftMidRebaseIsReported(t *testing.T) {
 	if got := line(t, out, "state"); got != "blocked" {
 		t.Errorf("state = %q, want blocked", got)
 	}
-	if reason := line(t, out, "reason"); !strings.Contains(reason, "rebase") {
-		t.Errorf("the reason does not mention a rebase: %q", reason)
+	if reason := line(t, out, "reason"); !strings.Contains(reason, "already in progress") {
+		t.Errorf("the reason does not say a rebase is already in progress: %q", reason)
 	}
 	if status := gitIn(t, rb.repo, worktree, "status"); !strings.Contains(status, "rebase in progress") {
 		t.Errorf("owl finished somebody else's rebase:\n%s", status)
