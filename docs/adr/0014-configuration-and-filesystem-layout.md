@@ -40,6 +40,13 @@ registration by `owl project add --base-branch` and defaulting to the
 repository's branch at that moment. Everything else in the list above -
 branch prefix, Verification checks, tool allowlist - lives in the file.
 
+Owl reads a repository through the path a Project was registered at and
+nothing else. It addresses the base branch as `refs/heads/<branch>`, so a tag
+of the same name cannot decide a Project's settings, and it drops the git
+variables that redirect where git looks before running anything. What a
+Project is configured to do therefore does not depend on the environment the
+daemon happens to have been started in.
+
 ### Filesystem layout
 
 Honouring `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME` and

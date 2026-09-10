@@ -111,9 +111,10 @@ func ShowFileOnBranch(dir, branch, path string) (data []byte, found bool, err er
 	return blob, true, nil
 }
 
-// blobID reads the object id out of the first `ls-tree -z` record, which is
+// blobID reads the object id out of the `ls-tree -z` record, which is
 // `<mode> SP <type> SP <oid> TAB <name>`. It reports false when the record is
-// absent or names anything but a blob.
+// absent or names anything but a blob. A literal, wildcard-free pathspec
+// matches at most one entry, which GIT_LITERAL_PATHSPECS keeps true.
 func blobID(lsTree []byte) (string, bool) {
 	record, _, _ := bytes.Cut(lsTree, []byte{0})
 	head, _, ok := bytes.Cut(record, []byte{'\t'})
@@ -137,8 +138,12 @@ func run(dir string, args ...string) (stdout []byte, stderr string, code int, er
 	// them, but they end up in messages users read. The redirection variables
 	// are dropped because they override the repository chosen by cmd.Dir: a
 	// daemon started from inside a hook would otherwise read every Project out
-	// of whatever repository its environment happened to name.
-	cmd.Env = append(withoutGitRedirection(os.Environ()), "LC_ALL=C", "LANG=C")
+	// of whatever repository its environment happened to name. Literal
+	// pathspecs settle the rest of that family at once - a candidate path is
+	// a path, never a glob and never case-insensitive, so a tree cannot match
+	// one of them twice.
+	cmd.Env = append(withoutGitRedirection(os.Environ()),
+		"LC_ALL=C", "LANG=C", "GIT_LITERAL_PATHSPECS=1")
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb

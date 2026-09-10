@@ -823,3 +823,24 @@ func TestS32TagDoesNotShadowTheBaseBranch(t *testing.T) {
 	wantLine(t, show, "branch prefix", "branch/")
 	wantLine(t, show, "config", "main:.coding-owl.yaml")
 }
+
+func TestS33DaemonEnvironmentCannotRedirectReads(t *testing.T) {
+	l := newLayout(t)
+	decoy := newRepo(t, l, "decoy")
+	decoy.commit(".coding-owl.yaml", owlConfig("decoy/"), "config in the decoy")
+
+	// The daemon is started from an environment that names another
+	// repository, as it would be if launched from inside a git hook.
+	poisoned := l.withEnv("GIT_DIR="+filepath.Join(decoy.dir, ".git"), "GIT_WORK_TREE="+decoy.dir)
+	startDaemon(t, poisoned)
+	waitForSocket(t, l.socket())
+
+	own := newRepo(t, l, "api")
+	own.commit(".coding-owl.yaml", owlConfig("own/"), "config in the project")
+	addProject(t, l, own)
+
+	show := mustOwl(t, l, "project", "show", "api").stdout
+
+	wantLine(t, show, "branch prefix", "own/")
+	wantLine(t, show, "path", own.dir)
+}

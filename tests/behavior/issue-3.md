@@ -225,3 +225,10 @@ And a second branch carrying `.coding-owl.yaml` with `branchPrefix: tag/`, tagge
 When `owl project show <name>` runs
 Then the `branch prefix:` line reads `branch/`
 And the `config:` line names `main:.coding-owl.yaml`
+
+### S33 - the daemon's own environment cannot redirect what a Project reads
+Given a daemon started with `GIT_DIR` and `GIT_WORK_TREE` pointing at a second repository whose base branch carries `.coding-owl.yaml` with `branchPrefix: decoy/`
+And a registered Project whose own base branch carries `.coding-owl.yaml` with `branchPrefix: own/`
+When `owl project show <name>` runs
+Then the `branch prefix:` line reads `own/`
+And `owl project add` accepts a repository root rather than reporting the second repository as the root to register instead
