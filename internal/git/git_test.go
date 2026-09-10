@@ -490,3 +490,32 @@ func TestPruneWorktreesForgetsAWorktreeWhoseDirectoryIsGone(t *testing.T) {
 		t.Errorf("HasBranch = %v, %v; pruning keeps the branch", ok, err)
 	}
 }
+
+func TestIsWorktreeSaysNoToAHalfRemovedWorktree(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job-1")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+
+	if live, err := git.IsWorktree(worktree); err != nil || !live {
+		t.Fatalf("IsWorktree on a worktree = %v, %v, want true", live, err)
+	}
+	// What an interrupted removal leaves behind: the directory, without the
+	// file linking it to its repository. git calls such a worktree prunable.
+	if err := os.Remove(filepath.Join(worktree, ".git")); err != nil {
+		t.Fatal(err)
+	}
+
+	live, err := git.IsWorktree(worktree)
+
+	if err != nil {
+		t.Fatalf("IsWorktree: %v", err)
+	}
+	if live {
+		t.Error("a directory that has lost its .git file is reported as a worktree")
+	}
+	if live, err := git.IsWorktree(filepath.Join(t.TempDir(), "never-existed")); err != nil || live {
+		t.Errorf("IsWorktree on a directory that is not there = %v, %v, want false", live, err)
+	}
+}

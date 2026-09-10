@@ -2,9 +2,7 @@ package run
 
 import (
 	"context"
-	"errors"
-	"io/fs"
-	"os"
+	"slices"
 
 	"github.com/vojtechmares/coding-owl/internal/git"
 	"github.com/vojtechmares/coding-owl/internal/queue"
@@ -49,6 +47,15 @@ func (s *Service) Drop(ctx context.Context, id int64, force bool) (queue.Job, er
 // can be disposed of: everything else is either still going or already
 // finished with.
 func (s *Service) dispose(ctx context.Context, id int64, force bool, to queue.State, deleteBranch bool) (queue.Job, error) {
+	// Disposal is a read of the Job's state, two git commands and a write, and
+	// nothing may come between them: two callers deciding at once - accept
+	// from one terminal, drop from another - would otherwise both pass the
+	// check, and the branch accept promised to keep would be deleted out from
+	// under it. Only one daemon holds the socket, so a lock in this process is
+	// the whole story, as it is for owl start.
+	s.disposing.Lock()
+	defer s.disposing.Unlock()
+
 	j, err := s.opts.Store.GetJob(ctx, id)
 	if err != nil {
 		return queue.Job{}, err
@@ -81,11 +88,15 @@ func (s *Service) dispose(ctx context.Context, id int64, force bool, to queue.St
 	if deleteBranch {
 		branch = ""
 	}
-	if err := s.opts.Store.SetJobWorkspace(ctx, j.ID, branch, ""); err != nil {
+	// Recording what has already been reclaimed is not the caller's to cancel:
+	// a client that hangs up here would otherwise leave the Job in review
+	// pointing at a worktree that is not there any more.
+	book := context.WithoutCancel(ctx)
+	if err := s.opts.Store.SetJobWorkspace(book, j.ID, branch, ""); err != nil {
 		return queue.Job{}, err
 	}
 	j.Branch, j.Worktree = branch, ""
-	if err := s.opts.Store.SetJobState(ctx, j.ID, string(to)); err != nil {
+	if err := s.opts.Store.SetJobState(book, j.ID, string(to)); err != nil {
 		return queue.Job{}, err
 	}
 	j.State = string(to)
@@ -93,16 +104,20 @@ func (s *Service) dispose(ctx context.Context, id int64, force bool, to queue.St
 	return queue.FromStore(j), nil
 }
 
-// reclaim takes a worktree back. A worktree whose directory is already gone -
-// removed by hand, or by a disposal that failed halfway - is pruned rather
-// than removed, so that disposal can always finish rather than wedging on a
-// worktree nobody can use.
+// reclaim takes a worktree back. A worktree git cannot work in any more -
+// removed by hand, or left half-removed by a disposal that failed partway -
+// is pruned rather than removed, so that disposal can always finish rather
+// than wedging on a worktree nobody can use.
 func (s *Service) reclaim(worktree, project string, force bool) error {
-	if _, err := os.Stat(worktree); err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		s.opts.Logger.Warn("the worktree was already gone", "worktree", worktree)
+	live, err := git.IsWorktree(worktree)
+	if err != nil {
+		return err
+	}
+	if !live {
+		// The directory is gone, or is no longer a worktree git can work in.
+		// Either way there is nothing to remove and nothing to lose; what is
+		// left is the administrative entry, which pruning takes with it.
+		s.opts.Logger.Warn("the worktree was not there to reclaim", "worktree", worktree)
 		return git.PruneWorktrees(project)
 	}
 	if !force {
@@ -141,13 +156,28 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	}
 	// The states are reported in the order a Job passes through them, so the
 	// report reads as a lifecycle rather than as an alphabet.
-	for _, state := range []queue.State{
+	lifecycle := []queue.State{
 		queue.StatePending, queue.StateActive, queue.StateReview,
 		queue.StateBlocked, queue.StateDone, queue.StateCancelled, queue.StateExhausted,
-	} {
+	}
+	for _, state := range lifecycle {
 		if n := counts[state]; n > 0 {
 			out.Counts = append(out.Counts, StateCount{State: state, Count: n})
 		}
+	}
+	// A state this daemon does not know is still a Job somebody has to hear
+	// about - an older binary reading a database a newer one wrote. Counting
+	// it and naming it nothing is a worse report than saying it is there;
+	// saying nothing at all would be the worst of the three.
+	var unknown []queue.State
+	for state, n := range counts {
+		if n > 0 && !slices.Contains(lifecycle, state) {
+			unknown = append(unknown, state)
+		}
+	}
+	slices.Sort(unknown)
+	for _, state := range unknown {
+		out.Counts = append(out.Counts, StateCount{State: state, Count: counts[state]})
 	}
 
 	running, err := s.opts.Store.ListRunsInProgress(ctx)

@@ -311,24 +311,55 @@ func TestS9DisposeStatusListsWhatAwaitsADecision(t *testing.T) {
 	}
 }
 
+// runningRow returns the row owl status prints under its runs heading, split
+// into its columns, so a scenario can say which column holds what.
+func runningRow(t *testing.T, out string) []string {
+	t.Helper()
+	_, running, ok := strings.Cut(out, "runs in progress:")
+	if !ok {
+		t.Fatalf("owl status does not report a run in progress:\n%s", out)
+	}
+	for _, ln := range strings.Split(running, "\n") {
+		if fields := strings.Fields(ln); len(fields) > 0 && fields[0] != "RUN" {
+			return fields
+		}
+	}
+	t.Fatalf("owl status reports nothing under its runs heading:\n%s", out)
+	return nil
+}
+
 func TestS10DisposeStatusShowsARunInProgress(t *testing.T) {
 	script := []string{agentScript[0], "#wait", agentScript[2]}
 	l, s := agentLayout(t, script, 0)
 	daemonUp(t, l)
 	r := project(t, l, "api")
+	// Two Jobs queued and taken back, so that the Job that runs and the Run
+	// itself have different ids: a report that put them in each other's
+	// columns would otherwise pass.
+	addJob(t, l, r.dir, "not this one", "--no-plan")
+	addJob(t, l, r.dir, "nor this one", "--no-plan")
+	mustOwl(t, l, "queue", "remove", "1")
+	mustOwl(t, l, "queue", "remove", "2")
 	addJob(t, l, r.dir, "work", "--no-plan")
 	run, job := startRun(t, l)
+	if run == job {
+		t.Fatalf("run %s and job %s have the same id, so this scenario cannot tell the columns apart", run, job)
+	}
 
 	out := mustOwl(t, l, "status").stdout
 
-	_, running, ok := strings.Cut(out, "runs in progress:")
-	if !ok {
-		t.Fatalf("owl status does not report the run in progress:\n%s", out)
+	row := runningRow(t, out)
+	if len(row) < 4 {
+		t.Fatalf("the running row has %d columns, want run, job, project and phase:\n%s", len(row), out)
 	}
-	for _, want := range []string{run, job, "execute"} {
-		if !strings.Contains(running, want) {
-			t.Errorf("the running section does not name %q:\n%s", want, out)
-		}
+	if row[0] != run {
+		t.Errorf("the running row names run %q, want %s:\n%s", row[0], run, out)
+	}
+	if row[1] != job {
+		t.Errorf("the running row names job %q, want %s:\n%s", row[1], job, out)
+	}
+	if row[3] != "execute" {
+		t.Errorf("the running row reports phase %q, want execute:\n%s", row[3], out)
 	}
 	s.let(t)
 	waitRun(t, l, job, run)
@@ -340,7 +371,7 @@ func TestS11DisposeStatusWithNothingToReportSaysSo(t *testing.T) {
 
 	res := mustOwl(t, l, "status")
 
-	if !strings.Contains(res.stdout, "nothing") {
+	if !strings.Contains(res.stdout, "nothing queued, running or waiting for a decision") {
 		t.Errorf("owl status does not say there is nothing to report:\n%s", res.stdout)
 	}
 }

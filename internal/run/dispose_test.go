@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/vojtechmares/coding-owl/internal/queue"
@@ -85,4 +86,98 @@ func gitOut(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 	return string(out)
+}
+
+func TestAcceptFinishesAJobWhoseWorktreeGitCannotUse(t *testing.T) {
+	svc, st, repo := newFixture(t, &fakeDriver{}, &fakeExecutor{})
+	j := reviewing(t, st, repo)
+	// What an interrupted removal leaves behind: the directory is there, but
+	// it is no longer a worktree.
+	if err := os.Remove(filepath.Join(j.Worktree, ".git")); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.Accept(context.Background(), j.ID, false)
+
+	if err != nil {
+		t.Fatalf("Accept: %v; a half-removed worktree must not wedge the job", err)
+	}
+	if got.State != queue.StateDone {
+		t.Errorf("state = %s, want done", got.State)
+	}
+	if list := gitOut(t, repo, "worktree", "list"); strings.Contains(list, j.Worktree) {
+		t.Errorf("git still reports a worktree it cannot use:\n%s", list)
+	}
+}
+
+func TestAcceptAndDropAtOnceLeaveOneDecisionStanding(t *testing.T) {
+	svc, st, repo := newFixture(t, &fakeDriver{}, &fakeExecutor{})
+	j := reviewing(t, st, repo)
+
+	// Two people deciding at once, from two terminals. Whichever wins, the
+	// other must be refused: a drop that ran alongside an accept would delete
+	// the branch the accept promised to keep.
+	type outcome struct {
+		verb string
+		job  queue.Job
+		err  error
+	}
+	results := make(chan outcome, 2)
+	var ready sync.WaitGroup
+	ready.Add(2)
+	for verb, dispose := range map[string]func(context.Context, int64, bool) (queue.Job, error){
+		"accept": svc.Accept, "drop": svc.Drop,
+	} {
+		go func() {
+			ready.Done()
+			ready.Wait()
+			got, err := dispose(context.Background(), j.ID, false)
+			results <- outcome{verb, got, err}
+		}()
+	}
+	first, second := <-results, <-results
+
+	won, lost := first, second
+	if won.err != nil {
+		won, lost = second, first
+	}
+	if won.err != nil {
+		t.Fatalf("both disposals were refused: %v; %v", first.err, second.err)
+	}
+	if lost.err == nil {
+		t.Fatalf("%s and %s both succeeded; one of them decided about a job the other had already disposed of",
+			first.verb, second.verb)
+	}
+	final, err := st.GetJob(context.Background(), j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if queue.State(final.State) != won.job.State {
+		t.Errorf("the job is %s, but %s reported %s", final.State, won.verb, won.job.State)
+	}
+	branch := strings.Contains(gitOut(t, repo, "branch", "--list", "--format=%(refname:short)"), "owl/job")
+	if want := won.verb == "accept"; branch != want {
+		t.Errorf("the branch is there = %v after %s won, want %v", branch, won.verb, want)
+	}
+}
+
+func TestOverviewCountsAJobInAStateItDoesNotKnow(t *testing.T) {
+	svc, st, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{})
+	j := queueJob(t, st, "work")
+	// What an older binary sees in a database a newer one wrote.
+	if err := st.SetJobState(context.Background(), j.ID, "hibernating"); err != nil {
+		t.Fatalf("SetJobState: %v", err)
+	}
+
+	o, err := svc.Overview(context.Background())
+
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	if len(o.Counts) != 1 {
+		t.Fatalf("counts = %+v, want the job counted rather than dropped", o.Counts)
+	}
+	if got := o.Counts[0]; string(got.State) != "hibernating" || got.Count != 1 {
+		t.Errorf("counts = %+v, want one hibernating job", o.Counts)
+	}
 }
