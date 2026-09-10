@@ -116,6 +116,21 @@ func (s *Store) ListRuns(ctx context.Context, jobID int64) ([]Run, error) {
 	return out, rows.Err()
 }
 
+// InterruptRunsInProgress ends the Runs that were still going when the daemon
+// last stopped, and returns how many there were. Every Agent is a child of the
+// daemon (ADR-0012), so a Run still open at startup is one nothing survived to
+// record.
+func (s *Store) InterruptRunsInProgress(ctx context.Context, at time.Time, outcome, reason string) (int, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE runs SET ended = ?, outcome = ?, error = ? WHERE outcome = ''`,
+		at.UTC().Format(timeFormat), outcome, reason)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
 // RunInProgress returns the Run that has not ended yet, if there is one. Only
 // one Agent runs at a time in this milestone (ADR-0029).
 func (s *Store) RunInProgress(ctx context.Context) (Run, bool, error) {

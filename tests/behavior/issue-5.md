@@ -169,3 +169,9 @@ Given a running daemon and a pending Job
 When `owl start` runs and the Run finishes
 Then the working directory the stub agent reported is the Job's worktree
 And it is not the Project's own path
+
+### S23 - a Run the daemon never finished does not hold the queue
+Given a running daemon whose stub agent is waiting, two pending Jobs, and a Run in progress for the first
+When the daemon is killed outright, so nothing records how that Run ended, and a daemon is started again
+Then `owl jobs show <first job>` reports that Run's outcome as `interrupted`
+And `owl start` starts a Run for the second Job rather than refusing because one is in progress

@@ -771,3 +771,31 @@ func TestSmokeRealClaudeCode(t *testing.T) {
 		t.Errorf("the run captured no output: %v", err)
 	}
 }
+
+func TestS23RunAnUnfinishedRunDoesNotHoldTheQueue(t *testing.T) {
+	script := []string{agentScript[0], "#wait", agentScript[2]}
+	l, _ := agentLayout(t, script, 0)
+	p := daemonUp(t, l)
+	r := runnableJob(t, l, "first")
+	addJob(t, l, r.dir, "second")
+	run, job := startRun(t, l)
+
+	if err := p.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	p.exit(t, 10*time.Second)
+	// The killed daemon left its socket behind, so waiting for the file to
+	// exist would see the dead one; the new daemon's own log line is what says
+	// it is listening.
+	waitForLog(t, startDaemon(t, l), "daemon listening")
+
+	out := mustOwl(t, l, "jobs", "show", job).stdout
+	rows := runRows(t, out)
+	if len(rows) != 1 || rows[0].id != run || rows[0].outcome != "interrupted" {
+		t.Fatalf("runs = %+v, want run %s reported as interrupted:\n%s", rows, run, out)
+	}
+	second, _ := startRun(t, l)
+	if second == run {
+		t.Errorf("owl start reported run %s again, want a new one", second)
+	}
+}
