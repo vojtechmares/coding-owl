@@ -156,7 +156,29 @@ func TestOverlongSocketPathIsRefused(t *testing.T) {
 	paths := tempPaths(t)
 	paths.SocketPath = filepath.Join(paths.StateDir, strings.Repeat("x", 120), "owld.sock")
 	err := daemon.Run(context.Background(), daemon.Options{Paths: paths, Version: "t"})
-	if err == nil {
-		t.Fatal("expected an error")
+	if err == nil || !strings.Contains(err.Error(), "too long") {
+		t.Fatalf("err = %v, want a refusal saying the path is too long", err)
+	}
+}
+
+func TestSilentSocketAtSocketPathIsRefused(t *testing.T) {
+	paths := tempPaths(t)
+	if err := os.MkdirAll(filepath.Dir(paths.SocketPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A datagram socket is a socket inode that neither answers nor refuses a
+	// stream dial; the daemon must leave it alone rather than guess.
+	conn, err := net.ListenPacket("unixgram", paths.SocketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	err = daemon.Run(context.Background(), daemon.Options{Paths: paths, Version: "t"})
+	if err == nil || !strings.Contains(err.Error(), "refusing to remove") {
+		t.Fatalf("err = %v, want a refusal", err)
+	}
+	if _, serr := os.Lstat(paths.SocketPath); serr != nil {
+		t.Errorf("socket must be left in place: %v", serr)
 	}
 }
