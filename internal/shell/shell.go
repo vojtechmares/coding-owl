@@ -1,0 +1,144 @@
+// Package shell runs a Project's own commands - its Verification checks and
+// its setup commands - through the system shell.
+//
+// The shell is allowed here and forbidden for the chat's commands (ADR-0022)
+// because of who writes the string: these are written by the user and read
+// from the Project's base branch (ADR-0014, ADR-0030), where the Agent being
+// verified cannot reach them. If a command here ever becomes model-authored,
+// that reasoning has gone and this package should not be used for it.
+package shell
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"sync"
+	"syscall"
+	"time"
+)
+
+// shellPath is the interpreter, which is what makes `a | b`, `&&` and
+// `$(...)` mean what the user expects them to mean.
+const shellPath = "/bin/sh"
+
+// killDelay is how long a command has to exit after its timeout before it is
+// killed outright.
+const killDelay = 5 * time.Second
+
+// maxOutput bounds what one command's output can cost, since it is kept for a
+// report a person reads.
+const maxOutput = 64 << 10
+
+// Result is what running one command said.
+type Result struct {
+	// ExitCode is the status it exited with, or NoExitCode when it never got
+	// far enough to have one.
+	ExitCode int
+	// Stdout is what it printed, up to the limit above.
+	Stdout string
+	// Output is everything it printed, standard error included, in the order
+	// the two streams were written.
+	Output string
+	// TimedOut reports whether it was stopped rather than finishing.
+	TimedOut bool
+}
+
+// NoExitCode is the status of a command that never ran.
+const NoExitCode = -1
+
+// Run executes command in dir, giving it timeout to finish. err is returned
+// only when the command could not be run at all, which is a different thing
+// from it running and failing.
+func Run(ctx context.Context, dir, command string, timeout time.Duration) (Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, shellPath, "-c", command)
+	cmd.Dir = dir
+	// The command inherits the user's environment, the way it would if they
+	// ran it themselves (ADR-0006).
+	cmd.Env = os.Environ()
+	// Nobody is at a terminal, so a command that reads sees end of file rather
+	// than waiting until morning.
+	cmd.Stdin = nil
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = killDelay
+
+	both := &interleaved{}
+	stdout := &capped{also: both}
+	cmd.Stdout = stdout
+	cmd.Stderr = &capped{also: both}
+
+	err := cmd.Run()
+	res := Result{
+		ExitCode: 0,
+		Stdout:   stdout.String(),
+		Output:   both.String(),
+		TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded),
+	}
+	if err == nil {
+		return res, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		res.ExitCode = exitErr.ExitCode()
+		return res, nil
+	}
+	res.ExitCode = NoExitCode
+	return res, fmt.Errorf("running %s: %w", command, err)
+}
+
+// interleaved collects both streams in the order they were written, which is
+// the order someone reading the report expects them in.
+type interleaved struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (w *interleaved) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if room := maxOutput - w.buf.Len(); room > 0 {
+		if len(p) > room {
+			w.buf.Write(p[:room])
+		} else {
+			w.buf.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+func (w *interleaved) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+// capped keeps one stream, bounded, and passes it on to the combined one.
+type capped struct {
+	mu   sync.Mutex
+	buf  bytes.Buffer
+	also *interleaved
+}
+
+func (w *capped) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	if room := maxOutput - w.buf.Len(); room > 0 {
+		if len(p) > room {
+			w.buf.Write(p[:room])
+		} else {
+			w.buf.Write(p)
+		}
+	}
+	w.mu.Unlock()
+	return w.also.Write(p)
+}
+
+func (w *capped) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}

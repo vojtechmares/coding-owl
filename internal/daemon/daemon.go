@@ -26,6 +26,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/run"
 	"github.com/vojtechmares/coding-owl/internal/store"
+	"github.com/vojtechmares/coding-owl/internal/verifier/command"
 	"github.com/vojtechmares/coding-owl/internal/xdg"
 )
 
@@ -99,6 +100,7 @@ func Run(ctx context.Context, opts Options) error {
 		Projects:    projects,
 		Driver:      claudecode.New(),
 		Executor:    host.New(),
+		Verifier:    command.New(),
 		WorktreeDir: filepath.Join(opts.Paths.DataDir, worktreesDir),
 		LogDir:      filepath.Join(opts.Paths.StateDir, logsDir),
 		ConfigPath:  filepath.Join(opts.Paths.ConfigDir, configName),

@@ -75,6 +75,10 @@ message Job {
   bool planned = 11;
   // Plan is what its planning Run decided, empty until there is one.
   string plan = 12;
+  // Note is why the Job is where it is when no Run explains it: a setup
+  // command that failed before an Agent started, or the checks that refused
+  // the work.
+  string note = 13;
 }
 
 // PlanMode is whether a Job is planned before it is executed. Planning is the
@@ -86,6 +90,22 @@ enum PlanMode {
   PLAN_MODE_PLAN = 1;
   // PLAN_MODE_NO_PLAN executes it without planning first.
   PLAN_MODE_NO_PLAN = 2;
+}
+
+// CheckResult is what one Verification check said about a Run (ADR-0013).
+message CheckResult {
+  // Name identifies the check.
+  string name = 1;
+  // Command is what it ran.
+  string command = 2;
+  // Passed is whether it was satisfied.
+  bool passed = 3;
+  // ExitCode is what the command exited with.
+  int32 exit_code = 4;
+  // Output is what it printed, standard error included.
+  string output = 5;
+  // Reason says why it failed, empty for a check that passed.
+  string reason = 6;
 }
 
 // PhaseSettings is what one phase of a Job runs at, and where each setting
@@ -203,6 +223,9 @@ message GetJobResponse {
   // SystemPrompt is the unattended contract with the Project's own clauses
   // appended, exactly as the Agent is given it (ADR-0017).
   string system_prompt = 3;
+  // Checks is what Verification said about the Job's most recent verified Run,
+  // in the order the checks were configured (ADR-0030).
+  repeated CheckResult checks = 5;
   // Phases is what each phase of the Job runs at, in the order it passes
   // through them.
   repeated PhaseSettings phases = 4;

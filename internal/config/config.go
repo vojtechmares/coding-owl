@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -34,6 +36,27 @@ const (
 	PhaseExecute = "execute"
 )
 
+// Check is one Verification command (ADR-0030): a shell command with an
+// optional expectation and a timeout. The command is written by the user and
+// read from the Project's base branch, where the Agent being verified cannot
+// reach it - which is what makes a shell command safe to run here and not in
+// the chat (ADR-0022).
+type Check struct {
+	// Name identifies the check in a report.
+	Name string
+	// Run is the shell command.
+	Run string
+	// Expect is what passing means beyond exiting zero. Empty is exit zero
+	// alone; ExpectEmptyOutput additionally requires an empty stdout.
+	Expect string
+	// Timeout bounds the check. Zero means the default.
+	Timeout time.Duration
+}
+
+// ExpectEmptyOutput is the one expectation beyond exit zero. The vocabulary is
+// deliberately tiny (ADR-0030).
+const ExpectEmptyOutput = "empty_output"
+
 // Config is a Project's effective configuration.
 type Config struct {
 	// BranchPrefix is prepended to the branch of every Job in the Project.
@@ -47,6 +70,11 @@ type Config struct {
 	// Phases is what each phase of a Job runs at, keyed by phase name. A
 	// phase or a field the file does not set is absent (ADR-0028).
 	Phases map[string]Phase
+	// Setup are shell commands run in a Job's worktree before an Agent starts,
+	// for the untracked things a fresh worktree does not have (ADR-0007).
+	Setup []string
+	// Checks are what Verification runs after an execution Run (ADR-0013).
+	Checks []Check
 }
 
 // Global is the daemon's own configuration, read from
@@ -75,6 +103,16 @@ type file struct {
 	UnattendedClauses []string         `yaml:"unattendedClauses"`
 	BudgetUSD         float64          `yaml:"budgetUSD"`
 	Phases            map[string]phase `yaml:"phases"`
+	Setup             []string         `yaml:"setup"`
+	Checks            []check          `yaml:"checks"`
+}
+
+// check is the on-disk shape of one entry under `checks`.
+type check struct {
+	Name    string `yaml:"name"`
+	Run     string `yaml:"run"`
+	Expect  string `yaml:"expect"`
+	Timeout string `yaml:"timeout"`
 }
 
 // phase is the on-disk shape of one entry under `phases`.
@@ -112,7 +150,60 @@ func Parse(source string, data []byte) (Config, error) {
 		return Config{}, err
 	}
 	cfg.Phases = phases
+	checks, err := parseChecks(source, f.Checks)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Checks = checks
+	for i, cmd := range f.Setup {
+		if strings.TrimSpace(cmd) == "" {
+			return Config{}, fmt.Errorf("%s: setup command %d is empty", source, i+1)
+		}
+	}
+	cfg.Setup = f.Setup
 	return cfg, nil
+}
+
+// parseChecks reads the checks, refusing one Owl could not run or judge rather
+// than discovering it after an Agent has spent a night.
+func parseChecks(source string, checks []check) ([]Check, error) {
+	if len(checks) == 0 {
+		return nil, nil
+	}
+	out := make([]Check, 0, len(checks))
+	seen := map[string]bool{}
+	for i, c := range checks {
+		name := strings.TrimSpace(c.Name)
+		where := fmt.Sprintf("checks[%d]", i)
+		if name != "" {
+			where = "check " + strconv.Quote(name)
+		}
+		switch {
+		case name == "":
+			return nil, fmt.Errorf("%s: %s has no name", source, where)
+		case seen[name]:
+			return nil, fmt.Errorf("%s: %s is named twice; a report needs one name per check", source, where)
+		case strings.TrimSpace(c.Run) == "":
+			return nil, fmt.Errorf("%s: %s has no run command", source, where)
+		case c.Expect != "" && c.Expect != ExpectEmptyOutput:
+			return nil, fmt.Errorf("%s: %s expects %q, which Owl does not know; the only expectation is %q",
+				source, where, c.Expect, ExpectEmptyOutput)
+		}
+		seen[name] = true
+		parsed := Check{Name: name, Run: c.Run, Expect: c.Expect}
+		if c.Timeout != "" {
+			d, err := time.ParseDuration(c.Timeout)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %s has an unreadable timeout %q: %w", source, where, c.Timeout, err)
+			}
+			if d <= 0 {
+				return nil, fmt.Errorf("%s: %s has a timeout of %s; a check needs time to run", source, where, d)
+			}
+			parsed.Timeout = d
+		}
+		out = append(out, parsed)
+	}
+	return out, nil
 }
 
 // ParseGlobal reads the daemon's own configuration file, which sets what the

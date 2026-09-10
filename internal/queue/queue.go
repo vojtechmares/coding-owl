@@ -95,6 +95,8 @@ type Job struct {
 	// Model and Effort are the Job's own overrides, empty when it has none.
 	Model  string
 	Effort string
+	// Note is why the Job is where it is when no Run explains it.
+	Note string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -274,6 +276,7 @@ func FromStore(j store.Job) Job {
 		Plan:      j.Plan,
 		Model:     j.Model,
 		Effort:    j.Effort,
+		Note:      j.Note,
 		Position:  j.Position,
 		Created:   j.Created,
 	}
@@ -285,7 +288,8 @@ func (s *Service) Cancel(ctx context.Context, id int64) (Job, error) {
 	if _, err := s.pending(ctx, id); err != nil {
 		return Job{}, err
 	}
-	if err := s.store.DequeueJob(ctx, id, string(StateCancelled)); err != nil {
+	// A Job the user cancelled needs no note: they know why.
+	if err := s.store.DequeueJob(ctx, id, string(StateCancelled), ""); err != nil {
 		return Job{}, err
 	}
 	j, err := s.store.GetJob(ctx, id)
