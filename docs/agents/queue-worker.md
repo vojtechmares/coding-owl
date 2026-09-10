@@ -4,8 +4,14 @@ Ralph loop prompt for working the `ready-for-agent` issue queue unsupervised.
 Start it from the repo root:
 
 ```
-/ralph-loop 'Read docs/agents/queue-worker.md and follow it exactly, from the top, every iteration.' --completion-promise 'OWL_QUEUE_DONE' --max-iterations 40
+/ralph-loop 'Read docs/agents/queue-worker.md and follow it exactly, from the top, every iteration.' --completion-promise 'OWL_QUEUE_DONE' --max-iterations 300
 ```
+
+An iteration is one **turn ending**, not one issue. The loop's stop hook fires
+every time you stop for any reason, so a turn spent waiting on something costs
+exactly as much as a turn spent working. One issue is tens of iterations, which
+is why the budget is in the hundreds - and why step 6 tells you to wait inside a
+single turn rather than by stopping and checking again.
 
 # Work the ready-for-agent queue
 
@@ -86,13 +92,52 @@ Re-read the issue once more, top to bottom, and diff your branch against `main`.
 
 ## Step 6 - verification agents
 
-Launch these three agents in parallel with the Agent tool. Give each one the issue number, the branch name, the path to the spec sheet, and the instruction to return a verdict of `PASS` or `FAIL` with a numbered list of findings, each with a file and line. Agents review only; they must not modify files.
+Launch these three agents in parallel with the Agent tool. Give each one the issue number, the branch name, the path to the spec sheet, and the instruction to return a verdict of `PASS` or `FAIL` with a numbered list of findings, each with a file and line. Agents review only; they must not modify files in the repository.
 
 1. **Security agent.** Review `git diff main...HEAD`. Fail if the change: hard-codes or logs secrets, tokens, or credentials; reads or writes files outside the project worktree, the directories Owl is configured to use, or the OS temp dir; touches keychains, SSH keys, shell profiles, or other user data without the issue asking for it; executes shell commands built from unescaped user or agent input; opens network connections the issue did not call for; or widens file permissions.
 2. **Correctness agent.** Read the issue and its comments, then the diff and the tests. Fail if any requirement from the issue is missing, partially done, or implemented differently from what the issue says; if tests assert the wrong thing or are tautological; if error paths are unhandled; or if the change contradicts `CONTEXT.md` terms or a `docs/adr/` decision.
 3. **Behavior test agent.** Take `tests/behavior/issue-<n>.md` as the source of truth. For every scenario, locate its test, run it, and additionally exercise the feature by hand the way a user would (build the binary, run the command, inspect the output). Fail if any scenario has no test, has a test that does not actually check the Then clause, or behaves differently when exercised manually than the sheet says. Also fail if the sheet itself was weakened since its first commit (`git log -p tests/behavior/issue-<n>.md`).
 
-Fix every finding, re-run the failing agent, and repeat until all three return `PASS`. If a round keeps failing on the same finding, search for the standard fix and apply it rather than retrying the same thing. After five rounds without a full pass, comment the outstanding findings on the issue, relabel it `ready-for-human`, push the branch, and exit.
+**Collect the verdicts through files, and wait for them inside one turn.** An
+agent's result otherwise reaches you only as a notification, which arrives after
+your turn ends - so polling `ListAgents` and stopping again costs an iteration
+per check and drains the budget on waiting. Instead, make a fresh directory for
+the round, outside the repository so nothing lands in the diff the agents are
+reviewing:
+
+```sh
+VERDICTS="${TMPDIR:-/tmp}/owl-verify/issue-<n>/round-<r>"
+rm -rf "$VERDICTS" && mkdir -p "$VERDICTS"
+```
+
+A fresh directory per round is what stops the wait below from returning
+instantly on the previous round's verdicts. Then add this to each agent's
+prompt, with its own file name:
+
+> When you have finished, write your verdict to `$VERDICTS/<security|correctness|behavior>.md`: the first line exactly `PASS` or `FAIL`, then your numbered findings. Write it to that path with a `.tmp` suffix first and `mv` it into place, so it is never read half-written. Do this as the last thing you do, and do it even when you are reporting `FAIL` or could not finish the review.
+
+Launch all three, then block on the files in a single foreground call:
+
+```sh
+deadline=$(( $(date +%s) + 540 ))   # 9 minutes, inside the Bash tool's 10 minute cap
+until [ -f "$VERDICTS/security.md" ] && [ -f "$VERDICTS/correctness.md" ] && [ -f "$VERDICTS/behavior.md" ]; do
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    echo "TIMEOUT - no verdict from:"
+    for a in security correctness behavior; do [ -f "$VERDICTS/$a.md" ] || echo "  $a"; done
+    exit 1
+  fi
+  sleep 10
+done
+for f in "$VERDICTS"/*.md; do echo "===== $(basename "$f" .md) ====="; cat "$f"; done
+```
+
+The whole round - the wait and reading all three reports - is then one
+iteration rather than a dozen. Name each report as you read it, or three
+verdicts arrive as one wall of text with no way to tell which agent said what.
+On a timeout, call the wait again; the agents it names are the ones that never
+wrote a file, and you can relaunch just those.
+
+Fix every finding, re-run the failing agent, and repeat until all three return `PASS`. Every round gets its own `round-<r>` directory and waits only on the files it expects that round, so a verdict you already acted on can never be mistaken for a fresh one. A `PASS` only counts for the commit it was given: when you change the branch after a round, the agents that passed have not seen that change, so re-run them before opening the PR. If a round keeps failing on the same finding, search for the standard fix and apply it rather than retrying the same thing. After five rounds without a full pass, comment the outstanding findings on the issue, relabel it `ready-for-human`, push the branch, and exit.
 
 ## Step 7 - open the PR and merge it
 
