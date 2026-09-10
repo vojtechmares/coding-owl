@@ -120,14 +120,14 @@ func TestHasBranch(t *testing.T) {
 	}
 }
 
-func TestShowFileReadsFromTheRefNotTheWorktree(t *testing.T) {
+func TestShowFileOnBranchReadsFromTheRefNotTheWorktree(t *testing.T) {
 	dir := newRepo(t)
 	commit(t, dir, ".coding-owl.yaml", "committed\n")
 	if err := os.WriteFile(filepath.Join(dir, ".coding-owl.yaml"), []byte("dirty\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	data, found, err := git.ShowFile(dir, "main", ".coding-owl.yaml")
+	data, found, err := git.ShowFileOnBranch(dir, "main", ".coding-owl.yaml")
 	if err != nil || !found {
 		t.Fatalf("ShowFile = _, %v, %v; want found, nil", found, err)
 	}
@@ -136,10 +136,10 @@ func TestShowFileReadsFromTheRefNotTheWorktree(t *testing.T) {
 	}
 }
 
-func TestShowFileReportsMissingPath(t *testing.T) {
+func TestShowFileOnBranchReportsMissingPath(t *testing.T) {
 	dir := newRepo(t)
 
-	_, found, err := git.ShowFile(dir, "main", ".coding-owl.yaml")
+	_, found, err := git.ShowFileOnBranch(dir, "main", ".coding-owl.yaml")
 	if err != nil {
 		t.Fatalf("ShowFile: %v", err)
 	}
@@ -148,11 +148,11 @@ func TestShowFileReportsMissingPath(t *testing.T) {
 	}
 }
 
-func TestShowFileTreatsADirectoryAsMissing(t *testing.T) {
+func TestShowFileOnBranchTreatsADirectoryAsMissing(t *testing.T) {
 	dir := newRepo(t)
 	commit(t, dir, ".coding-owl.yaml/inner", "not a config\n")
 
-	_, found, err := git.ShowFile(dir, "main", ".coding-owl.yaml")
+	_, found, err := git.ShowFileOnBranch(dir, "main", ".coding-owl.yaml")
 	if err != nil {
 		t.Fatalf("ShowFile: %v", err)
 	}
@@ -161,10 +161,10 @@ func TestShowFileTreatsADirectoryAsMissing(t *testing.T) {
 	}
 }
 
-func TestShowFileFailsOnUnknownRef(t *testing.T) {
+func TestShowFileOnBranchFailsOnUnknownRef(t *testing.T) {
 	dir := newRepo(t)
 
-	if _, _, err := git.ShowFile(dir, "nope", ".coding-owl.yaml"); err == nil {
+	if _, _, err := git.ShowFileOnBranch(dir, "nope", ".coding-owl.yaml"); err == nil {
 		t.Fatal("ShowFile accepted an unknown ref")
 	}
 }
@@ -198,10 +198,10 @@ func TestHasBranchReportsAMissingDirectory(t *testing.T) {
 	}
 }
 
-func TestShowFileReportsAMissingDirectory(t *testing.T) {
+func TestShowFileOnBranchReportsAMissingDirectory(t *testing.T) {
 	gone := filepath.Join(t.TempDir(), "gone")
 
-	if _, _, err := git.ShowFile(gone, "main", ".coding-owl.yaml"); err == nil {
+	if _, _, err := git.ShowFileOnBranch(gone, "main", ".coding-owl.yaml"); err == nil {
 		t.Fatal("ShowFile on a missing directory returned no error")
 	}
 }
@@ -223,10 +223,10 @@ func TestReadsAreLocaleIndependent(t *testing.T) {
 	dir := newRepo(t)
 	commit(t, dir, ".meta/.coding-owl.yaml", "last candidate\n")
 
-	if _, found, err := git.ShowFile(dir, "main", ".coding-owl.yaml"); err != nil || found {
+	if _, found, err := git.ShowFileOnBranch(dir, "main", ".coding-owl.yaml"); err != nil || found {
 		t.Errorf("missing path = found %v, err %v; want not found, nil", found, err)
 	}
-	data, found, err := git.ShowFile(dir, "main", ".meta/.coding-owl.yaml")
+	data, found, err := git.ShowFileOnBranch(dir, "main", ".meta/.coding-owl.yaml")
 	if err != nil || !found {
 		t.Fatalf("present path = found %v, err %v; want found, nil", found, err)
 	}
@@ -235,5 +235,69 @@ func TestReadsAreLocaleIndependent(t *testing.T) {
 	}
 	if ok, err := git.HasBranch(dir, "nope"); err != nil || ok {
 		t.Errorf("HasBranch(nope) = %v, %v; want false, nil", ok, err)
+	}
+}
+
+func TestShowFileOnBranchIsNotShadowedByATag(t *testing.T) {
+	// git resolves a bare name against refs/tags before refs/heads, so a tag
+	// sharing the base branch's name could otherwise decide a Project's
+	// configuration - and pushing a tag is not the permission that pushing a
+	// protected branch is.
+	dir := newRepo(t)
+	commit(t, dir, ".coding-owl.yaml", "from the branch\n")
+	run(t, dir, "checkout", "-q", "-b", "other")
+	commit(t, dir, ".coding-owl.yaml", "from the tag\n")
+	run(t, dir, "tag", "main", "other")
+	run(t, dir, "checkout", "-q", "main")
+
+	data, found, err := git.ShowFileOnBranch(dir, "main", ".coding-owl.yaml")
+
+	if err != nil || !found {
+		t.Fatalf("ShowFileOnBranch = found %v, err %v; want found, nil", found, err)
+	}
+	if string(data) != "from the branch\n" {
+		t.Errorf("read %q, want the branch's contents; a tag shadowed the branch", data)
+	}
+}
+
+func TestReadsIgnoreGitRedirectionInTheEnvironment(t *testing.T) {
+	// GIT_DIR and friends override the repository chosen by the working
+	// directory, so a daemon started from inside a hook would otherwise read
+	// every Project out of whatever repository its environment named.
+	dir := newRepo(t)
+	commit(t, dir, ".coding-owl.yaml", "the right repository\n")
+	elsewhere := newRepo(t)
+	commit(t, elsewhere, ".coding-owl.yaml", "the wrong repository\n")
+	t.Setenv("GIT_DIR", filepath.Join(elsewhere, ".git"))
+	t.Setenv("GIT_WORK_TREE", elsewhere)
+
+	data, found, err := git.ShowFileOnBranch(dir, "main", ".coding-owl.yaml")
+	if err != nil || !found {
+		t.Fatalf("ShowFileOnBranch = found %v, err %v; want found, nil", found, err)
+	}
+	if string(data) != "the right repository\n" {
+		t.Errorf("read %q; the environment redirected the read", data)
+	}
+
+	root, err := git.Root(dir)
+	if err != nil {
+		t.Fatalf("Root: %v", err)
+	}
+	want, _ := filepath.EvalSymlinks(dir)
+	if root != want {
+		t.Errorf("Root = %q, want %q", root, want)
+	}
+}
+
+func TestCurrentBranchWithATagOfTheSameName(t *testing.T) {
+	dir := newRepo(t)
+	run(t, dir, "tag", "main")
+
+	got, err := git.CurrentBranch(dir)
+	if err != nil {
+		t.Fatalf("CurrentBranch: %v", err)
+	}
+	if got != "main" {
+		t.Errorf("CurrentBranch = %q, want %q: an ambiguous name was not shortened away", got, "main")
 	}
 }

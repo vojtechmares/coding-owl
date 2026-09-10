@@ -160,7 +160,11 @@ func (s *Service) discover(p Project) (string, config.Config, error) {
 	hasBase, err := git.HasBranch(p.Path, p.BaseBranch)
 	if err != nil {
 		// The path came from the caller's own registration, so a repository
-		// that has moved or stopped being one is theirs to fix.
+		// that has moved or stopped being one is theirs to fix, and worth
+		// saying plainly rather than through git's plumbing.
+		if _, statErr := os.Stat(p.Path); errors.Is(statErr, os.ErrNotExist) {
+			return "", config.Config{}, invalid("project %s: %s is gone; point it somewhere with owl project move, or remove it", p.Name, p.Path)
+		}
 		return "", config.Config{}, &InvalidError{Err: err}
 	}
 	if !hasBase {
@@ -170,7 +174,7 @@ func (s *Service) discover(p Project) (string, config.Config, error) {
 		return "", config.Config{}, invalid("%s has no branch %q, so no configuration can be read for project %s", p.Path, p.BaseBranch, p.Name)
 	}
 	for _, candidate := range inRepoCandidates {
-		data, found, err := git.ShowFile(p.Path, p.BaseBranch, candidate)
+		data, found, err := git.ShowFileOnBranch(p.Path, p.BaseBranch, candidate)
 		if err != nil {
 			return "", config.Config{}, &InvalidError{Err: err}
 		}

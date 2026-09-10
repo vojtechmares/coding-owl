@@ -218,3 +218,10 @@ When `owl project move bad <second repository>` runs, and then `owl project rena
 Then each exits 0
 And `owl project list` shows the Project at the new path under the name `good`
 And neither command reports a failure while having made its change
+
+### S32 - a tag sharing the base branch's name does not decide the configuration
+Given a running daemon and a registered Project whose base branch `main` carries `.coding-owl.yaml` with `branchPrefix: branch/`
+And a second branch carrying `.coding-owl.yaml` with `branchPrefix: tag/`, tagged `main`
+When `owl project show <name>` runs
+Then the `branch prefix:` line reads `branch/`
+And the `config:` line names `main:.coding-owl.yaml`
