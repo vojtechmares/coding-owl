@@ -115,8 +115,8 @@ Then it exits with a non-zero code
 And the reason names the file and says the changes are in the repository's stash
 And `git stash list` in the Project reports that stash
 
-### S17 - a rebase that cannot be carried out blocks the Job and leaves no rebase in progress
-Given a Job whose worktree holds a file nobody put in git's hands, and a commit on the base branch adding that same path
+### S17 - a rebase that stops part way through blocks the Job and leaves no rebase in progress
+Given a Job whose Project requires a filter that fails once, after the rebase has begun and before it has finished
 When `owl start` runs for it
 Then it exits with a non-zero code
 And `owl jobs show <job>` reports the Job as `blocked`, saying the rebase could not be carried out

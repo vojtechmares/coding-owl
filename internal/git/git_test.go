@@ -1235,26 +1235,46 @@ func TestRebaseReportsAConflictInWhatNobodyCommitted(t *testing.T) {
 	}
 }
 
-func TestRebaseLeavesNoRebaseInProgressWhenItCannotStart(t *testing.T) {
+// stopsPartWay configures a repository so that the second thing git filters
+// fails and everything after it succeeds, which stops a rebase after it has
+// begun rather than before it starts. A filter is somebody else's program, and
+// a repository's configuration is something an Agent can write.
+func stopsPartWay(t *testing.T, dir string) {
+	t.Helper()
+	root := t.TempDir()
+	count := filepath.Join(root, "count")
+	filter := filepath.Join(root, "filter.sh")
+	script := "#!/bin/sh\nc=0\n[ -f " + count + " ] && c=$(cat " + count + ")\n" +
+		"c=$((c+1))\necho \"$c\" > " + count + "\n[ \"$c\" = 2 ] && exit 1\ncat\n"
+	if err := os.WriteFile(filter, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run(t, dir, "config", "filter.owlstop.clean", filter)
+	run(t, dir, "config", "filter.owlstop.smudge", filter)
+	run(t, dir, "config", "filter.owlstop.required", "true")
+}
+
+func TestRebaseLeavesNoRebaseInProgressWhenItStopsPartWay(t *testing.T) {
 	dir := newRepo(t)
+	commit(t, dir, ".gitattributes", "shared.txt filter=owlstop\n")
+	commit(t, dir, "shared.txt", "one\n")
 	worktree := filepath.Join(t.TempDir(), "job")
 	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
 		t.Fatalf("AddWorktree: %v", err)
 	}
 	commit(t, worktree, "work.txt", "the agent's work\n")
 	before := strings.TrimSpace(run(t, worktree, "rev-parse", "HEAD"))
-	// A file nobody put in git's hands, which the base branch then commits:
-	// git refuses to overwrite it and stops before it has begun.
-	if err := os.WriteFile(filepath.Join(worktree, "from-base.txt"), []byte("mine\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	commit(t, dir, "from-base.txt", "moved on\n")
+	commit(t, dir, "shared.txt", "one\ntwo\n")
+	// Configured last: the commits above would trip it too.
+	stopsPartWay(t, dir)
 
 	conflict, err := git.Rebase(context.Background(), worktree, "main")
 
 	if err == nil {
 		t.Fatalf("Rebase = %+v and no error, want the failure reported", conflict)
 	}
+	// Nothing conflicted: this is the case an abort that only handled
+	// conflicts would leave a worktree in.
 	if progress, err := git.RebaseInProgress(worktree); err != nil || progress {
 		t.Errorf("RebaseInProgress = %v, %v; a rebase that stopped is aborted whatever stopped it", progress, err)
 	}
