@@ -373,3 +373,120 @@ func TestAddWorktreeReportsAMissingBaseBranch(t *testing.T) {
 		t.Errorf("error %q does not name the base branch", err)
 	}
 }
+
+func TestRemoveWorktreeLeavesTheBranchAlone(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job-1")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+
+	if err := git.RemoveWorktree(dir, worktree, false); err != nil {
+		t.Fatalf("RemoveWorktree: %v", err)
+	}
+
+	if _, err := os.Stat(worktree); err == nil {
+		t.Errorf("the worktree is still on disk")
+	}
+	if list := run(t, dir, "worktree", "list"); strings.Contains(list, worktree) {
+		t.Errorf("git still reports the worktree:\n%s", list)
+	}
+	if ok, err := git.HasBranch(dir, "owl/job-1"); err != nil || !ok {
+		t.Errorf("HasBranch = %v, %v; removing a worktree keeps its branch", ok, err)
+	}
+}
+
+func TestRemoveWorktreeRefusesUncommittedWorkUnlessForced(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job-1")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktree, "stray.txt"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := git.RemoveWorktree(dir, worktree, false); err == nil {
+		t.Fatal("RemoveWorktree threw away uncommitted work")
+	}
+	if _, err := os.Stat(worktree); err != nil {
+		t.Fatalf("the worktree is gone after a refused removal: %v", err)
+	}
+
+	if err := git.RemoveWorktree(dir, worktree, true); err != nil {
+		t.Fatalf("forced RemoveWorktree: %v", err)
+	}
+	if _, err := os.Stat(worktree); err == nil {
+		t.Errorf("the worktree survived a forced removal")
+	}
+}
+
+func TestWorktreeIsCleanSeesWhatHasNotBeenCommitted(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job-1")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+
+	clean, err := git.WorktreeIsClean(worktree)
+	if err != nil || !clean {
+		t.Fatalf("WorktreeIsClean on a fresh worktree = %v, %v, want clean", clean, err)
+	}
+	if err := os.WriteFile(filepath.Join(worktree, "stray.txt"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clean, err = git.WorktreeIsClean(worktree)
+
+	if err != nil {
+		t.Fatalf("WorktreeIsClean: %v", err)
+	}
+	if clean {
+		t.Error("a worktree holding a file git does not know about is reported clean")
+	}
+}
+
+func TestDeleteBranchRemovesEvenUnmergedWork(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job-1")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	commit(t, worktree, "work.txt", "the agent's work\n")
+	if err := git.RemoveWorktree(dir, worktree, false); err != nil {
+		t.Fatalf("RemoveWorktree: %v", err)
+	}
+
+	if err := git.DeleteBranch(dir, "owl/job-1"); err != nil {
+		t.Fatalf("DeleteBranch: %v", err)
+	}
+
+	if ok, err := git.HasBranch(dir, "owl/job-1"); err != nil || ok {
+		t.Errorf("HasBranch = %v, %v, want the branch gone", ok, err)
+	}
+	if err := git.DeleteBranch(dir, "owl/job-1"); err == nil {
+		t.Error("deleting a branch that is not there reported success")
+	}
+}
+
+func TestPruneWorktreesForgetsAWorktreeWhoseDirectoryIsGone(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job-1")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	if err := os.RemoveAll(worktree); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := git.PruneWorktrees(dir); err != nil {
+		t.Fatalf("PruneWorktrees: %v", err)
+	}
+
+	if list := run(t, dir, "worktree", "list"); strings.Contains(list, worktree) {
+		t.Errorf("git still reports a worktree that is not there:\n%s", list)
+	}
+	if ok, err := git.HasBranch(dir, "owl/job-1"); err != nil || !ok {
+		t.Errorf("HasBranch = %v, %v; pruning keeps the branch", ok, err)
+	}
+}

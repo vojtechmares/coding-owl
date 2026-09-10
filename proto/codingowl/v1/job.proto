@@ -25,6 +25,15 @@ service JobService {
   // StreamRunLog sends a Run's captured output, and with follow keeps sending
   // until the Run ends.
   rpc StreamRunLog(StreamRunLogRequest) returns (stream StreamRunLogResponse) {}
+  // AcceptJob keeps a Job's work, reclaiming its worktree and leaving its
+  // branch where it is (ADR-0015).
+  rpc AcceptJob(AcceptJobRequest) returns (AcceptJobResponse) {}
+  // DropJob refuses a Job's work, reclaiming its worktree and deleting its
+  // branch.
+  rpc DropJob(DropJobRequest) returns (DropJobResponse) {}
+  // GetOverview reports what is running, how the Jobs stand, and which of them
+  // are waiting for a decision.
+  rpc GetOverview(GetOverviewRequest) returns (GetOverviewResponse) {}
 }
 
 // JobState is the lifecycle of a Job (ADR-0025, ADR-0027).
@@ -240,4 +249,52 @@ message StreamRunLogRequest {
 message StreamRunLogResponse {
   // Line is one line of the Agent's structured output.
   string line = 1;
+}
+
+message AcceptJobRequest {
+  int64 id = 1;
+  // Force reclaims a worktree holding changes nobody has committed. Without
+  // it, disposal refuses rather than destroying work silently (ADR-0015).
+  bool force = 2;
+}
+
+message AcceptJobResponse {
+  Job job = 1;
+}
+
+message DropJobRequest {
+  int64 id = 1;
+  // Force reclaims a worktree holding changes nobody has committed.
+  bool force = 2;
+}
+
+message DropJobResponse {
+  Job job = 1;
+}
+
+message GetOverviewRequest {}
+
+// JobStateCount is how many Jobs are in one state.
+message JobStateCount {
+  JobState state = 1;
+  int32 count = 2;
+}
+
+// RunInProgress is a Run that has not ended, with the Job it is an attempt at.
+message RunInProgress {
+  Run run = 1;
+  Job job = 2;
+}
+
+message GetOverviewResponse {
+  // Running is every Run that has not ended.
+  repeated RunInProgress running = 1;
+  // Counts is how the Jobs stand, in the order a Job passes through the
+  // states, and holding only the states that have Jobs in them.
+  repeated JobStateCount counts = 2;
+  // Awaiting is the Jobs in review, waiting for someone to accept or drop
+  // them.
+  repeated Job awaiting = 3;
+  // Blocked is the Jobs stuck on something wrong with the work.
+  repeated Job blocked = 4;
 }
