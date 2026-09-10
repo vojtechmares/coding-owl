@@ -264,3 +264,48 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	}
 	t.Fatalf("timed out waiting for %s", what)
 }
+
+func TestWaitCleansUpOnlyOnce(t *testing.T) {
+	dir := t.TempDir()
+	beats := filepath.Join(dir, "beats")
+	terms := filepath.Join(dir, "terms")
+	// The child records every time it is asked to stop, and ignores the
+	// asking, so a scenario can count how often the group was signalled.
+	ready := filepath.Join(dir, "ready")
+	// The Agent waits for the child to have its handler in place before it
+	// exits, so what the cleanup signal lands on is not a matter of timing.
+	p, err := host.New().Start(context.Background(), shell(t,
+		"(trap 'echo term >> "+terms+"' TERM; echo ready > "+ready+
+			"; for i in $(seq 1 200); do echo beat >> "+beats+"; sleep 0.05; done) >/dev/null 2>&1 &\n"+
+			"while [ ! -f "+ready+" ]; do sleep 0.01; done\nexit 0\n"))
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	go func() { _, _ = io.Copy(io.Discard, p.Stdout()) }()
+	if _, err := p.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	pid := pidOf(t, p)
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+	waitFor(t, "the child to be asked to stop", func() bool { return lines(terms) == 1 })
+
+	// A second Wait must signal nothing: by now the pid is the system's to
+	// hand out again, and there is no member of the group left to pin it.
+	if _, err := p.Wait(); err == nil {
+		t.Error("a second Wait reported success")
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	if got := lines(terms); got != 1 {
+		t.Errorf("the group was asked to stop %d times, want once", got)
+	}
+}
+
+// lines counts the lines of a file, or none when it is not there yet.
+func lines(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	return strings.Count(string(data), "\n")
+}
