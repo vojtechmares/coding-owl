@@ -136,8 +136,11 @@ type Service struct {
 
 	// starting serialises owl start, so the one-Agent-at-a-time cap is not a
 	// check two callers can pass at once. Only one daemon can hold the socket,
-	// so a lock in this process is the whole story.
+	// so a lock in this process is the whole story. It also guards stopping,
+	// which is what keeps a Run from being started while Close is waiting for
+	// the Runs already going.
 	starting sync.Mutex
+	stopping bool
 
 	mu      sync.Mutex
 	brokers map[int64]*broker
@@ -159,8 +162,15 @@ func NewService(opts Options) *Service {
 }
 
 // Close stops every Agent still running and waits for their Runs to be
-// recorded.
+// recorded. No Run starts after it.
 func (s *Service) Close() error {
+	// Refusing new Runs under the same lock Start holds is what orders the two:
+	// a Start already under way finishes counting its Run in before the wait
+	// below begins, and one that arrives afterwards is refused.
+	s.starting.Lock()
+	s.stopping = true
+	s.starting.Unlock()
+
 	s.cancel()
 	s.wg.Wait()
 	return nil
@@ -189,6 +199,9 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	s.starting.Lock()
 	defer s.starting.Unlock()
 
+	if s.stopping {
+		return queue.Job{}, Run{}, false, refused("the daemon is stopping; nothing new is started now")
+	}
 	if r, ok, err := s.opts.Store.RunInProgress(ctx); err != nil {
 		return queue.Job{}, Run{}, false, err
 	} else if ok {
