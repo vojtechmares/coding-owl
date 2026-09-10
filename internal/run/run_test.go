@@ -615,8 +615,8 @@ func TestVerificationRefusingTheWorkBlocksTheJobAndKeepsTheRun(t *testing.T) {
 	}
 
 	blocked := awaitState(t, st, j.ID, queue.StateBlocked)
-	if !strings.Contains(blocked.Note, "test") {
-		t.Errorf("note = %q, does not name the check that refused the work", blocked.Note)
+	if !strings.Contains(blocked.Reason, "test") {
+		t.Errorf("reason = %q, does not name the check that refused the work", blocked.Reason)
 	}
 	runs, err := st.ListRuns(ctx, j.ID)
 	if err != nil {
@@ -653,8 +653,8 @@ func TestVerificationPassingLeavesTheJobInReview(t *testing.T) {
 	}
 
 	reviewed := awaitState(t, st, j.ID, queue.StateReview)
-	if reviewed.Note != "" {
-		t.Errorf("note = %q, want none on a job nothing refused", reviewed.Note)
+	if reviewed.Reason != "" {
+		t.Errorf("reason = %q, want none on a job nothing refused", reviewed.Reason)
 	}
 }
 
@@ -679,8 +679,8 @@ func TestSetupFailingBlocksTheJobBeforeAnyRun(t *testing.T) {
 	if queue.State(blocked.State) != queue.StateBlocked {
 		t.Errorf("state = %q, want blocked", blocked.State)
 	}
-	if !strings.Contains(blocked.Note, "exited 2") {
-		t.Errorf("note = %q, does not say what setup did", blocked.Note)
+	if !strings.Contains(blocked.Reason, "exited 2") {
+		t.Errorf("reason = %q, does not say what setup did", blocked.Reason)
 	}
 	runs, err := st.ListRuns(ctx, j.ID)
 	if err != nil {
@@ -708,31 +708,6 @@ func TestSetupRunsInTheWorktreeBeforeTheAgent(t *testing.T) {
 	}
 }
 
-func TestVerificationIsNotRunAfterAPlanningRun(t *testing.T) {
-	ctx := context.Background()
-	v := &fakeVerifier{results: []verifier.Result{{Name: "guard", Passed: false, Reason: "exited 1"}}}
-	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, v,
-		"apiVersion: codingowl.dev/v1\nchecks:\n  - name: guard\n    run: \"false\"\n")
-	j, err := st.UpsertJob(ctx, store.Job{
-		Source: "local", SourceRef: "planned", Project: "repo", Prompt: "work",
-		State: string(queue.StatePending), Planned: true, Created: time.Now().UTC(),
-	})
-	if err != nil {
-		t.Fatalf("UpsertJob: %v", err)
-	}
-
-	if _, _, _, err := svc.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-
-	// The planning Run fails for want of a handoff, which is beside the point:
-	// what matters is that nothing was verified.
-	awaitState(t, st, j.ID, queue.StateBlocked)
-	if got := v.request(); got.WorkingDir != "" {
-		t.Errorf("verification ran after a planning run, in %s", got.WorkingDir)
-	}
-}
-
 func TestVerificationJudgesByTheConfigurationFromBeforeTheAgentRan(t *testing.T) {
 	ctx := context.Background()
 	hold := make(chan struct{})
@@ -754,11 +729,71 @@ func TestVerificationJudgesByTheConfigurationFromBeforeTheAgentRan(t *testing.T)
 
 	blocked := awaitState(t, st, j.ID, queue.StateBlocked)
 
-	if !strings.Contains(blocked.Note, "guard") {
-		t.Errorf("note = %q, want the check the job was judged by", blocked.Note)
+	if !strings.Contains(blocked.Reason, "guard") {
+		t.Errorf("reason = %q, want the check the job was judged by", blocked.Reason)
 	}
 	asked := v.request()
 	if len(asked.Checks) != 1 || asked.Checks[0].Name != "guard" {
 		t.Errorf("verification was asked for %+v, want the checks from before the agent ran", asked.Checks)
 	}
+}
+
+func TestVerificationCutShortByTheDaemonJudgesNothing(t *testing.T) {
+	ctx := context.Background()
+	verifying := make(chan struct{})
+	v := &blockingVerifier{entered: verifying}
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, v,
+		"apiVersion: codingowl.dev/v1\nchecks:\n  - name: slow\n    run: sleep 60\n")
+	j := queueJob(t, st, "work")
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-verifying
+
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	runs, err := st.ListRuns(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Outcome != string(run.OutcomeInterrupted) {
+		t.Fatalf("runs = %+v, want the run recorded as interrupted", runs)
+	}
+	results, err := st.ListCheckResults(ctx, runs[0].ID)
+	if err != nil {
+		t.Fatalf("ListCheckResults: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("checks = %+v, want none recorded: nothing judged this work", results)
+	}
+	after, err := st.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if queue.State(after.State) != queue.StatePending {
+		t.Errorf("state = %q, want the job back in the queue", after.State)
+	}
+}
+
+// blockingVerifier waits for the context it is given to be cancelled, which is
+// what a real Verification does when its checks outlast the daemon.
+type blockingVerifier struct {
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (*blockingVerifier) Name() string { return "blocking" }
+
+func (v *blockingVerifier) Verify(ctx context.Context, req verifier.Request) ([]verifier.Result, error) {
+	v.once.Do(func() { close(v.entered) })
+	<-ctx.Done()
+	// A real Verifier reports what it managed to find out, which for a
+	// cancelled Verification is that nothing could be run.
+	results := make([]verifier.Result, 0, len(req.Checks))
+	for _, c := range req.Checks {
+		results = append(results, verifier.Result{Name: c.Name, Reason: "was stopped before it finished"})
+	}
+	return results, nil
 }

@@ -21,4 +21,4 @@ CREATE INDEX check_results_by_run ON check_results (run_id, position);
 
 -- Why a Job is where it is when no Run explains it: a setup command that
 -- failed before an Agent started, or the checks that refused the work.
-ALTER TABLE jobs ADD COLUMN note TEXT NOT NULL DEFAULT '';
+ALTER TABLE jobs ADD COLUMN reason TEXT NOT NULL DEFAULT '';

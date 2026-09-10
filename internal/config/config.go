@@ -38,9 +38,9 @@ const (
 
 // Check is one Verification command (ADR-0030): a shell command with an
 // optional expectation and a timeout. The command is written by the user and
-// read from the Project's base branch, where the Agent being verified cannot
-// reach it - which is what makes a shell command safe to run here and not in
-// the chat (ADR-0022).
+// read from the Project's base branch before the Run it judges begins, which
+// is what makes a shell command safe to run here and not in the chat
+// (ADR-0022).
 type Check struct {
 	// Name identifies the check in a report.
 	Name string

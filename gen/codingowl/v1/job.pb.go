@@ -235,10 +235,10 @@ type Job struct {
 	Planned bool `protobuf:"varint,11,opt,name=planned,proto3" json:"planned,omitempty"`
 	// Plan is what its planning Run decided, empty until there is one.
 	Plan string `protobuf:"bytes,12,opt,name=plan,proto3" json:"plan,omitempty"`
-	// Note is why the Job is where it is when no Run explains it: a setup
+	// Reason is why the Job is where it is when no Run explains it: a setup
 	// command that failed before an Agent started, or the checks that refused
 	// the work.
-	Note          string `protobuf:"bytes,13,opt,name=note,proto3" json:"note,omitempty"`
+	Reason        string `protobuf:"bytes,13,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -357,9 +357,9 @@ func (x *Job) GetPlan() string {
 	return ""
 }
 
-func (x *Job) GetNote() string {
+func (x *Job) GetReason() string {
 	if x != nil {
-		return x.Note
+		return x.Reason
 	}
 	return ""
 }
@@ -1397,7 +1397,7 @@ var File_codingowl_v1_job_proto protoreflect.FileDescriptor
 
 const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\n" +
-	"\x16codingowl/v1/job.proto\x12\fcodingowl.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf4\x02\n" +
+	"\x16codingowl/v1/job.proto\x12\fcodingowl.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf8\x02\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12\x1d\n" +
@@ -1412,8 +1412,8 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\bworktree\x18\n" +
 	" \x01(\tR\bworktree\x12\x18\n" +
 	"\aplanned\x18\v \x01(\bR\aplanned\x12\x12\n" +
-	"\x04plan\x18\f \x01(\tR\x04plan\x12\x12\n" +
-	"\x04note\x18\r \x01(\tR\x04note\"\xa0\x01\n" +
+	"\x04plan\x18\f \x01(\tR\x04plan\x12\x16\n" +
+	"\x06reason\x18\r \x01(\tR\x06reason\"\xa0\x01\n" +
 	"\vCheckResult\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acommand\x18\x02 \x01(\tR\acommand\x12\x16\n" +

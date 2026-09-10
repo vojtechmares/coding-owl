@@ -119,6 +119,13 @@ belongs to launchd via brew services (ADR-0002).`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
+			// The first signal asks the daemon to stop; the second is the
+			// user saying they meant it, and takes its default effect rather
+			// than being swallowed while a Project's commands finish.
+			go func() {
+				<-ctx.Done()
+				stop()
+			}()
 			return daemon.Run(ctx, daemon.Options{
 				Paths:   env.Paths,
 				Version: version.Version,

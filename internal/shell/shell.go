@@ -3,9 +3,12 @@
 //
 // The shell is allowed here and forbidden for the chat's commands (ADR-0022)
 // because of who writes the string: these are written by the user and read
-// from the Project's base branch (ADR-0014, ADR-0030), where the Agent being
-// verified cannot reach them. If a command here ever becomes model-authored,
-// that reasoning has gone and this package should not be used for it.
+// from the Project's base branch (ADR-0014, ADR-0030) before the Agent that is
+// being judged by them starts. A Job's worktree shares the repository's refs,
+// so an Agent can move that branch while it works - which is why what runs is
+// read once, up front, and carried rather than read again. If a command here
+// ever becomes model-authored, the reasoning has gone and this package should
+// not be used for it.
 package shell
 
 import (
@@ -42,8 +45,12 @@ type Result struct {
 	// Output is everything it printed, standard error included, in the order
 	// the two streams were written.
 	Output string
-	// TimedOut reports whether it was stopped rather than finishing.
+	// TimedOut reports whether the command outlasted its own timeout.
 	TimedOut bool
+	// Cancelled reports whether what asked for the command gave up first: the
+	// daemon stopping, or the caller hanging up. It is not a verdict on the
+	// command.
+	Cancelled bool
 }
 
 // NoExitCode is the status of a command that never ran.
@@ -59,7 +66,8 @@ func Run(ctx context.Context, dir, command string, timeout time.Duration) (Resul
 	if dir == "" {
 		return Result{ExitCode: NoExitCode}, errors.New("a command must be given a directory to run in")
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	parent := ctx
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, shellPath, "-c", command)
@@ -86,7 +94,10 @@ func Run(ctx context.Context, dir, command string, timeout time.Duration) (Resul
 		ExitCode: 0,
 		Stdout:   stdout.String(),
 		Output:   both.String(),
-		TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded),
+		// Whose deadline ran out decides which of these it was: the command's
+		// own timeout, or whoever was waiting for it.
+		TimedOut:  errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil,
+		Cancelled: parent.Err() != nil,
 	}
 	if err == nil {
 		return res, nil

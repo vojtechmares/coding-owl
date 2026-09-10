@@ -36,8 +36,8 @@ type Job struct {
 	Planned bool
 	// Plan is what its planning Run decided, empty until there is one.
 	Plan string
-	// Note is why the Job is where it is when no Run explains it.
-	Note string
+	// Reason is why the Job is where it is when no Run explains it.
+	Reason string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -154,7 +154,7 @@ func jobFromProto(j *codingowlv1.Job) Job {
 		Worktree:  j.GetWorktree(),
 		Planned:   j.GetPlanned(),
 		Plan:      j.GetPlan(),
-		Note:      j.GetNote(),
+		Reason:    j.GetReason(),
 		Position:  int(j.GetPosition()),
 		Created:   j.GetCreated().AsTime(),
 	}

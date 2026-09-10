@@ -51,6 +51,8 @@ func (v *Verifier) run(ctx context.Context, dir string, check config.Check) veri
 	out.ExitCode = res.ExitCode
 	out.Output = res.Output
 	switch {
+	case res.Cancelled:
+		out.Reason = "was stopped before it finished"
 	case err != nil:
 		out.Reason = fmt.Sprintf("could not be run: %v", err)
 	case res.TimedOut:

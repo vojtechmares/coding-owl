@@ -75,10 +75,10 @@ message Job {
   bool planned = 11;
   // Plan is what its planning Run decided, empty until there is one.
   string plan = 12;
-  // Note is why the Job is where it is when no Run explains it: a setup
+  // Reason is why the Job is where it is when no Run explains it: a setup
   // command that failed before an Agent started, or the checks that refused
   // the work.
-  string note = 13;
+  string reason = 13;
 }
 
 // PlanMode is whether a Job is planned before it is executed. Planning is the
