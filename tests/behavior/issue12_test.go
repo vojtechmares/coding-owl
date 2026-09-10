@@ -29,13 +29,26 @@ const agentWork = "the agent's work\n"
 
 func rebasingJob(t *testing.T, files map[string]string) *rebasing {
 	t.Helper()
+	return rebasingJobOn(t, files, nil)
+}
+
+// rebasingJobOn is rebasingJob with files committed to the base branch before
+// the Job's branch is cut from it, so that a later change to them is a change
+// to something the two sides share.
+func rebasingJobOn(t *testing.T, files, base map[string]string) *rebasing {
+	t.Helper()
 	all := map[string]string{handoffPath: "# Handoff\n\nstep one done\n"}
 	for path, body := range files {
 		all[path] = body
 	}
 	l, s := writingLayout(t, all, true, agentScript)
 	daemonUp(t, l)
-	r := plannedJob(t, l, "work")
+	r := newRepo(t, l, "api")
+	for path, body := range base {
+		r.commit(path, body, "before the job")
+	}
+	addProject(t, l, r)
+	addJob(t, l, r.dir, "work")
 	_, job := finishedJob(t, l)
 	if got := jobState(t, l, job); got != "pending" {
 		t.Fatalf("state after the planning run = %q, want the job pending again", got)
@@ -375,5 +388,90 @@ func TestS14AJobBlockedByAConflictKeepsItsWork(t *testing.T) {
 	}
 	if got := rb.repo.git("show", branch+":work.txt"); got != "what the agent wrote\n" {
 		t.Errorf("the agent's commit is not on the branch: %q", got)
+	}
+}
+
+func TestS15AWorktreeNotOnTheJobsBranchIsNotRebased(t *testing.T) {
+	rb := rebasingJob(t, nil)
+	worktree := rb.worktree(t)
+	// An Agent that moved its worktree onto somebody else's branch.
+	rb.repo.git("branch", "someone-else")
+	elsewhere := strings.TrimSpace(rb.repo.git("rev-parse", "someone-else"))
+	gitIn(t, rb.repo, worktree, "checkout", "-q", "someone-else")
+	rb.moveBase(t, "from-base.txt", "added while the job was waiting\n")
+
+	res := runOwl(t, rb.l, "start")
+
+	if res.code == 0 {
+		t.Fatalf("owl start rebased a worktree that is on somebody else's branch\nstdout:\n%s", res.stdout)
+	}
+	out := mustOwl(t, rb.l, "jobs", "show", rb.job).stdout
+	if got := line(t, out, "state"); got != "blocked" {
+		t.Errorf("state = %q, want blocked", got)
+	}
+	if reason := line(t, out, "reason"); !strings.Contains(reason, "someone-else") {
+		t.Errorf("the reason does not say what the worktree is on: %q", reason)
+	}
+	if got := strings.TrimSpace(rb.repo.git("rev-parse", "someone-else")); got != elsewhere {
+		t.Errorf("somebody else's branch moved to %s, want %s", got, elsewhere)
+	}
+}
+
+func TestS16AConflictInWhatNobodyCommittedKeepsIt(t *testing.T) {
+	rb := rebasingJobOn(t,
+		map[string]string{"other.txt": agentWork},
+		map[string]string{"both.txt": "shared\n"})
+	worktree := rb.worktree(t)
+	// Changed in the worktree and never committed, in the lines the base is
+	// about to change.
+	if err := os.WriteFile(filepath.Join(worktree, "both.txt"), []byte("shared\nfrom the agent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rb.moveBase(t, "both.txt", "shared\nfrom the base\n")
+
+	res := runOwl(t, rb.l, "start")
+
+	if res.code == 0 {
+		t.Fatalf("owl start ran a job whose uncommitted changes conflict\nstdout:\n%s", res.stdout)
+	}
+	reason := line(t, mustOwl(t, rb.l, "jobs", "show", rb.job).stdout, "reason")
+	for _, want := range []string{"both.txt", "stash"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("the reason does not mention %q: %q", want, reason)
+		}
+	}
+	if list := rb.repo.git("stash", "list"); strings.TrimSpace(list) == "" {
+		t.Errorf("what nobody committed is not in the stash")
+	}
+}
+
+func TestS17ARebaseThatCannotBeCarriedOutBlocksTheJob(t *testing.T) {
+	rb := rebasingJob(t, map[string]string{"work.txt": agentWork})
+	worktree := rb.worktree(t)
+	before := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "HEAD"))
+	rb.moveBase(t, "from-base.txt", "added while the job was waiting\n")
+	// Signing that cannot work, which is what a daemon with no terminal gets
+	// from an ordinary developer's configuration. Set after the fixture's own
+	// commits, which would not be able to sign either.
+	rb.repo.git("config", "commit.gpgsign", "true")
+	rb.repo.git("config", "gpg.program", filepath.Join(rb.l.root, "no-such-gpg"))
+
+	res := runOwl(t, rb.l, "start")
+
+	if res.code == 0 {
+		t.Fatalf("owl start ran a job whose rebase could not be carried out\nstdout:\n%s", res.stdout)
+	}
+	out := mustOwl(t, rb.l, "jobs", "show", rb.job).stdout
+	if got := line(t, out, "state"); got != "blocked" {
+		t.Errorf("state = %q, want blocked", got)
+	}
+	if reason := line(t, out, "reason"); !strings.Contains(reason, "could not be carried out") {
+		t.Errorf("the reason does not say the rebase could not be carried out: %q", reason)
+	}
+	if status := gitIn(t, rb.repo, worktree, "status"); strings.Contains(status, "rebase in progress") {
+		t.Errorf("the worktree is still mid-rebase:\n%s", status)
+	}
+	if got := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "HEAD")); got != before {
+		t.Errorf("the worktree is at %s, want where it was, %s", got, before)
 	}
 }
