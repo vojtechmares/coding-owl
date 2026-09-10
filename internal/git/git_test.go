@@ -301,3 +301,25 @@ func TestCurrentBranchWithATagOfTheSameName(t *testing.T) {
 		t.Errorf("CurrentBranch = %q, want %q: an ambiguous name was not shortened away", got, "main")
 	}
 }
+
+func TestReadsIgnorePathspecSettingsInTheEnvironment(t *testing.T) {
+	// The pathspec settings are global and mutually exclusive: git refuses a
+	// literal pathspec outright when another is set, which would make every
+	// Project unreadable rather than merely differently read.
+	dir := newRepo(t)
+	commit(t, dir, ".coding-owl.yaml", "the config\n")
+
+	for _, env := range []string{"GIT_ICASE_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS"} {
+		t.Run(env, func(t *testing.T) {
+			t.Setenv(env, "1")
+
+			data, found, err := git.ShowFileOnBranch(dir, "main", ".coding-owl.yaml")
+			if err != nil || !found {
+				t.Fatalf("with %s set: found %v, err %v; want found, nil", env, found, err)
+			}
+			if string(data) != "the config\n" {
+				t.Errorf("read %q, want the committed contents", data)
+			}
+		})
+	}
+}
