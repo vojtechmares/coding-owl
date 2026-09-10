@@ -229,8 +229,12 @@ func TestRemoveProjectTakesItsJobsAndClosesTheGaps(t *testing.T) {
 		}
 	}
 
-	if err := s.RemoveProject(ctx, "api"); err != nil {
+	gone, err := s.RemoveProject(ctx, "api")
+	if err != nil {
 		t.Fatalf("RemoveProject: %v", err)
+	}
+	if gone != 2 {
+		t.Errorf("RemoveProject reported %d jobs, want 2", gone)
 	}
 
 	jobs, err := s.ListJobs(ctx, true)

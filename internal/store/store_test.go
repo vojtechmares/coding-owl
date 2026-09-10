@@ -197,14 +197,18 @@ func TestRemoveProject(t *testing.T) {
 	s := openStore(t, filepath.Join(t.TempDir(), "owl.db"))
 	addProject(t, s, "api")
 
-	if err := s.RemoveProject(ctx, "api"); err != nil {
+	jobs, err := s.RemoveProject(ctx, "api")
+	if err != nil {
 		t.Fatalf("RemoveProject: %v", err)
 	}
 
+	if jobs != 0 {
+		t.Errorf("RemoveProject reported %d jobs, want none queued", jobs)
+	}
 	if _, err := s.GetProject(ctx, "api"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("GetProject after remove = %v, want ErrNotFound", err)
 	}
-	if err := s.RemoveProject(ctx, "api"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.RemoveProject(ctx, "api"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("second RemoveProject = %v, want ErrNotFound", err)
 	}
 }

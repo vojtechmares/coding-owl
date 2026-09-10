@@ -186,14 +186,20 @@ func newProjectRemoveCmd(env Env) *cobra.Command {
 		Long: `Deregister a Project.
 
 Its configuration directory under the config home is left alone: it is
-hand-written and nothing else can put it back.`,
+hand-written and nothing else can put it back. The Jobs queued against it
+go with it, since a Job whose Project is gone has nowhere to run.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
-				if err := c.RemoveProject(ctx, args[0]); err != nil {
+				jobs, err := c.RemoveProject(ctx, args[0])
+				if err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(env.Stdout, "removed %s\n", args[0])
+				if jobs == 0 {
+					_, _ = fmt.Fprintf(env.Stdout, "removed %s\n", args[0])
+					return nil
+				}
+				_, _ = fmt.Fprintf(env.Stdout, "removed %s, and the %s queued against it\n", args[0], plural(jobs, "job"))
 				return nil
 			})
 		},

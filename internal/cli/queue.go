@@ -92,7 +92,7 @@ func newQueueListCmd(env Env) *cobra.Command {
 }
 
 func newQueueRemoveCmd(env Env) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "remove <id>",
 		Short: "Cancel a pending Job",
 		Args:  cobra.ExactArgs(1),
@@ -111,10 +111,14 @@ func newQueueRemoveCmd(env Env) *cobra.Command {
 			})
 		},
 	}
+	// A negative id is an argument, not a flag, and belongs in the command's
+	// own error message rather than the flag parser's.
+	cmd.Flags().SetInterspersed(false)
+	return cmd
 }
 
 func newQueueReorderCmd(env Env) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "reorder <id> <position>",
 		Short: "Move a pending Job to a position in the queue",
 		Long: `Move a pending Job to a position in the queue.
@@ -127,12 +131,15 @@ room. This is how a Job is made urgent: there is no priority (ADR-0025).`,
 			if err != nil {
 				return err
 			}
-			position, err := strconv.Atoi(args[1])
+			// The position travels to the daemon as a 32-bit number, so it is
+			// read as one here: a wider number would arrive truncated, and
+			// the user would be told about a position they never asked for.
+			position, err := strconv.ParseInt(args[1], 10, 32)
 			if err != nil {
 				return fmt.Errorf("positions are whole numbers counting from one; %q is not one", args[1])
 			}
 			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
-				j, err := c.ReorderJob(ctx, id, position)
+				j, err := c.ReorderJob(ctx, id, int(position))
 				if err != nil {
 					return err
 				}
@@ -141,6 +148,9 @@ room. This is how a Job is made urgent: there is no priority (ADR-0025).`,
 			})
 		},
 	}
+	// As for remove: a negative position is an argument.
+	cmd.Flags().SetInterspersed(false)
+	return cmd
 }
 
 // jobID reads the id an owl queue command was given.
@@ -150,6 +160,15 @@ func jobID(arg string) (int64, error) {
 		return 0, fmt.Errorf("job ids are whole numbers; %q is not one", arg)
 	}
 	return id, nil
+}
+
+// plural renders a count with its noun, so a message can say one job and two
+// jobs without saying "job(s)".
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // promptCell renders a prompt as one short line, since a prompt is free text

@@ -501,7 +501,7 @@ func TestRemove(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	if err := f.svc.Remove(ctx, "api"); err != nil {
+	if _, err := f.svc.Remove(ctx, "api"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 
@@ -513,7 +513,7 @@ func TestRemove(t *testing.T) {
 func TestRemoveUnknownProject(t *testing.T) {
 	f := newFixture(t)
 
-	if err := f.svc.Remove(ctx, "ghost"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := f.svc.Remove(ctx, "ghost"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("Remove error = %v, want ErrNotFound", err)
 	}
 }
