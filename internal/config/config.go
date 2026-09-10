@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -58,6 +59,11 @@ func Parse(source string, data []byte) (Config, error) {
 	}
 	cfg := Default()
 	if f.BranchPrefix != "" {
+		// git reads an argument beginning with a dash as an option, and a
+		// branch name is an argument to several of its commands.
+		if strings.HasPrefix(f.BranchPrefix, "-") {
+			return Config{}, fmt.Errorf("%s: branchPrefix %q may not start with a dash", source, f.BranchPrefix)
+		}
 		cfg.BranchPrefix = f.BranchPrefix
 	}
 	cfg.UnattendedClauses = f.UnattendedClauses
