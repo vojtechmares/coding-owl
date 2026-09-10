@@ -4,11 +4,14 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -16,6 +19,7 @@ import (
 
 	"github.com/vojtechmares/coding-owl/internal/client"
 	"github.com/vojtechmares/coding-owl/internal/daemon"
+	"github.com/vojtechmares/coding-owl/internal/launchd"
 	"github.com/vojtechmares/coding-owl/internal/version"
 	"github.com/vojtechmares/coding-owl/internal/xdg"
 )
@@ -118,7 +122,7 @@ func newDaemonCmd(env Env) *cobra.Command {
 		Use:   "daemon",
 		Short: "Run and inspect the daemon",
 	}
-	cmd.AddCommand(newDaemonRunCmd(env), newDaemonStatusCmd(env))
+	cmd.AddCommand(newDaemonRunCmd(env), newDaemonStatusCmd(env), newDaemonInstallCmd(env))
 	return cmd
 }
 
@@ -171,6 +175,62 @@ func newDaemonStatusCmd(env Env) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newDaemonInstallCmd(env Env) *cobra.Command {
+	var print bool
+	cmd := &cobra.Command{
+		Use:   "install",
+		Short: "Install the daemon as a launchd agent",
+		Long: `Install the daemon as a launchd agent.
+
+This is for machines that did not get Owl from Homebrew; with Homebrew,
+"brew services start coding-owl" does the same job. The agent runs
+"owl daemon run" in the foreground and launchd keeps it running - Owl never
+supervises itself (ADR-0002).
+
+The agent carries the PATH and the XDG variables in force when it is
+installed, so the daemon looks at the same layout you do. Installing again
+replaces it, which is how you point it at a new binary.`,
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if runtime.GOOS != "darwin" {
+				return fmt.Errorf("owl daemon install writes a launchd agent, which is macOS's; on %s run owl daemon run under your own service manager", runtime.GOOS)
+			}
+			home := os.Getenv("HOME")
+			if home == "" {
+				return errors.New("HOME is not set, so there is nowhere to write the launch agent")
+			}
+			program, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("finding the owl binary to run: %w", err)
+			}
+			// The agent has to name a path that survives this process, and a
+			// symlink to a Homebrew cellar or a build directory is not one.
+			if resolved, err := filepath.EvalSymlinks(program); err == nil {
+				program = resolved
+			}
+			agent := launchd.Describe(program, env.Paths.StateDir, os.Getenv)
+			if print {
+				body, err := launchd.Render(agent)
+				if err != nil {
+					return err
+				}
+				_, _ = fmt.Fprint(env.Stdout, body)
+				return nil
+			}
+			path, err := launchd.Install(agent, home, os.Getuid())
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(env.Stdout, "wrote the launch agent to %s\n", path)
+			_, _ = fmt.Fprintf(env.Stdout, "launchd is running %s daemon run, and will start it again at login\n", program)
+			_, _ = fmt.Fprintln(env.Stdout, "check on it with: owl daemon status")
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&print, "print", false, "print the launch agent instead of installing it")
+	return cmd
 }
 
 // Main resolves the environment and runs args, returning the exit code. It is

@@ -244,8 +244,13 @@ func newTap(t *testing.T) *tap {
 		},
 	}
 	tp.run(t, root, "git", "init", "--bare", "--initial-branch="+tp.branch, tp.bare)
-	tp.run(t, root, "git", "clone", "--quiet", "--branch", tp.branch, tp.bare, tp.dir)
-	// A clone of an empty repository has no commit to build on.
+	// An empty remote has no branch to clone, so the checkout is made first
+	// and the remote given to it.
+	if err := os.MkdirAll(tp.dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tp.git(t, "init", "--quiet", "--initial-branch="+tp.branch)
+	tp.git(t, "remote", "add", "origin", tp.bare)
 	if err := os.WriteFile(filepath.Join(tp.dir, "README.md"), []byte("# tap\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -444,12 +449,13 @@ func newReleaseClone(t *testing.T) *releaseClone {
 		},
 	}
 	rc.run(t, root, "git", "init", "--bare", "--initial-branch=main", rc.bare)
-	rc.run(t, root, "git", "clone", "--quiet", "--branch", "main", rc.bare, rc.dir)
 	// The script works out its own repository from where it lives, so it has
 	// to live in the clone.
 	if err := os.MkdirAll(filepath.Join(rc.dir, "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	rc.git(t, "init", "--quiet", "--initial-branch=main")
+	rc.git(t, "remote", "add", "origin", rc.bare)
 	body, err := os.ReadFile(repoScript("release.sh"))
 	if err != nil {
 		t.Fatal(err)
@@ -459,7 +465,7 @@ func newReleaseClone(t *testing.T) *releaseClone {
 	}
 	rc.git(t, "add", "--", "scripts/release.sh")
 	rc.git(t, "commit", "-m", "add the release script")
-	rc.git(t, "push", "--quiet", "origin", "HEAD:refs/heads/main")
+	rc.git(t, "push", "--quiet", "--set-upstream", "origin", "main")
 	return rc
 }
 
@@ -594,7 +600,8 @@ func TestS13ReleaseRefusesAVersionThatAlreadyExists(t *testing.T) {
 
 // workflow is .github/workflows/release.yml, parsed.
 type workflow struct {
-	On struct {
+	Env map[string]string `yaml:"env"`
+	On  struct {
 		Push struct {
 			Tags     []string `yaml:"tags"`
 			Branches []string `yaml:"branches"`
@@ -645,9 +652,15 @@ func TestS14ReleaseWorkflowGuardsTheTagAndPublishes(t *testing.T) {
 	if got := w.On.Push.Branches; len(got) != 0 {
 		t.Errorf("the workflow also triggers on branches %v; a release comes from a tag", got)
 	}
+	if got := w.Env["RELEASE_BRANCH"]; got != "main" {
+		t.Errorf("releases are cut from %q, want main", got)
+	}
 	guard := w.job(t, "guard")
-	if !strings.Contains(guard, "main") {
-		t.Errorf("the guard job does not check the tag is on main:\n%s", guard)
+	if !strings.Contains(guard, "merge-base --is-ancestor") {
+		t.Errorf("the guard job does not check the tagged commit is on the release branch:\n%s", guard)
+	}
+	if !strings.Contains(guard, "RELEASE_BRANCH") {
+		t.Errorf("the guard job does not use the release branch:\n%s", guard)
 	}
 	for name, j := range w.Jobs {
 		if name == "guard" {
