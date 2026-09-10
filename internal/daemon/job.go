@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -9,13 +10,16 @@ import (
 	codingowlv1 "github.com/vojtechmares/coding-owl/gen/codingowl/v1"
 	"github.com/vojtechmares/coding-owl/gen/codingowl/v1/codingowlv1connect"
 	"github.com/vojtechmares/coding-owl/internal/queue"
+	"github.com/vojtechmares/coding-owl/internal/run"
 )
 
-// jobService exposes the queue over ConnectRPC. It holds no logic of its own;
-// everything lives in internal/queue.
+// jobService exposes the queue and the Runs it produces over ConnectRPC. It
+// holds no logic of its own; everything lives in internal/queue and
+// internal/run.
 type jobService struct {
 	codingowlv1connect.UnimplementedJobServiceHandler
 	jobs *queue.Service
+	runs *run.Service
 }
 
 func (s *jobService) AddJob(ctx context.Context, req *connect.Request[codingowlv1.AddJobRequest]) (*connect.Response[codingowlv1.AddJobResponse], error) {
@@ -58,6 +62,72 @@ func (s *jobService) ReorderJob(ctx context.Context, req *connect.Request[coding
 	return connect.NewResponse(&codingowlv1.ReorderJobResponse{Job: toJobProto(j)}), nil
 }
 
+func (s *jobService) StartRun(ctx context.Context, _ *connect.Request[codingowlv1.StartRunRequest]) (*connect.Response[codingowlv1.StartRunResponse], error) {
+	j, r, started, err := s.runs.Start(ctx)
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	res := &codingowlv1.StartRunResponse{Started: started}
+	if started {
+		res.Job, res.Run = toJobProto(j), toRunProto(r)
+	}
+	return connect.NewResponse(res), nil
+}
+
+func (s *jobService) GetJob(ctx context.Context, req *connect.Request[codingowlv1.GetJobRequest]) (*connect.Response[codingowlv1.GetJobResponse], error) {
+	d, err := s.runs.Show(ctx, req.Msg.GetId())
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	res := &codingowlv1.GetJobResponse{
+		Job:          toJobProto(d.Job),
+		Runs:         make([]*codingowlv1.Run, 0, len(d.Runs)),
+		SystemPrompt: d.SystemPrompt,
+	}
+	for _, r := range d.Runs {
+		res.Runs = append(res.Runs, toRunProto(r))
+	}
+	return connect.NewResponse(res), nil
+}
+
+func (s *jobService) StreamRunLog(ctx context.Context, req *connect.Request[codingowlv1.StreamRunLogRequest], stream *connect.ServerStream[codingowlv1.StreamRunLogResponse]) error {
+	err := s.runs.Log(ctx, req.Msg.GetRunId(), req.Msg.GetFollow(), func(l run.Line) error {
+		return stream.Send(&codingowlv1.StreamRunLogResponse{Line: l.Text})
+	})
+	// A caller that hangs up ends the stream; that is how following stops, not
+	// something to report as a failure.
+	if errors.Is(err, context.Canceled) {
+		return nil
+	}
+	if err != nil {
+		return rpcError(err)
+	}
+	return nil
+}
+
+// runOutcomes put a Run's outcome on the wire. The set is closed (ADR-0027).
+var runOutcomes = map[run.Outcome]codingowlv1.RunOutcome{
+	run.OutcomeSucceeded:   codingowlv1.RunOutcome_RUN_OUTCOME_SUCCEEDED,
+	run.OutcomeFailed:      codingowlv1.RunOutcome_RUN_OUTCOME_FAILED,
+	run.OutcomeInterrupted: codingowlv1.RunOutcome_RUN_OUTCOME_INTERRUPTED,
+}
+
+func toRunProto(r run.Run) *codingowlv1.Run {
+	out := &codingowlv1.Run{
+		Id:      r.ID,
+		JobId:   r.JobID,
+		Attempt: int32(r.Attempt),
+		Started: timestamppb.New(r.Started),
+		Outcome: runOutcomes[r.Outcome],
+		Error:   r.Error,
+		LogPath: r.LogPath,
+	}
+	if !r.Ended.IsZero() {
+		out.Ended = timestamppb.New(r.Ended)
+	}
+	return out
+}
+
 // jobStates puts a Job's state on the wire. The set is closed (ADR-0025), so
 // a state missing from here is a state nobody agreed to.
 var jobStates = map[queue.State]codingowlv1.JobState{
@@ -78,6 +148,8 @@ func toJobProto(j queue.Job) *codingowlv1.Job {
 		Project:   j.Project,
 		Prompt:    j.Prompt,
 		State:     jobStates[j.State],
+		Branch:    j.Branch,
+		Worktree:  j.Worktree,
 		Position:  int32(j.Position),
 		Created:   timestamppb.New(j.Created),
 	}

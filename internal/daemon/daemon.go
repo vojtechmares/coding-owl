@@ -20,14 +20,23 @@ import (
 
 	codingowlv1 "github.com/vojtechmares/coding-owl/gen/codingowl/v1"
 	"github.com/vojtechmares/coding-owl/gen/codingowl/v1/codingowlv1connect"
+	"github.com/vojtechmares/coding-owl/internal/driver/claudecode"
+	"github.com/vojtechmares/coding-owl/internal/executor/host"
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
+	"github.com/vojtechmares/coding-owl/internal/run"
 	"github.com/vojtechmares/coding-owl/internal/store"
 	"github.com/vojtechmares/coding-owl/internal/xdg"
 )
 
-// databaseName is the SQLite file under the data directory (ADR-0014).
-const databaseName = "owl.db"
+// databaseName is the SQLite file under the data directory, worktreesDir
+// holds one worktree per Job, and logsDir one captured stream per Run
+// (ADR-0014).
+const (
+	databaseName = "owl.db"
+	worktreesDir = "worktrees"
+	logsDir      = "logs"
+)
 
 // ErrAlreadyListening is returned by Run when another daemon answers on the
 // socket path.
@@ -83,6 +92,20 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	started := time.Now()
 
+	projects := project.NewService(db, opts.Paths.ConfigDir)
+	runs := run.NewService(run.Options{
+		Store:       db,
+		Projects:    projects,
+		Driver:      claudecode.New(),
+		Executor:    host.New(),
+		WorktreeDir: filepath.Join(opts.Paths.DataDir, worktreesDir),
+		LogDir:      filepath.Join(opts.Paths.StateDir, logsDir),
+		Logger:      log,
+	})
+	// Agents outlive the request that started them, so they are stopped when
+	// the daemon stops rather than when a caller hangs up.
+	defer func() { _ = runs.Close() }()
+
 	mux := http.NewServeMux()
 	mux.Handle(codingowlv1connect.NewDaemonServiceHandler(&daemonService{
 		version: opts.Version,
@@ -90,10 +113,11 @@ func Run(ctx context.Context, opts Options) error {
 		started: started,
 	}))
 	mux.Handle(codingowlv1connect.NewProjectServiceHandler(&projectService{
-		projects: project.NewService(db, opts.Paths.ConfigDir),
+		projects: projects,
 	}))
 	mux.Handle(codingowlv1connect.NewJobServiceHandler(&jobService{
 		jobs: queue.NewService(db, queue.Local{}),
+		runs: runs,
 	}))
 	srv := &http.Server{
 		Handler:           mux,

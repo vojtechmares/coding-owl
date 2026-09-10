@@ -28,6 +28,10 @@ type Job struct {
 	// vocabulary: pending, active, blocked, review, done, cancelled or
 	// exhausted.
 	State string
+	// Branch is the branch the Job's work lands on, empty until it has one.
+	Branch string
+	// Worktree is where that branch is checked out, empty until it has one.
+	Worktree string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -115,6 +119,8 @@ func jobFromProto(j *codingowlv1.Job) Job {
 		Project:   j.GetProject(),
 		Prompt:    j.GetPrompt(),
 		State:     state,
+		Branch:    j.GetBranch(),
+		Worktree:  j.GetWorktree(),
 		Position:  int(j.GetPosition()),
 		Created:   j.GetCreated().AsTime(),
 	}

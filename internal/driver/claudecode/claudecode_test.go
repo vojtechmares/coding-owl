@@ -1,0 +1,148 @@
+package claudecode_test
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/vojtechmares/coding-owl/internal/driver"
+	"github.com/vojtechmares/coding-owl/internal/driver/claudecode"
+)
+
+// stubClaude writes a program named claude that prints version for --version,
+// and puts it on PATH for the test.
+func stubClaude(t *testing.T, version string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '" + version + "'; exit 0; fi\nexit 0\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return path
+}
+
+func TestCheckAcceptsASupportedVersion(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+
+	if err := claudecode.New().Check(context.Background()); err != nil {
+		t.Errorf("Check on a supported version = %v, want nil", err)
+	}
+}
+
+func TestCheckRefusesAVersionOutsideTheRange(t *testing.T) {
+	for _, version := range []string{"1.9.0 (Claude Code)", "3.0.0 (Claude Code)"} {
+		t.Run(version, func(t *testing.T) {
+			stubClaude(t, version)
+
+			err := claudecode.New().Check(context.Background())
+
+			if err == nil {
+				t.Fatalf("Check on %s = nil, want an error", version)
+			}
+			number, _, _ := strings.Cut(version, " ")
+			if !strings.Contains(err.Error(), number) {
+				t.Errorf("error %q does not name the version it found", err)
+			}
+			if !strings.Contains(err.Error(), claudecode.MinVersion) {
+				t.Errorf("error %q does not name the supported range", err)
+			}
+		})
+	}
+}
+
+func TestCheckReportsAToolThatIsNotInstalled(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	err := claudecode.New().Check(context.Background())
+
+	if err == nil {
+		t.Fatal("Check with no claude on PATH = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "claude") {
+		t.Errorf("error %q does not name the program it looked for", err)
+	}
+}
+
+func TestCommandIsPrintModeWithStructuredOutputAndNoPrompts(t *testing.T) {
+	path := stubClaude(t, "2.1.267 (Claude Code)")
+
+	inv, err := claudecode.New().Command(driver.Request{
+		Prompt:       "fix the flaky test",
+		SystemPrompt: "you are running unattended",
+		WorkingDir:   "/worktrees/1",
+	})
+
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	if inv.Path != path {
+		t.Errorf("path = %q, want the claude on PATH %q", inv.Path, path)
+	}
+	if inv.Dir != "/worktrees/1" {
+		t.Errorf("dir = %q, want the job's worktree", inv.Dir)
+	}
+	args := strings.Join(inv.Args, " ")
+	for _, want := range []string{
+		"--print", "--verbose", "--output-format stream-json",
+		"--permission-prompts none", "--append-system-prompt you are running unattended",
+	} {
+		if !strings.Contains(args, want) {
+			t.Errorf("args %q do not contain %q", args, want)
+		}
+	}
+	if strings.Contains(args, "dangerously") {
+		t.Errorf("args %q skip permission checks", args)
+	}
+	if last := inv.Args[len(inv.Args)-1]; last != "fix the flaky test" {
+		t.Errorf("the prompt is %q, want it last and whole", last)
+	}
+	if inv.Args[len(inv.Args)-2] != "--" {
+		t.Errorf("args %q do not end options before the prompt, so a prompt starting with a dash would be read as a flag", args)
+	}
+}
+
+func TestCommandCapsSpendOnlyWhenAsked(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+	d := claudecode.New()
+
+	capped, err := d.Command(driver.Request{Prompt: "work", BudgetUSD: 5})
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	uncapped, err := d.Command(driver.Request{Prompt: "work"})
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+
+	if got := strings.Join(capped.Args, " "); !strings.Contains(got, "--max-budget-usd 5") {
+		t.Errorf("args %q do not cap the spend", got)
+	}
+	if got := strings.Join(uncapped.Args, " "); strings.Contains(got, "--max-budget-usd") {
+		t.Errorf("args %q cap the spend of a run that asked for no cap", got)
+	}
+}
+
+func TestCommandRefusesAnEmptyPrompt(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+
+	_, err := claudecode.New().Command(driver.Request{})
+
+	if err == nil {
+		t.Fatal("Command with no prompt = nil, want an error")
+	}
+}
+
+func TestCapabilitiesSayWhatClaudeCodeCanDo(t *testing.T) {
+	c := claudecode.New().Capabilities()
+
+	if !c.StreamingOutput || !c.BudgetCap || !c.PermissionModes {
+		t.Errorf("capabilities = %+v, want streaming, a budget cap and permission modes", c)
+	}
+	if c.UsageReporting {
+		t.Error("capabilities claim usage reporting, which Owl does not read yet")
+	}
+}

@@ -128,6 +128,29 @@ func blobID(lsTree []byte) (string, bool) {
 	return fields[2], true
 }
 
+// AddWorktree creates a worktree at path with a new branch cut from the local
+// base branch (ADR-0007). The repository's own checkout is untouched: a
+// worktree is a second working tree, and the Job's branch is only ever checked
+// out in this one.
+func AddWorktree(dir, path, branch, base string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
+	}
+	// The base is addressed as a ref for the reason branchRef gives, and
+	// --end-of-options keeps a name that begins with a dash out of option
+	// position.
+	_, stderr, code, err := run(dir, "worktree", "add", "-b", branch,
+		"--end-of-options", path, branchRef(base))
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("creating a worktree at %s on branch %s from %s in %s: %s",
+			path, branch, base, dir, message(stderr))
+	}
+	return nil
+}
+
 // run executes git in dir and reports its exit status. err is returned only
 // when git could not be run at all - a missing directory, a missing binary -
 // which is a different thing from git running and saying no.

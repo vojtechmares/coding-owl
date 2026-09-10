@@ -49,7 +49,7 @@ func TestUpsertJobQueuesInFIFOOrder(t *testing.T) {
 	if first.ID == second.ID {
 		t.Errorf("both jobs have id %d", first.ID)
 	}
-	jobs, err := s.ListJobs(ctx, false)
+	jobs, err := s.ListQueue(ctx, "pending")
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestUpsertJobIsIdempotentOnItsSourceReference(t *testing.T) {
 	if again.Prompt != "rewritten" {
 		t.Errorf("prompt = %q, want the second production's", again.Prompt)
 	}
-	jobs, err := s.ListJobs(ctx, true)
+	jobs, err := s.ListAllJobs(ctx)
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
@@ -99,7 +99,13 @@ func TestGetJobReportsAnUnknownID(t *testing.T) {
 // queued returns the prompts in the queue, in order.
 func queued(t *testing.T, s *store.Store, all bool) []string {
 	t.Helper()
-	jobs, err := s.ListJobs(context.Background(), all)
+	list := func() ([]store.Job, error) {
+		if all {
+			return s.ListAllJobs(context.Background())
+		}
+		return s.ListQueue(context.Background(), "pending")
+	}
+	jobs, err := list()
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
@@ -136,7 +142,7 @@ func TestDequeueJobClosesTheGapBehindIt(t *testing.T) {
 	if got := queued(t, s, false); strings.Join(got, ",") != "second,third" {
 		t.Errorf("queue = %v, want second, third", got)
 	}
-	remaining, err := s.ListJobs(ctx, false)
+	remaining, err := s.ListQueue(ctx, "pending")
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
@@ -231,7 +237,7 @@ func TestRemoveProjectTakesItsJobsAndClosesTheGaps(t *testing.T) {
 
 	// One of api's Jobs has already left the queue: the count is every Job
 	// that went, not only the ones that were still waiting.
-	left, err := s.ListJobs(ctx, false)
+	left, err := s.ListQueue(ctx, "pending")
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
@@ -247,7 +253,7 @@ func TestRemoveProjectTakesItsJobsAndClosesTheGaps(t *testing.T) {
 		t.Errorf("RemoveProject reported %d jobs, want 2", gone)
 	}
 
-	jobs, err := s.ListJobs(ctx, true)
+	jobs, err := s.ListAllJobs(ctx)
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
@@ -268,7 +274,7 @@ func TestRenameProjectCarriesItsJobsAcross(t *testing.T) {
 		t.Fatalf("RenameProject: %v", err)
 	}
 
-	jobs, err := s.ListJobs(ctx, true)
+	jobs, err := s.ListAllJobs(ctx)
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
