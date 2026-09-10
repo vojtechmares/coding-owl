@@ -47,6 +47,12 @@ const (
 	JobServiceGetJobProcedure = "/codingowl.v1.JobService/GetJob"
 	// JobServiceStreamRunLogProcedure is the fully-qualified name of the JobService's StreamRunLog RPC.
 	JobServiceStreamRunLogProcedure = "/codingowl.v1.JobService/StreamRunLog"
+	// JobServiceAcceptJobProcedure is the fully-qualified name of the JobService's AcceptJob RPC.
+	JobServiceAcceptJobProcedure = "/codingowl.v1.JobService/AcceptJob"
+	// JobServiceDropJobProcedure is the fully-qualified name of the JobService's DropJob RPC.
+	JobServiceDropJobProcedure = "/codingowl.v1.JobService/DropJob"
+	// JobServiceGetOverviewProcedure is the fully-qualified name of the JobService's GetOverview RPC.
+	JobServiceGetOverviewProcedure = "/codingowl.v1.JobService/GetOverview"
 )
 
 // JobServiceClient is a client for the codingowl.v1.JobService service.
@@ -67,6 +73,15 @@ type JobServiceClient interface {
 	// StreamRunLog sends a Run's captured output, and with follow keeps sending
 	// until the Run ends.
 	StreamRunLog(context.Context, *connect.Request[v1.StreamRunLogRequest]) (*connect.ServerStreamForClient[v1.StreamRunLogResponse], error)
+	// AcceptJob keeps a Job's work, reclaiming its worktree and leaving its
+	// branch where it is (ADR-0015).
+	AcceptJob(context.Context, *connect.Request[v1.AcceptJobRequest]) (*connect.Response[v1.AcceptJobResponse], error)
+	// DropJob refuses a Job's work, reclaiming its worktree and deleting its
+	// branch.
+	DropJob(context.Context, *connect.Request[v1.DropJobRequest]) (*connect.Response[v1.DropJobResponse], error)
+	// GetOverview reports what is running, how the Jobs stand, and which of them
+	// are waiting for a decision.
+	GetOverview(context.Context, *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error)
 }
 
 // NewJobServiceClient constructs a client for the codingowl.v1.JobService service. By default, it
@@ -122,6 +137,24 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(jobServiceMethods.ByName("StreamRunLog")),
 			connect.WithClientOptions(opts...),
 		),
+		acceptJob: connect.NewClient[v1.AcceptJobRequest, v1.AcceptJobResponse](
+			httpClient,
+			baseURL+JobServiceAcceptJobProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("AcceptJob")),
+			connect.WithClientOptions(opts...),
+		),
+		dropJob: connect.NewClient[v1.DropJobRequest, v1.DropJobResponse](
+			httpClient,
+			baseURL+JobServiceDropJobProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("DropJob")),
+			connect.WithClientOptions(opts...),
+		),
+		getOverview: connect.NewClient[v1.GetOverviewRequest, v1.GetOverviewResponse](
+			httpClient,
+			baseURL+JobServiceGetOverviewProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("GetOverview")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -134,6 +167,9 @@ type jobServiceClient struct {
 	startRun     *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
 	getJob       *connect.Client[v1.GetJobRequest, v1.GetJobResponse]
 	streamRunLog *connect.Client[v1.StreamRunLogRequest, v1.StreamRunLogResponse]
+	acceptJob    *connect.Client[v1.AcceptJobRequest, v1.AcceptJobResponse]
+	dropJob      *connect.Client[v1.DropJobRequest, v1.DropJobResponse]
+	getOverview  *connect.Client[v1.GetOverviewRequest, v1.GetOverviewResponse]
 }
 
 // AddJob calls codingowl.v1.JobService.AddJob.
@@ -171,6 +207,21 @@ func (c *jobServiceClient) StreamRunLog(ctx context.Context, req *connect.Reques
 	return c.streamRunLog.CallServerStream(ctx, req)
 }
 
+// AcceptJob calls codingowl.v1.JobService.AcceptJob.
+func (c *jobServiceClient) AcceptJob(ctx context.Context, req *connect.Request[v1.AcceptJobRequest]) (*connect.Response[v1.AcceptJobResponse], error) {
+	return c.acceptJob.CallUnary(ctx, req)
+}
+
+// DropJob calls codingowl.v1.JobService.DropJob.
+func (c *jobServiceClient) DropJob(ctx context.Context, req *connect.Request[v1.DropJobRequest]) (*connect.Response[v1.DropJobResponse], error) {
+	return c.dropJob.CallUnary(ctx, req)
+}
+
+// GetOverview calls codingowl.v1.JobService.GetOverview.
+func (c *jobServiceClient) GetOverview(ctx context.Context, req *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error) {
+	return c.getOverview.CallUnary(ctx, req)
+}
+
 // JobServiceHandler is an implementation of the codingowl.v1.JobService service.
 type JobServiceHandler interface {
 	// AddJob queues a Job, producing it through the local queue Source.
@@ -189,6 +240,15 @@ type JobServiceHandler interface {
 	// StreamRunLog sends a Run's captured output, and with follow keeps sending
 	// until the Run ends.
 	StreamRunLog(context.Context, *connect.Request[v1.StreamRunLogRequest], *connect.ServerStream[v1.StreamRunLogResponse]) error
+	// AcceptJob keeps a Job's work, reclaiming its worktree and leaving its
+	// branch where it is (ADR-0015).
+	AcceptJob(context.Context, *connect.Request[v1.AcceptJobRequest]) (*connect.Response[v1.AcceptJobResponse], error)
+	// DropJob refuses a Job's work, reclaiming its worktree and deleting its
+	// branch.
+	DropJob(context.Context, *connect.Request[v1.DropJobRequest]) (*connect.Response[v1.DropJobResponse], error)
+	// GetOverview reports what is running, how the Jobs stand, and which of them
+	// are waiting for a decision.
+	GetOverview(context.Context, *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error)
 }
 
 // NewJobServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -240,6 +300,24 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(jobServiceMethods.ByName("StreamRunLog")),
 		connect.WithHandlerOptions(opts...),
 	)
+	jobServiceAcceptJobHandler := connect.NewUnaryHandler(
+		JobServiceAcceptJobProcedure,
+		svc.AcceptJob,
+		connect.WithSchema(jobServiceMethods.ByName("AcceptJob")),
+		connect.WithHandlerOptions(opts...),
+	)
+	jobServiceDropJobHandler := connect.NewUnaryHandler(
+		JobServiceDropJobProcedure,
+		svc.DropJob,
+		connect.WithSchema(jobServiceMethods.ByName("DropJob")),
+		connect.WithHandlerOptions(opts...),
+	)
+	jobServiceGetOverviewHandler := connect.NewUnaryHandler(
+		JobServiceGetOverviewProcedure,
+		svc.GetOverview,
+		connect.WithSchema(jobServiceMethods.ByName("GetOverview")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/codingowl.v1.JobService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case JobServiceAddJobProcedure:
@@ -256,6 +334,12 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 			jobServiceGetJobHandler.ServeHTTP(w, r)
 		case JobServiceStreamRunLogProcedure:
 			jobServiceStreamRunLogHandler.ServeHTTP(w, r)
+		case JobServiceAcceptJobProcedure:
+			jobServiceAcceptJobHandler.ServeHTTP(w, r)
+		case JobServiceDropJobProcedure:
+			jobServiceDropJobHandler.ServeHTTP(w, r)
+		case JobServiceGetOverviewProcedure:
+			jobServiceGetOverviewHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -291,4 +375,16 @@ func (UnimplementedJobServiceHandler) GetJob(context.Context, *connect.Request[v
 
 func (UnimplementedJobServiceHandler) StreamRunLog(context.Context, *connect.Request[v1.StreamRunLogRequest], *connect.ServerStream[v1.StreamRunLogResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.StreamRunLog is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) AcceptJob(context.Context, *connect.Request[v1.AcceptJobRequest]) (*connect.Response[v1.AcceptJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.AcceptJob is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) DropJob(context.Context, *connect.Request[v1.DropJobRequest]) (*connect.Response[v1.DropJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.DropJob is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) GetOverview(context.Context, *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.GetOverview is not implemented"))
 }

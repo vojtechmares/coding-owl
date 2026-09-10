@@ -159,3 +159,80 @@ func jobFromProto(j *codingowlv1.Job) Job {
 		Created:   j.GetCreated().AsTime(),
 	}
 }
+
+// AcceptJob keeps a Job's work: its worktree is reclaimed and its branch is
+// left where it is. Force reclaims a worktree holding uncommitted changes.
+func (c *Client) AcceptJob(ctx context.Context, id int64, force bool) (Job, error) {
+	res, err := c.jobs.AcceptJob(ctx, connect.NewRequest(&codingowlv1.AcceptJobRequest{Id: id, Force: force}))
+	if err != nil {
+		return Job{}, c.wrap(err)
+	}
+	return jobFromProto(res.Msg.GetJob()), nil
+}
+
+// DropJob refuses a Job's work: its worktree and its branch both go.
+func (c *Client) DropJob(ctx context.Context, id int64, force bool) (Job, error) {
+	res, err := c.jobs.DropJob(ctx, connect.NewRequest(&codingowlv1.DropJobRequest{Id: id, Force: force}))
+	if err != nil {
+		return Job{}, c.wrap(err)
+	}
+	return jobFromProto(res.Msg.GetJob()), nil
+}
+
+// StateCount is how many Jobs are in one state.
+type StateCount struct {
+	State string
+	Count int
+}
+
+// RunInProgress is a Run that has not ended, with the Job it is an attempt at.
+type RunInProgress struct {
+	Run Run
+	Job Job
+}
+
+// Overview is what owl status reports.
+type Overview struct {
+	// Running is every Run that has not ended.
+	Running []RunInProgress
+	// Counts is how the Jobs stand, in the order a Job passes through the
+	// states, holding only the states that have Jobs in them.
+	Counts []StateCount
+	// Awaiting is the Jobs in review, waiting for a decision.
+	Awaiting []Job
+	// Blocked is the Jobs stuck on something wrong with the work.
+	Blocked []Job
+}
+
+// Empty reports whether there is nothing at all to say.
+func (o Overview) Empty() bool {
+	return len(o.Running) == 0 && len(o.Counts) == 0
+}
+
+// GetOverview reports where the work stands.
+func (c *Client) GetOverview(ctx context.Context) (Overview, error) {
+	res, err := c.jobs.GetOverview(ctx, connect.NewRequest(&codingowlv1.GetOverviewRequest{}))
+	if err != nil {
+		return Overview{}, c.wrap(err)
+	}
+	var o Overview
+	for _, r := range res.Msg.GetRunning() {
+		o.Running = append(o.Running, RunInProgress{
+			Run: runFromProto(r.GetRun()), Job: jobFromProto(r.GetJob()),
+		})
+	}
+	for _, c := range res.Msg.GetCounts() {
+		state, ok := jobStates[c.GetState()]
+		if !ok {
+			state = unknownState
+		}
+		o.Counts = append(o.Counts, StateCount{State: state, Count: int(c.GetCount())})
+	}
+	for _, j := range res.Msg.GetAwaiting() {
+		o.Awaiting = append(o.Awaiting, jobFromProto(j))
+	}
+	for _, j := range res.Msg.GetBlocked() {
+		o.Blocked = append(o.Blocked, jobFromProto(j))
+	}
+	return o, nil
+}

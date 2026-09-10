@@ -214,3 +214,34 @@ func TestListQueueHoldsOnlyThePendingJobs(t *testing.T) {
 		t.Errorf("all jobs = %+v, want both", all)
 	}
 }
+
+func TestListRunsInProgressLeavesOutTheRunsThatEnded(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	first := queuedJob(t, s, "first", "a")
+	second := queuedJob(t, s, "second", "b")
+	now := time.Now().UTC()
+	ended, err := s.StartRun(ctx, store.Run{JobID: first.ID, Started: now, LogPath: "/logs/1.jsonl"})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if err := s.FinishRun(ctx, ended.ID, now, "succeeded", "", 0); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+	going, err := s.StartRun(ctx, store.Run{JobID: second.ID, Started: now, LogPath: "/logs/2.jsonl"})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	rs, err := s.ListRunsInProgress(ctx)
+	if err != nil {
+		t.Fatalf("ListRunsInProgress: %v", err)
+	}
+
+	if len(rs) != 1 {
+		t.Fatalf("%d runs in progress, want only the one that has not ended: %+v", len(rs), rs)
+	}
+	if rs[0].ID != going.ID || rs[0].JobID != second.ID {
+		t.Errorf("run %d of job %d, want run %d of job %d", rs[0].ID, rs[0].JobID, going.ID, second.ID)
+	}
+}

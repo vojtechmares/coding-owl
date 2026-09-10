@@ -109,8 +109,72 @@ func newJobsCmd(env Env) *cobra.Command {
 		Use:   "jobs",
 		Short: "Inspect Jobs and what running them involves",
 	}
-	cmd.AddCommand(newJobsShowCmd(env))
+	cmd.AddCommand(newJobsShowCmd(env), newJobsAcceptCmd(env), newJobsDropCmd(env))
 	return cmd
+}
+
+// disposeCmd builds owl jobs accept and owl jobs drop, which differ only in
+// what they do with the branch and what they leave the Job as.
+func disposeCmd(env Env, verb, short, long string, dispose func(context.Context, *client.Client, int64, bool) (client.Job, error)) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   verb + " <id>",
+		Short: short,
+		Long:  long,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := jobID(args[0])
+			if err != nil {
+				return err
+			}
+			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
+				j, err := dispose(ctx, c, id, force)
+				if err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintf(env.Stdout, "job %d is %s\n", j.ID, j.State)
+				if j.Branch != "" {
+					_, _ = fmt.Fprintf(env.Stdout, "branch: %s\n", j.Branch)
+				}
+				return nil
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false,
+		"reclaim the worktree even though it holds changes nobody has committed")
+	return cmd
+}
+
+func newJobsAcceptCmd(env Env) *cobra.Command {
+	return disposeCmd(env, "accept",
+		"Keep a Job's work and reclaim its worktree",
+		`Keep a Job's work and reclaim its worktree.
+
+The branch stays exactly where the Agent left it, with every commit on it:
+merging, rebasing or pushing that branch is yours to do, and Owl never does
+it for you. Only the worktree goes, freeing the disk it held.
+
+A worktree holding changes nobody has committed is refused, because
+reclaiming it would destroy them. Pass --force to reclaim it anyway.`,
+		func(ctx context.Context, c *client.Client, id int64, force bool) (client.Job, error) {
+			return c.AcceptJob(ctx, id, force)
+		})
+}
+
+func newJobsDropCmd(env Env) *cobra.Command {
+	return disposeCmd(env, "drop",
+		"Refuse a Job's work, deleting its branch and its worktree",
+		`Refuse a Job's work, deleting its branch and its worktree.
+
+Both go: the branch is deleted whether or not it was merged anywhere, and
+the worktree with it. Accept the Job instead if you want to keep what the
+Agent wrote.
+
+A worktree holding changes nobody has committed is refused. Pass --force to
+drop it anyway.`,
+		func(ctx context.Context, c *client.Client, id int64, force bool) (client.Job, error) {
+			return c.DropJob(ctx, id, force)
+		})
 }
 
 func newJobsShowCmd(env Env) *cobra.Command {

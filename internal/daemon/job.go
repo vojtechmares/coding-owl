@@ -114,6 +114,47 @@ func (s *jobService) GetJob(ctx context.Context, req *connect.Request[codingowlv
 	return connect.NewResponse(res), nil
 }
 
+func (s *jobService) AcceptJob(ctx context.Context, req *connect.Request[codingowlv1.AcceptJobRequest]) (*connect.Response[codingowlv1.AcceptJobResponse], error) {
+	j, err := s.runs.Accept(ctx, req.Msg.GetId(), req.Msg.GetForce())
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return connect.NewResponse(&codingowlv1.AcceptJobResponse{Job: toJobProto(j)}), nil
+}
+
+func (s *jobService) DropJob(ctx context.Context, req *connect.Request[codingowlv1.DropJobRequest]) (*connect.Response[codingowlv1.DropJobResponse], error) {
+	j, err := s.runs.Drop(ctx, req.Msg.GetId(), req.Msg.GetForce())
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return connect.NewResponse(&codingowlv1.DropJobResponse{Job: toJobProto(j)}), nil
+}
+
+func (s *jobService) GetOverview(ctx context.Context, _ *connect.Request[codingowlv1.GetOverviewRequest]) (*connect.Response[codingowlv1.GetOverviewResponse], error) {
+	o, err := s.runs.Overview(ctx)
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	res := &codingowlv1.GetOverviewResponse{}
+	for _, r := range o.Running {
+		res.Running = append(res.Running, &codingowlv1.RunInProgress{
+			Run: toRunProto(r.Run), Job: toJobProto(r.Job),
+		})
+	}
+	for _, c := range o.Counts {
+		res.Counts = append(res.Counts, &codingowlv1.JobStateCount{
+			State: jobStates[c.State], Count: int32(c.Count),
+		})
+	}
+	for _, j := range o.Awaiting {
+		res.Awaiting = append(res.Awaiting, toJobProto(j))
+	}
+	for _, j := range o.Blocked {
+		res.Blocked = append(res.Blocked, toJobProto(j))
+	}
+	return connect.NewResponse(res), nil
+}
+
 func (s *jobService) StreamRunLog(ctx context.Context, req *connect.Request[codingowlv1.StreamRunLogRequest], stream *connect.ServerStream[codingowlv1.StreamRunLogResponse]) error {
 	err := s.runs.Log(ctx, req.Msg.GetRunId(), req.Msg.GetFollow(), func(l run.Line) error {
 		return stream.Send(&codingowlv1.StreamRunLogResponse{Line: l.Text})

@@ -94,6 +94,7 @@ func newRoot(env Env) *cobra.Command {
 		newStartCmd(env),
 		newLogsCmd(env),
 		newJobsCmd(env),
+		newStatusCmd(env),
 	)
 	return root
 }

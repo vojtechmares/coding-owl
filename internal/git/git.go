@@ -151,6 +151,66 @@ func AddWorktree(dir, path, branch, base string) error {
 	return nil
 }
 
+// RemoveWorktree takes a Job's worktree back, leaving the branch alone. It
+// refuses a worktree holding changes nobody has committed unless force says
+// otherwise: reclaiming disk must not destroy work silently (ADR-0015).
+func RemoveWorktree(dir, path string, force bool) error {
+	args := []string{"worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	args = append(args, "--", path)
+	_, stderr, code, err := run(dir, args...)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("removing the worktree at %s: %s", path, message(stderr))
+	}
+	return nil
+}
+
+// WorktreeIsClean reports whether a worktree holds nothing uncommitted -
+// neither a change to a tracked file nor a file git does not know about.
+func WorktreeIsClean(path string) (bool, error) {
+	out, stderr, code, err := run(path, "status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	if code != 0 {
+		return false, fmt.Errorf("reading the state of %s: %s", path, message(stderr))
+	}
+	return strings.TrimSpace(string(out)) == "", nil
+}
+
+// PruneWorktrees forgets the administrative files of worktrees whose
+// directories are no longer there, so that git stops reporting a worktree
+// nobody can use.
+func PruneWorktrees(dir string) error {
+	_, stderr, code, err := run(dir, "worktree", "prune")
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("pruning the worktrees of %s: %s", dir, message(stderr))
+	}
+	return nil
+}
+
+// DeleteBranch deletes a local branch, whether or not it has been merged: a
+// dropped Job's branch is one nobody wanted (ADR-0015).
+func DeleteBranch(dir, branch string) error {
+	// -D rather than -d: the point of dropping is to discard unmerged work.
+	_, stderr, code, err := run(dir, "branch", "-D", "--", branch)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("deleting the branch %s in %s: %s", branch, dir, message(stderr))
+	}
+	return nil
+}
+
 // owlIdentity is who Owl commits as. It commits only the handoff, and only
 // when the Agent left it uncommitted, so the identity is Owl's own rather than
 // the user's - and it does not depend on the user having configured one.

@@ -156,6 +156,25 @@ func (s *Store) RunInProgress(ctx context.Context) (Run, bool, error) {
 	return r, true, nil
 }
 
+// ListRunsInProgress returns every Run that has not ended, oldest first.
+func (s *Store) ListRunsInProgress(ctx context.Context) ([]Run, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+runColumns+` FROM runs WHERE outcome = '' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Run
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func scanRun(sc scanner) (Run, error) {
 	var r Run
 	var started, ended string
