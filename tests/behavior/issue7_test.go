@@ -198,8 +198,8 @@ checks:
 	started := time.Now()
 	out, _ := finishedJob(t, l)
 
-	if elapsed := time.Since(started); elapsed > 30*time.Second {
-		t.Errorf("the run took %s, so the check was not killed at its timeout", elapsed)
+	if elapsed := time.Since(started); elapsed > 15*time.Second {
+		t.Errorf("the run took %s, so the check was not killed at its one-second timeout", elapsed)
 	}
 	row := wantCheck(t, checks(t, out), "hang", "failed")
 	if !strings.Contains(row.why, "timeout") && !strings.Contains(row.why, "timed out") {
@@ -360,8 +360,8 @@ checks:
 	if !strings.Contains(res.stderr, ".coding-owl.yaml") {
 		t.Errorf("stderr does not name the configuration file:\n%s", res.stderr)
 	}
-	if !strings.Contains(res.stderr, "nameless") && !strings.Contains(res.stderr, "run") {
-		t.Errorf("stderr does not say what is wrong with the check:\n%s", res.stderr)
+	if !strings.Contains(res.stderr, "nameless") || !strings.Contains(res.stderr, "run command") {
+		t.Errorf("stderr does not name the check and say what it is missing:\n%s", res.stderr)
 	}
 	if _, err := os.Stat(s.argv); err == nil {
 		t.Error("the stub agent was invoked despite the unreadable check")
@@ -415,5 +415,30 @@ func TestS15VerifyTheReasonNamesTheChecksThatRefusedTheJob(t *testing.T) {
 	reason := line(t, out, "reason")
 	if !strings.Contains(reason, "first") || !strings.Contains(reason, "third") {
 		t.Errorf("reason = %q, does not name the checks that refused the job", reason)
+	}
+}
+
+func TestS16VerifyMovingTheBaseBranchDoesNotChangeWhatJudgesTheWork(t *testing.T) {
+	// The Agent commits a configuration with no checks and points the base
+	// branch at it, which a linked worktree can do: the refs are shared.
+	l, _ := writingLayout(t,
+		map[string]string{".coding-owl.yaml": "apiVersion: codingowl.dev/v1\n"}, true, agentScript)
+	l = l.withEnv(`OWL_FAKE_CLAUDE_GIT=[["update-ref","refs/heads/main","HEAD"]]`)
+	daemonUp(t, l)
+	r := checkedProject(t, l, `apiVersion: codingowl.dev/v1
+checks:
+  - name: guard
+    run: exit 1
+`)
+
+	out, _ := finishedJob(t, l)
+
+	wantCheck(t, checks(t, out), "guard", "failed")
+	if got := line(t, out, "state"); got != "blocked" {
+		t.Errorf("state = %q, want blocked", got)
+	}
+	// The Agent did move the branch, so the scenario is exercising what it says.
+	if got := r.git("show", "refs/heads/main:.coding-owl.yaml"); strings.Contains(got, "guard") {
+		t.Fatal("the agent did not manage to move the base branch, so this proves nothing")
 	}
 }

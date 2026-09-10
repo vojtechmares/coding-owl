@@ -15,6 +15,8 @@
 //	OWL_FAKE_CLAUDE_WRITE    JSON object of path to contents, written into the
 //	                         working directory before the script is emitted
 //	OWL_FAKE_CLAUDE_COMMIT   when set, commits what was written
+//	OWL_FAKE_CLAUDE_GIT      JSON array of git argument arrays, run in the
+//	                         working directory after the files are written
 //
 // The invocation record also holds the names of the files in the working
 // directory, so a scenario can see what ran before the Agent did.
@@ -65,6 +67,10 @@ func main() {
 	if err := writeFiles(); err != nil {
 		fmt.Fprintln(os.Stderr, "fakeclaude:", err)
 		os.Exit(93)
+	}
+	if err := runGit(); err != nil {
+		fmt.Fprintln(os.Stderr, "fakeclaude:", err)
+		os.Exit(94)
 	}
 	if script := os.Getenv("OWL_FAKE_CLAUDE_SCRIPT"); script != "" {
 		if err := emit(script); err != nil {
@@ -163,6 +169,25 @@ func writeFiles() error {
 		return nil
 	}
 	return git([]string{"commit", "-m", "the agent's own commit"})
+}
+
+// runGit runs the git commands of OWL_FAKE_CLAUDE_GIT, which is how a scenario
+// has the Agent do something to the repository beyond its own commit.
+func runGit() error {
+	spec := os.Getenv("OWL_FAKE_CLAUDE_GIT")
+	if spec == "" {
+		return nil
+	}
+	var commands [][]string
+	if err := json.Unmarshal([]byte(spec), &commands); err != nil {
+		return fmt.Errorf("OWL_FAKE_CLAUDE_GIT: %w", err)
+	}
+	for _, args := range commands {
+		if err := git(args); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // git runs a git command in the working directory with an identity of its own,
