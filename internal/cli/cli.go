@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -205,11 +204,9 @@ replaces it, which is how you point it at a new binary.`,
 			if err != nil {
 				return fmt.Errorf("finding the owl binary to run: %w", err)
 			}
-			// The agent has to name a path that survives this process, and a
-			// symlink to a Homebrew cellar or a build directory is not one.
-			if resolved, err := filepath.EvalSymlinks(program); err == nil {
-				program = resolved
-			}
+			// Deliberately not resolved through its symlinks: /opt/homebrew/bin/owl
+			// survives an upgrade and the cellar path it points at does not.
+			// Installing again is how the agent is pointed somewhere else.
 			agent := launchd.Describe(program, env.Paths.StateDir, os.Getenv)
 			if print {
 				body, err := launchd.Render(agent)

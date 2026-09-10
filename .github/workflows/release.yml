@@ -95,7 +95,14 @@ jobs:
           set -euo pipefail
           ./scripts/build-release.sh "$TAG"
           ARCHIVE="coding-owl_${TAG}_darwin_arm64.tar.gz"
-          echo "sha256=$(awk -v a="$ARCHIVE" '$2 == a { print $1 }' dist/checksums.txt)" >> "$GITHUB_OUTPUT"
+          SHA256="$(awk -v a="$ARCHIVE" '$2 == a { print $1 }' dist/checksums.txt)"
+          # An empty checksum would publish happily and only fail in the tap
+          # job, with a formula nobody can install.
+          if [[ ! "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::no checksum for $ARCHIVE in dist/checksums.txt"
+            exit 1
+          fi
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
 
       - name: Write the release notes
         env:

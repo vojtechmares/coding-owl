@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"debug/macho"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -428,6 +429,26 @@ func TestS8FormulaRefusesAVersionOrChecksumThatIsNotOne(t *testing.T) {
 	}
 }
 
+func TestS21FormulaThatWasNeverPushedIsPushedNextTime(t *testing.T) {
+	tp := newTap(t)
+	url, _ := servedAsset(t, http.StatusOK)
+	// A remote that is not there is a push that fails after the commit.
+	tp.git(t, "remote", "set-url", "origin", filepath.Join(tp.dir, "..", "gone.git"))
+	if res := runScript(t, repoScript("bump-formula.sh"), repoDir, bumpEnv(tp, "0.1.0", testDigest, url)); res.code == 0 {
+		t.Fatalf("bump-formula.sh reported success although the push could not work:\n%s", res.stdout)
+	}
+	tp.git(t, "remote", "set-url", "origin", tp.bare)
+
+	res := runScript(t, repoScript("bump-formula.sh"), repoDir, bumpEnv(tp, "0.1.0", testDigest, url))
+
+	if res.code != 0 {
+		t.Fatalf("bump-formula.sh exited %d\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
+	}
+	if body := tp.bareGit(t, "show", tp.branch+":Formula/coding-owl.rb"); !strings.Contains(body, `version "0.1.0"`) {
+		t.Errorf("the tap's remote still does not carry the formula:\n%s", body)
+	}
+}
+
 // releaseClone is a repository carrying the release script, on main, whose
 // origin is a bare repository. It stands in for the project itself, so that
 // tagging and pushing can be watched without touching the real remote.
@@ -557,6 +578,7 @@ func TestS11ReleaseDryRunChangesNothing(t *testing.T) {
 func TestS12ReleaseTagsTheCommitAndPushesIt(t *testing.T) {
 	rc := newReleaseClone(t)
 	head := strings.TrimSpace(rc.git(t, "rev-parse", "HEAD"))
+	before := strings.Fields(rc.run(t, rc.bare, "git", "for-each-ref", "--format=%(refname) %(objectname)"))
 
 	res := rc.release(t, "--yes", "v0.2.0")
 
@@ -572,8 +594,28 @@ func TestS12ReleaseTagsTheCommitAndPushesIt(t *testing.T) {
 	if kind := strings.TrimSpace(rc.run(t, rc.bare, "git", "cat-file", "-t", "v0.2.0")); kind != "tag" {
 		t.Errorf("the tag is a %s, want an annotated tag", kind)
 	}
-	if branches := rc.run(t, rc.bare, "git", "branch", "--list"); !strings.Contains(branches, "main") {
-		t.Errorf("the remote lost its branch:\n%s", branches)
+	// Nothing but the tag: the remote gained one ref, and every ref it had
+	// before is still pointing where it was.
+	after := strings.Fields(rc.run(t, rc.bare, "git", "for-each-ref", "--format=%(refname) %(objectname)"))
+	var gained []string
+	for i := 0; i < len(after); i += 2 {
+		ref, object := after[i], after[i+1]
+		kept := false
+		for j := 0; j < len(before); j += 2 {
+			if before[j] == ref {
+				kept = true
+				if before[j+1] != object {
+					t.Errorf("%s moved from %s to %s; releasing pushes the tag and nothing else",
+						ref, before[j+1], object)
+				}
+			}
+		}
+		if !kept {
+			gained = append(gained, ref)
+		}
+	}
+	if len(gained) != 1 || gained[0] != "refs/tags/v0.2.0" {
+		t.Errorf("the remote gained %v, want only refs/tags/v0.2.0", gained)
 	}
 }
 
@@ -592,6 +634,10 @@ func TestS13ReleaseRefusesAVersionThatAlreadyExists(t *testing.T) {
 	}
 	if !strings.Contains(res.stderr, "exists") {
 		t.Errorf("stderr does not say the tag already exists:\n%s", res.stderr)
+	}
+	// Refused, rather than let git fail on the tag it was told to create.
+	if strings.Contains(res.stdout, "Tagging") {
+		t.Errorf("release.sh went as far as tagging before it noticed:\n%s", res.stdout)
 	}
 	if got := strings.Fields(rc.remoteTags(t)); len(got) != 1 {
 		t.Errorf("the remote carries %v, want exactly one v0.2.0", got)
@@ -676,15 +722,39 @@ func TestS14ReleaseWorkflowGuardsTheTagAndPublishes(t *testing.T) {
 			t.Errorf("the release job does not %q:\n%s", want, release)
 		}
 	}
-	formula := w.job(t, "formula")
-	for _, want := range []string{"HOMEBREW_TAP_TOKEN", "scripts/bump-formula.sh"} {
-		if !strings.Contains(formula, want) {
-			t.Errorf("the formula job does not mention %q:\n%s", want, formula)
+	formula := w.Jobs["formula"]
+	if len(formula.Steps) == 0 {
+		t.Fatalf("the workflow has no formula job, only %v", jobNames(w))
+	}
+	// The token is checked before anything else, because an unset secret
+	// checks out the public tap happily and only fails on the push.
+	guardStep := formula.Steps[0]
+	tokenVar := ""
+	for name, value := range guardStep.Env {
+		if strings.Contains(value, "secrets.HOMEBREW_TAP_TOKEN") {
+			tokenVar = name
 		}
 	}
-	if !strings.Contains(formula, "prerelease") {
-		t.Errorf("the formula job runs for a prerelease too:\n%s", formula)
+	if tokenVar == "" {
+		t.Errorf("the formula job's first step (%q) does not read HOMEBREW_TAP_TOKEN: %v", guardStep.Name, guardStep.Env)
+	} else if !strings.Contains(guardStep.Run, "-z \"$"+tokenVar+"\"") || !strings.Contains(guardStep.Run, "exit 1") {
+		t.Errorf("the formula job's first step does not refuse an unset token:\n%s", guardStep.Run)
 	}
+	if !strings.Contains(w.job(t, "formula"), "scripts/bump-formula.sh") {
+		t.Errorf("the formula job never renders the formula:\n%s", w.job(t, "formula"))
+	}
+	// The tap carries stable versions only, so a prerelease must not reach it.
+	if !strings.Contains(formula.If, "prerelease") || !strings.Contains(formula.If, "'false'") {
+		t.Errorf("the formula job runs when %q, which does not keep a prerelease out of the tap", formula.If)
+	}
+}
+
+func jobNames(w workflow) []string {
+	names := make([]string, 0, len(w.Jobs))
+	for n := range w.Jobs {
+		names = append(names, n)
+	}
+	return names
 }
 
 // launchctlStub puts a stub launchctl first on the PATH and returns the file it
@@ -732,6 +802,33 @@ func requireDarwin(t *testing.T) {
 	}
 }
 
+// launchAgent is a launch agent read back the way launchd reads it.
+type launchAgent struct {
+	Label             string            `json:"Label"`
+	ProgramArguments  []string          `json:"ProgramArguments"`
+	KeepAlive         bool              `json:"KeepAlive"`
+	RunAtLoad         bool              `json:"RunAtLoad"`
+	StandardOutPath   string            `json:"StandardOutPath"`
+	StandardErrorPath string            `json:"StandardErrorPath"`
+	EnvironmentVars   map[string]string `json:"EnvironmentVariables"`
+}
+
+// readAgent parses a property list with the tool macOS itself parses them
+// with, so a scenario reads what launchd would read rather than the text.
+func readAgent(t *testing.T, path string) launchAgent {
+	t.Helper()
+	out, err := exec.Command("plutil", "-convert", "json", "-o", "-", path).CombinedOutput()
+	if err != nil {
+		body, _ := os.ReadFile(path)
+		t.Fatalf("plutil refuses the launch agent: %v\n%s\n%s", err, out, body)
+	}
+	var a launchAgent
+	if err := json.Unmarshal(out, &a); err != nil {
+		t.Fatalf("reading the launch agent: %v\n%s", err, out)
+	}
+	return a
+}
+
 func agentPath(l *layout) string {
 	return filepath.Join(l.home, "Library", "LaunchAgents", "dev.codingowl.owld.plist")
 }
@@ -745,22 +842,35 @@ func TestS15DaemonInstallWritesTheLaunchAgent(t *testing.T) {
 	if res.code != 0 {
 		t.Fatalf("owl daemon install exited %d\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
-	body, err := os.ReadFile(agentPath(l))
-	if err != nil {
-		t.Fatalf("no launch agent: %v", err)
+	agent := readAgent(t, agentPath(l))
+	if agent.Label != "dev.codingowl.owld" {
+		t.Errorf("label = %q, want dev.codingowl.owld", agent.Label)
 	}
-	plist := string(body)
-	for _, want := range []string{
-		"dev.codingowl.owld", owlBin, "<string>daemon</string>", "<string>run</string>",
-		"KeepAlive", "RunAtLoad", filepath.Join(l.state, "coding-owl"),
-	} {
-		if !strings.Contains(plist, want) {
-			t.Errorf("the launch agent does not carry %q:\n%s", want, plist)
+	if want := []string{owlBin, "daemon", "run"}; strings.Join(agent.ProgramArguments, " ") != strings.Join(want, " ") {
+		t.Errorf("the agent runs %v, want %v", agent.ProgramArguments, want)
+	}
+	// Both of these are what makes launchd start the daemon at login and start
+	// it again after it dies.
+	if !agent.KeepAlive {
+		t.Errorf("KeepAlive is not set, so launchd would not restart the daemon")
+	}
+	if !agent.RunAtLoad {
+		t.Errorf("RunAtLoad is not set, so the daemon would not start until something asked")
+	}
+	stateDir := filepath.Join(l.state, "coding-owl")
+	for what, path := range map[string]string{"stdout": agent.StandardOutPath, "stderr": agent.StandardErrorPath} {
+		if !strings.HasPrefix(path, stateDir+string(os.PathSeparator)) {
+			t.Errorf("the agent writes its %s to %q, want a file under %s", what, path, stateDir)
 		}
 	}
-	lint, err := exec.Command("plutil", "-lint", agentPath(l)).CombinedOutput()
+	// The agent's log goes in the daemon's state directory, which is nobody
+	// else's business - the daemon creates it that way itself.
+	st, err := os.Stat(filepath.Join(l.state, "coding-owl"))
 	if err != nil {
-		t.Errorf("plutil refuses the launch agent: %v\n%s", err, lint)
+		t.Fatalf("the state directory the agent logs into was not created: %v", err)
+	}
+	if got := st.Mode().Perm(); got != 0o700 {
+		t.Errorf("the state directory is %v, want 0700", got)
 	}
 }
 
@@ -814,8 +924,8 @@ func TestS17DaemonInstallTwiceReplacesTheAgent(t *testing.T) {
 	if !strings.HasPrefix(last[1], "bootstrap ") {
 		t.Errorf("the second install did not bootstrap the new agent: %v", calls)
 	}
-	if lint, err := exec.Command("plutil", "-lint", agentPath(l)).CombinedOutput(); err != nil {
-		t.Errorf("plutil refuses the reinstalled agent: %v\n%s", err, lint)
+	if agent := readAgent(t, agentPath(l)); agent.Label != "dev.codingowl.owld" {
+		t.Errorf("the reinstalled agent is %q", agent.Label)
 	}
 }
 

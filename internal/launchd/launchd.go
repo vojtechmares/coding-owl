@@ -111,8 +111,15 @@ func Install(a Agent, home string, uid int) (string, error) {
 		return "", err
 	}
 	// The daemon's own directory has to exist before launchd opens the log it
-	// is told to write, or the agent fails to spawn.
-	if err := os.MkdirAll(filepath.Dir(a.LogPath), 0o755); err != nil {
+	// is told to write, or the agent fails to spawn. It is the daemon's state
+	// directory, which is nobody else's business: MkdirAll leaves an existing
+	// directory's mode alone, so it is tightened either way, exactly as the
+	// daemon itself does when it starts.
+	logDir := filepath.Dir(a.LogPath)
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(logDir, 0o700); err != nil {
 		return "", err
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
