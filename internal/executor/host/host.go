@@ -137,8 +137,11 @@ func (p *process) Wait() (int, error) {
 	// first place (ADR-0011, ADR-0012). This is the last moment it can be
 	// done: the group is named by the Agent's pid, and that name is only
 	// pinned while a member of the group is still alive.
-	_ = signalGroup(p.cmd, syscall.SIGTERM)
-	p.reaped.Store(true)
+	// Once only: a second Wait would signal a pid the system has long since
+	// been free to hand out again, with no live group member pinning it.
+	if !p.reaped.Swap(true) {
+		_ = signalGroup(p.cmd, syscall.SIGTERM)
+	}
 	if err == nil {
 		return 0, nil
 	}
