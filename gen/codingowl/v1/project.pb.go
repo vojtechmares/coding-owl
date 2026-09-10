@@ -674,8 +674,8 @@ func (x *RemoveProjectRequest) GetName() string {
 
 type RemoveProjectResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// JobsRemoved is how many queued Jobs went with the Project, since a Job
-	// whose Project is gone has nowhere to run.
+	// JobsRemoved is how many Jobs went with the Project, queued or not, since
+	// a Job whose Project is gone has nowhere to run.
 	JobsRemoved   int32 `protobuf:"varint,1,opt,name=jobs_removed,json=jobsRemoved,proto3" json:"jobs_removed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

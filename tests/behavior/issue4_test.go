@@ -469,7 +469,7 @@ func (s fixedSource) Ref() (string, error) { return s.ref, nil }
 
 // queueService opens a temporary database holding one Project and returns a
 // queue Service producing from src.
-func queueService(t *testing.T, src queue.Source) (*queue.Service, *store.Store) {
+func queueService(t *testing.T, src queue.Source) *queue.Service {
 	t.Helper()
 	st, _, err := store.Open(filepath.Join(t.TempDir(), "owl.db"))
 	if err != nil {
@@ -480,12 +480,12 @@ func queueService(t *testing.T, src queue.Source) (*queue.Service, *store.Store)
 	if err := st.AddProject(context.Background(), p); err != nil {
 		t.Fatalf("registering a project: %v", err)
 	}
-	return queue.NewService(st, src), st
+	return queue.NewService(st, src)
 }
 
 func TestS19QueueProducingTheSameReferenceTwiceYieldsOneJob(t *testing.T) {
 	ctx := context.Background()
-	svc, _ := queueService(t, fixedSource{ref: "issue:1"})
+	svc := queueService(t, fixedSource{ref: "issue:1"})
 
 	first, err := svc.Add(ctx, queue.AddRequest{Project: "api", Prompt: "first"})
 	if err != nil {
@@ -519,7 +519,7 @@ func TestS19QueueProducingTheSameReferenceTwiceYieldsOneJob(t *testing.T) {
 
 func TestS20QueueReproducingACancelledReferenceDoesNotReviveIt(t *testing.T) {
 	ctx := context.Background()
-	svc, _ := queueService(t, fixedSource{ref: "issue:1"})
+	svc := queueService(t, fixedSource{ref: "issue:1"})
 	first, err := svc.Add(ctx, queue.AddRequest{Project: "api", Prompt: "first"})
 	if err != nil {
 		t.Fatalf("first production: %v", err)
@@ -578,11 +578,13 @@ func TestS22QueueRemovingAProjectTakesItsJobsWithIt(t *testing.T) {
 	addJob(t, l, api.dir, "first")
 	addJob(t, l, web.dir, "second")
 	addJob(t, l, api.dir, "third")
+	addJob(t, l, api.dir, "fourth")
+	mustOwl(t, l, "queue", "remove", jobID(t, queueList(t, l), "fourth"))
 
 	res := mustOwl(t, l, "project", "remove", "api")
 
-	if !strings.Contains(res.stdout, "2 jobs") {
-		t.Errorf("owl project remove does not say two jobs went with the project:\n%s", res.stdout)
+	if !strings.Contains(res.stdout, "3 jobs") {
+		t.Errorf("owl project remove does not say three jobs went with the project:\n%s", res.stdout)
 	}
 	wantQueue(t, l, "1|web|pending|second")
 	for _, row := range queueList(t, l, "--all") {

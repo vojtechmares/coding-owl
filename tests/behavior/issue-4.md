@@ -162,11 +162,11 @@ When `owl add "work" --project api`, `owl queue list`, `owl queue remove 1` and 
 Then each exits with a non-zero code
 And each stderr says the daemon is not running and names the socket path
 
-### S22 - removing a Project takes its queued Jobs with it, and says so
-Given a running daemon, a registered Project `api` with the pending Jobs `first` and `third`, and a registered Project `web` with the pending Job `second` between them
+### S22 - removing a Project takes its Jobs with it, and says so
+Given a running daemon, a registered Project `api` with the pending Jobs `first` and `third` and a cancelled Job `fourth`, and a registered Project `web` with the pending Job `second` between them
 When `owl project remove api` runs
 Then it exits 0
-And stdout says that two Jobs went with the Project
+And stdout says that three Jobs went with the Project, counting the one that had already left the queue
 And `owl queue list` shows only `second`, at position 1
 And `owl queue list --all` shows no Job for `api`
 

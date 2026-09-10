@@ -111,9 +111,6 @@ func newQueueRemoveCmd(env Env) *cobra.Command {
 			})
 		},
 	}
-	// A negative id is an argument, not a flag, and belongs in the command's
-	// own error message rather than the flag parser's.
-	cmd.Flags().SetInterspersed(false)
 	return cmd
 }
 
@@ -148,8 +145,6 @@ room. This is how a Job is made urgent: there is no priority (ADR-0025).`,
 			})
 		},
 	}
-	// As for remove: a negative position is an argument.
-	cmd.Flags().SetInterspersed(false)
 	return cmd
 }
 
