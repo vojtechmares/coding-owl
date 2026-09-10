@@ -213,3 +213,27 @@ func TestRootReportsAMissingDirectory(t *testing.T) {
 		t.Fatal("Root on a missing directory returned no error")
 	}
 }
+
+func TestReadsAreLocaleIndependent(t *testing.T) {
+	// git translates its diagnostics, so nothing here may depend on reading
+	// them. The package forces a C locale for its own invocations; this pins
+	// that the caller's locale cannot change any answer.
+	t.Setenv("LC_ALL", "de_DE.UTF-8")
+	t.Setenv("LANG", "de_DE.UTF-8")
+	dir := newRepo(t)
+	commit(t, dir, ".meta/.coding-owl.yaml", "last candidate\n")
+
+	if _, found, err := git.ShowFile(dir, "main", ".coding-owl.yaml"); err != nil || found {
+		t.Errorf("missing path = found %v, err %v; want not found, nil", found, err)
+	}
+	data, found, err := git.ShowFile(dir, "main", ".meta/.coding-owl.yaml")
+	if err != nil || !found {
+		t.Fatalf("present path = found %v, err %v; want found, nil", found, err)
+	}
+	if string(data) != "last candidate\n" {
+		t.Errorf("contents = %q", data)
+	}
+	if ok, err := git.HasBranch(dir, "nope"); err != nil || ok {
+		t.Errorf("HasBranch(nope) = %v, %v; want false, nil", ok, err)
+	}
+}

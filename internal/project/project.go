@@ -159,7 +159,9 @@ func (s *Service) Show(ctx context.Context, name string) (Details, error) {
 func (s *Service) discover(p Project) (string, config.Config, error) {
 	hasBase, err := git.HasBranch(p.Path, p.BaseBranch)
 	if err != nil {
-		return "", config.Config{}, err
+		// The path came from the caller's own registration, so a repository
+		// that has moved or stopped being one is theirs to fix.
+		return "", config.Config{}, &InvalidError{Err: err}
 	}
 	if !hasBase {
 		// Falling through to the defaults here would let a Project's
@@ -170,7 +172,7 @@ func (s *Service) discover(p Project) (string, config.Config, error) {
 	for _, candidate := range inRepoCandidates {
 		data, found, err := git.ShowFile(p.Path, p.BaseBranch, candidate)
 		if err != nil {
-			return "", config.Config{}, err
+			return "", config.Config{}, &InvalidError{Err: err}
 		}
 		if !found {
 			continue
@@ -215,9 +217,12 @@ func repoRoot(path string) (string, error) {
 		return "", err
 	}
 	abs = filepath.Clean(abs)
-	if st, err := os.Stat(abs); err != nil {
+	switch st, err := os.Stat(abs); {
+	case errors.Is(err, os.ErrNotExist):
 		return "", invalid("no such directory: %s", abs)
-	} else if !st.IsDir() {
+	case err != nil:
+		return "", &InvalidError{Err: err}
+	case !st.IsDir():
 		return "", invalid("not a directory: %s", abs)
 	}
 	root, err := git.Root(abs)
@@ -271,61 +276,67 @@ func (s *Service) List(ctx context.Context) ([]Project, error) {
 
 // Move points a Project at a new path. Its name, and everything attached to
 // that name, is unaffected (ADR-0031).
-func (s *Service) Move(ctx context.Context, name, path string) error {
+func (s *Service) Move(ctx context.Context, name, path string) (Project, error) {
 	p, err := s.store.GetProject(ctx, name)
 	if err != nil {
-		return err
+		return Project{}, err
 	}
 	root, err := repoRoot(path)
 	if err != nil {
-		return err
+		return Project{}, err
 	}
 	// The Project keeps its base branch across a move, so the repository at
 	// the new path has to carry it or nothing could be read there.
 	ok, err := git.HasBranch(root, p.BaseBranch)
 	if err != nil {
-		return err
+		return Project{}, &InvalidError{Err: err}
 	}
 	if !ok {
-		return invalid("%s has no branch %q, which is project %s's base branch", root, p.BaseBranch, name)
+		return Project{}, invalid("%s has no branch %q, which is project %s's base branch", root, p.BaseBranch, name)
 	}
-	return s.store.SetProjectPath(ctx, name, root)
+	if err := s.store.SetProjectPath(ctx, name, root); err != nil {
+		return Project{}, err
+	}
+	p.Path = root
+	return Project(p), nil
 }
 
 // Rename changes a Project's name and moves its configuration directory with
 // it. Either both happen or neither does: the directory is moved first and
 // moved back if the database refuses the new name.
-func (s *Service) Rename(ctx context.Context, from, to string) error {
+func (s *Service) Rename(ctx context.Context, from, to string) (Project, error) {
 	if err := validateName(to); err != nil {
-		return err
+		return Project{}, err
 	}
-	if _, err := s.store.GetProject(ctx, from); err != nil {
-		return err
+	p, err := s.store.GetProject(ctx, from)
+	if err != nil {
+		return Project{}, err
 	}
 	if _, err := s.store.GetProject(ctx, to); err == nil {
-		return conflict("a project named %q is already registered", to)
+		return Project{}, conflict("a project named %q is already registered", to)
 	} else if !errors.Is(err, store.ErrNotFound) {
-		return err
+		return Project{}, err
 	}
 
 	undo, err := s.moveConfigDir(from, to)
 	if err != nil {
-		return err
+		return Project{}, err
 	}
 	if err := s.store.RenameProject(ctx, from, to); err != nil {
 		if undo != nil {
 			// Put the directory back, so a refused rename leaves nothing
 			// behind. Losing the race to a concurrent add lands here.
 			if undoErr := undo(); undoErr != nil {
-				return fmt.Errorf("%w (and the configuration directory was left at %s: %v)", err, s.configDir(to), undoErr)
+				return Project{}, fmt.Errorf("%w (and the configuration directory was left at %s: %v)", err, s.configDir(to), undoErr)
 			}
 		}
 		if errors.Is(err, store.ErrNameTaken) {
-			return conflict("a project named %q is already registered", to)
+			return Project{}, conflict("a project named %q is already registered", to)
 		}
-		return err
+		return Project{}, err
 	}
-	return nil
+	p.Name = to
+	return Project(p), nil
 }
 
 // moveConfigDir moves the per-Project configuration directory and returns the

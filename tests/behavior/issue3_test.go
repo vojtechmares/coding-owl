@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -112,12 +111,32 @@ func mustOwl(t *testing.T, l *layout, args ...string) result {
 	return res
 }
 
-// listRows returns the name and path columns of owl project list, keyed by
-// name, skipping the header and the empty-list line.
+// listedNames returns the Project names in the order owl project list printed
+// them, skipping the header and the empty-list line.
+func listedNames(t *testing.T, l *layout) []string {
+	t.Helper()
+	var names []string
+	for _, f := range listFields(t, l) {
+		names = append(names, f[0])
+	}
+	return names
+}
+
+// listRows keys the path column by name, for checks that do not care about
+// the order the rows were printed in.
 func listRows(t *testing.T, l *layout) map[string]string {
 	t.Helper()
-	out := mustOwl(t, l, "project", "list").stdout
 	rows := map[string]string{}
+	for _, f := range listFields(t, l) {
+		rows[f[0]] = f[1]
+	}
+	return rows
+}
+
+func listFields(t *testing.T, l *layout) [][]string {
+	t.Helper()
+	out := mustOwl(t, l, "project", "list").stdout
+	var rows [][]string
 	for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
 		f := strings.Fields(ln)
 		if len(f) == 0 || f[0] == "NAME" || strings.HasPrefix(ln, "no projects") {
@@ -126,7 +145,7 @@ func listRows(t *testing.T, l *layout) map[string]string {
 		if len(f) < 2 {
 			t.Fatalf("owl project list row %q has no path column", ln)
 		}
-		rows[f[0]] = f[1]
+		rows = append(rows, f)
 	}
 	return rows
 }
@@ -134,12 +153,7 @@ func listRows(t *testing.T, l *layout) map[string]string {
 // listNames returns the Project names shown by owl project list, in order.
 func listNames(t *testing.T, l *layout) []string {
 	t.Helper()
-	var names []string
-	for name := range listRows(t, l) {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return listedNames(t, l)
 }
 
 func wantNames(t *testing.T, l *layout, want ...string) {
@@ -748,4 +762,47 @@ func TestS30RevisionExpressionIsNotABaseBranch(t *testing.T) {
 		t.Fatalf("a revision expression was accepted as a base branch:\n%s", res.stdout)
 	}
 	wantNames(t, l)
+}
+
+func TestS31MutationsWorkWhenConfigCannotBeLoaded(t *testing.T) {
+	l := newLayout(t)
+	daemonUp(t, l)
+	r := newRepo(t, l, "bad")
+	r.commit(".coding-owl.yaml", "apiVersion: codingowl.dev/v99\n", "add unloadable config")
+	addProject(t, l, r)
+	if res := runOwl(t, l, "project", "show", "bad"); res.code == 0 {
+		t.Fatalf("precondition: show should refuse this config:\n%s", res.stdout)
+	}
+
+	moved := newRepo(t, l, "moved")
+	moved.commit(".coding-owl.yaml", "apiVersion: codingowl.dev/v99\n", "add unloadable config")
+	if res := runOwl(t, l, "project", "move", "bad", moved.dir); res.code != 0 {
+		t.Errorf("move reported failure (exit %d) on a Project whose config cannot be loaded:\n%s", res.code, res.stderr)
+	}
+	if got := listRows(t, l)["bad"]; got != moved.dir {
+		t.Errorf("after move, list shows %q, want %q", got, moved.dir)
+	}
+
+	if res := runOwl(t, l, "project", "rename", "bad", "good"); res.code != 0 {
+		t.Errorf("rename reported failure (exit %d) on a Project whose config cannot be loaded:\n%s", res.code, res.stderr)
+	}
+	rows := listRows(t, l)
+	if _, stillThere := rows["bad"]; stillThere {
+		t.Errorf("rename left the old name behind: %v", rows)
+	}
+	if got := rows["good"]; got != moved.dir {
+		t.Errorf("after rename, list shows good -> %q, want %q", got, moved.dir)
+	}
+}
+
+func TestListIsPrintedInNameOrder(t *testing.T) {
+	l := newLayout(t)
+	daemonUp(t, l)
+	for _, n := range []string{"web", "api", "tools"} {
+		addProject(t, l, newRepo(t, l, n))
+	}
+
+	if got := strings.Join(listedNames(t, l), ","); got != "api,tools,web" {
+		t.Errorf("owl project list order = %s, want api,tools,web", got)
+	}
 }

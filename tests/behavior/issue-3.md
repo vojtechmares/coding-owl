@@ -211,3 +211,10 @@ Given a running daemon and a temporary repository whose `main` branch carries a 
 When `owl project add <path> --base-branch main:.coding-owl.yaml` runs
 Then it exits with a non-zero code
 And no Project is registered
+
+### S31 - move and rename work on a Project whose configuration cannot be loaded
+Given a running daemon and a registered Project named `bad` whose base branch carries `.coding-owl.yaml` with `apiVersion: codingowl.dev/v99`, so `owl project show bad` exits non-zero
+When `owl project move bad <second repository>` runs, and then `owl project rename bad good`
+Then each exits 0
+And `owl project list` shows the Project at the new path under the name `good`
+And neither command reports a failure while having made its change

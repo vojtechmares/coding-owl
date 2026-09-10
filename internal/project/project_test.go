@@ -357,7 +357,7 @@ func TestMoveUpdatesThePathAndKeepsIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := f.svc.Move(ctx, "api", moved); err != nil {
+	if _, err := f.svc.Move(ctx, "api", moved); err != nil {
 		t.Fatalf("Move: %v", err)
 	}
 
@@ -384,7 +384,7 @@ func TestMoveRefusesANonRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := f.svc.Move(ctx, "api", plain); err == nil {
+	if _, err := f.svc.Move(ctx, "api", plain); err == nil {
 		t.Fatal("Move accepted a directory that is not a repository")
 	}
 
@@ -401,7 +401,7 @@ func TestMoveUnknownProject(t *testing.T) {
 	f := newFixture(t)
 	dir := f.repo(t, "api")
 
-	if err := f.svc.Move(ctx, "ghost", dir); !errors.Is(err, store.ErrNotFound) {
+	if _, err := f.svc.Move(ctx, "ghost", dir); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("Move error = %v, want ErrNotFound", err)
 	}
 }
@@ -414,7 +414,7 @@ func TestRenameMovesTheConfigurationDirectory(t *testing.T) {
 	content := owlConfig("fallback/")
 	writeFile(t, filepath.Join(f.configHome, "api", "config.yaml"), content)
 
-	if err := f.svc.Rename(ctx, "api", "backend"); err != nil {
+	if _, err := f.svc.Rename(ctx, "api", "backend"); err != nil {
 		t.Fatalf("Rename: %v", err)
 	}
 
@@ -439,7 +439,7 @@ func TestRenameWithNoConfigurationDirectory(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	if err := f.svc.Rename(ctx, "api", "backend"); err != nil {
+	if _, err := f.svc.Rename(ctx, "api", "backend"); err != nil {
 		t.Fatalf("Rename: %v", err)
 	}
 	if _, err := f.svc.Show(ctx, "backend"); err != nil {
@@ -456,7 +456,7 @@ func TestRenameOntoATakenNameLeavesNothingBehind(t *testing.T) {
 		writeFile(t, filepath.Join(f.configHome, n, "config.yaml"), owlConfig(n+"/"))
 	}
 
-	err := f.svc.Rename(ctx, "api", "backend")
+	_, err := f.svc.Rename(ctx, "api", "backend")
 
 	if err == nil || !strings.Contains(err.Error(), "backend") {
 		t.Fatalf("Rename error = %v, want an error naming backend", err)
@@ -482,7 +482,7 @@ func TestRenameRefusesAnInvalidName(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	if err := f.svc.Rename(ctx, "api", "a/b"); err == nil || !strings.Contains(err.Error(), "invalid") {
+	if _, err := f.svc.Rename(ctx, "api", "a/b"); err == nil || !strings.Contains(err.Error(), "invalid") {
 		t.Errorf("Rename error = %v, want an invalid-name error", err)
 	}
 }
@@ -490,7 +490,7 @@ func TestRenameRefusesAnInvalidName(t *testing.T) {
 func TestRenameUnknownProject(t *testing.T) {
 	f := newFixture(t)
 
-	if err := f.svc.Rename(ctx, "ghost", "other"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := f.svc.Rename(ctx, "ghost", "other"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("Rename error = %v, want ErrNotFound", err)
 	}
 }
@@ -591,7 +591,7 @@ func TestMoveRefusesAPathWithoutTheBaseBranch(t *testing.T) {
 	other := f.repo(t, "other")
 	f.git(t, other, "branch", "-m", "main", "trunk")
 
-	err := f.svc.Move(ctx, "api", other)
+	_, err := f.svc.Move(ctx, "api", other)
 
 	if err == nil || !strings.Contains(err.Error(), "main") {
 		t.Fatalf("Move error = %v, want an error naming the missing base branch", err)

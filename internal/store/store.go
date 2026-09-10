@@ -36,8 +36,16 @@ type Store struct {
 // needed, and brings the schema up to date. Running it against a database that
 // is already current applies nothing.
 func Open(path string) (*Store, Migration, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, Migration{}, fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, Migration{}, fmt.Errorf("creating %s: %w", dir, err)
+	}
+	// SQLite creates owl.db-wal and owl.db-shm alongside the database at the
+	// process umask, and the write-ahead log holds committed rows. MkdirAll
+	// does not tighten a directory that already exists, so the mode is set
+	// rather than assumed.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, Migration{}, fmt.Errorf("restricting %s: %w", dir, err)
 	}
 	dsn := "file:" + url.PathEscape(path) +
 		"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"

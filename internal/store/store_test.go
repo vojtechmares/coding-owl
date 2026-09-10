@@ -217,3 +217,28 @@ func TestRenameUnknownProjectOntoAnExistingName(t *testing.T) {
 		t.Errorf("RenameProject error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestOpenRestrictsTheDatabaseAndItsDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data")
+	// A directory that already exists and is world-readable: MkdirAll would
+	// leave it alone, but the write-ahead log lands in it.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "owl.db")
+
+	s := openStore(t, path)
+	if err := s.AddProject(ctx, store.Project{Name: "api", Path: "/src/api", BaseBranch: "main", Registered: time.Now()}); err != nil {
+		t.Fatalf("AddProject: %v", err)
+	}
+
+	for target, want := range map[string]os.FileMode{dir: 0o700, path: 0o600} {
+		st, err := os.Stat(target)
+		if err != nil {
+			t.Fatalf("stat %s: %v", target, err)
+		}
+		if got := st.Mode().Perm(); got != want {
+			t.Errorf("%s mode = %o, want %o", target, got, want)
+		}
+	}
+}
