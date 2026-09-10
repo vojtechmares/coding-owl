@@ -44,10 +44,10 @@ type Job struct {
 	// and the Project or the defaults decide (ADR-0028).
 	Model  string
 	Effort string
-	// Note is why the Job is where it is when no Run explains it: a setup
+	// Reason is why the Job is where it is when no Run explains it: a setup
 	// command that failed before an Agent started, or the checks that refused
 	// the work.
-	Note string
+	Reason string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -57,7 +57,7 @@ type Job struct {
 
 // jobColumns is the select list every Job read shares, in scanJob's order.
 const jobColumns = `id, source, source_ref, project, prompt, state, branch, worktree,
-	planned, plan, model, effort, note, position, created`
+	planned, plan, model, effort, reason, position, created`
 
 // UpsertJob produces j. A Job with that source and reference is not made
 // twice: the second production rewrites the prompt of the Job already in the
@@ -135,14 +135,9 @@ func (s *Store) NextQueued(ctx context.Context, state string) (Job, bool, error)
 
 // SetJobState moves a Job to another state, leaving its place in the queue
 // alone: a re-attempt never changes a Job's position (ADR-0025). A Job on its
-// way somewhere carries no note about why it stopped.
+// way somewhere carries no reason for having stopped.
 func (s *Store) SetJobState(ctx context.Context, id int64, state string) error {
-	return s.affectOneJob(ctx, id, `UPDATE jobs SET state = ?, note = '' WHERE id = ?`, state, id)
-}
-
-// SetJobNote records why a Job is where it is, for a state no Run explains.
-func (s *Store) SetJobNote(ctx context.Context, id int64, note string) error {
-	return s.affectOneJob(ctx, id, `UPDATE jobs SET note = ? WHERE id = ?`, note, id)
+	return s.affectOneJob(ctx, id, `UPDATE jobs SET state = ?, reason = '' WHERE id = ?`, state, id)
 }
 
 // SetJobPlan records what a Job's planning Run decided, which is also what is
@@ -206,7 +201,7 @@ func scanJob(sc scanner) (Job, error) {
 	var planned int
 	var created string
 	if err := sc.Scan(&j.ID, &j.Source, &j.SourceRef, &j.Project, &j.Prompt, &j.State,
-		&j.Branch, &j.Worktree, &planned, &j.Plan, &j.Model, &j.Effort, &j.Note,
+		&j.Branch, &j.Worktree, &planned, &j.Plan, &j.Model, &j.Effort, &j.Reason,
 		&position, &created); err != nil {
 		return Job{}, err
 	}
@@ -221,14 +216,14 @@ func scanJob(sc scanner) (Job, error) {
 }
 
 // DequeueJob takes a Job out of the queue, giving it state and no position,
-// and closes the gap behind it so the queue keeps counting from one. note says
-// why, for the states no Run explains; pass an empty note otherwise. It
+// and closes the gap behind it so the queue keeps counting from one. reason
+// says why, for the states no Run explains; pass an empty one otherwise. It
 // returns ErrNotQueued for a Job that has already left.
-func (s *Store) DequeueJob(ctx context.Context, id int64, state, note string) error {
+func (s *Store) DequeueJob(ctx context.Context, id int64, state, reason string) error {
 	return s.inTx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`UPDATE jobs SET state = ?, note = ?, position = NULL WHERE id = ? AND position IS NOT NULL`,
-			state, note, id)
+			`UPDATE jobs SET state = ?, reason = ?, position = NULL WHERE id = ? AND position IS NOT NULL`,
+			state, reason, id)
 		if err != nil {
 			return err
 		}

@@ -34,14 +34,18 @@ func newStartCmd(env Env) *cobra.Command {
 		Long: `Run the Job at the head of the queue.
 
 The Job gets a git worktree and a branch of its own, so an Agent never
-touches your checkout, and the Run continues in the daemon after this
-command returns. Follow it with owl logs.`,
+touches your checkout. This command waits while the Project's setup
+commands prepare that worktree, and returns once the Agent has started;
+the Run itself continues in the daemon. Follow it with owl logs.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// Starting a Run includes the Project's setup commands, which
 			// fetch dependencies and are slow by nature. The daemon bounds
-			// each of them, so this only has to be longer than they are.
-			ctx, cancel := context.WithTimeout(cmd.Context(), startTimeout)
+			// each of them, so this only has to be longer than they are - and
+			// Ctrl-C is how a person stops waiting.
+			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
+			ctx, cancel := context.WithTimeout(ctx, startTimeout)
 			defer cancel()
 			return withTimeout(ctx, env, func(ctx context.Context, c *client.Client) error {
 				job, run, started, err := c.StartRun(ctx)
@@ -201,8 +205,8 @@ func printPhases(env Env, phases []client.PhaseSettings) {
 // command that failed, or the checks that refused the work - and otherwise why
 // its most recent Run did not succeed.
 func whyHere(d client.JobDetails) string {
-	if d.Job.Note != "" {
-		return d.Job.Note
+	if d.Job.Reason != "" {
+		return d.Job.Reason
 	}
 	if len(d.Runs) == 0 {
 		return ""

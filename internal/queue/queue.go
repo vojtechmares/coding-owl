@@ -95,8 +95,8 @@ type Job struct {
 	// Model and Effort are the Job's own overrides, empty when it has none.
 	Model  string
 	Effort string
-	// Note is why the Job is where it is when no Run explains it.
-	Note string
+	// Reason is why the Job is where it is when no Run explains it.
+	Reason string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -276,7 +276,7 @@ func FromStore(j store.Job) Job {
 		Plan:      j.Plan,
 		Model:     j.Model,
 		Effort:    j.Effort,
-		Note:      j.Note,
+		Reason:    j.Reason,
 		Position:  j.Position,
 		Created:   j.Created,
 	}

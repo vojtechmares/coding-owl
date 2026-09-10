@@ -178,7 +178,7 @@ func toJobProto(j queue.Job) *codingowlv1.Job {
 		Worktree:  j.Worktree,
 		Planned:   j.Planned,
 		Plan:      j.Plan,
-		Note:      j.Note,
+		Reason:    j.Reason,
 		Position:  int32(j.Position),
 		Created:   timestamppb.New(j.Created),
 	}

@@ -193,6 +193,11 @@ func NewService(opts Options) *Service {
 // Close stops every Agent still running and waits for their Runs to be
 // recorded. No Run starts after it.
 func (s *Service) Close() error {
+	// Cancelling comes first: a Start in the middle of a Project's setup
+	// commands holds the lock below for as long as they take, and cancelling
+	// is what lets it give the lock back.
+	s.cancel()
+
 	// Refusing new Runs under the same lock Start holds is what orders the two:
 	// a Start already under way finishes counting its Run in before the wait
 	// below begins, and one that arrives afterwards is refused.
@@ -200,9 +205,20 @@ func (s *Service) Close() error {
 	s.stopping = true
 	s.starting.Unlock()
 
-	s.cancel()
 	s.wg.Wait()
 	return nil
+}
+
+// untilClosed is ctx, cut short when the Service closes. The work it bounds is
+// the user's own commands, which can take minutes: a daemon that is stopping
+// must not have to wait for them.
+func (s *Service) untilClosed(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(s.ctx, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
 }
 
 // Recover ends the Runs that were still going when the daemon last stopped.
@@ -632,12 +648,18 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 // that fails blocks the Job and says which one it was: nothing an Agent could
 // do would help.
 func (s *Service) prepare(ctx context.Context, j store.Job, setup []string) error {
+	ctx, cancel := s.untilClosed(ctx)
+	defer cancel()
 	for _, cmd := range setup {
 		res, err := shell.Run(ctx, j.Worktree, cmd, setupTimeout)
 		failure := ""
 		switch {
 		case err != nil:
 			failure = fmt.Sprintf("the setup command %q could not be run: %v", cmd, err)
+		case res.Cancelled:
+			// The daemon is stopping, or the caller hung up: the Job has not
+			// failed at anything, so it stays where it was.
+			return fmt.Errorf("setup was stopped before %q finished", cmd)
 		case res.TimedOut:
 			failure = fmt.Sprintf("the setup command %q timed out after %s", cmd, setupTimeout)
 		case res.ExitCode != 0:
@@ -673,6 +695,12 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64, cfg conf
 	results, err := s.opts.Verifier.Verify(ctx, verifier.Request{
 		WorkingDir: j.Worktree, Checks: cfg.Checks,
 	})
+	if ctx.Err() != nil {
+		// The daemon stopped part way through. Nothing has judged this work,
+		// so nothing is written down about it: the Run is recorded as
+		// interrupted and the Job waits its turn again.
+		return ""
+	}
 	if err != nil {
 		return fmt.Sprintf("verification could not be carried out: %v", err)
 	}
