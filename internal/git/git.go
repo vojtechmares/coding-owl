@@ -86,6 +86,29 @@ func HasBranch(dir, branch string) (bool, error) {
 	}
 }
 
+// HeadBranch is the branch a worktree has checked out, or empty when it is on
+// no branch at all. An error means git could not be asked, which is not the
+// same answer.
+func HeadBranch(dir string) (string, error) {
+	out, stderr, code, err := run(dir, "symbolic-ref", "--quiet", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case code == 1:
+		// Exactly one: symbolic-ref reports a ref that is not symbolic that
+		// way, and keeps the higher statuses for being unable to answer.
+		return "", nil
+	case code != 0:
+		return "", fmt.Errorf("reading what %s has checked out: %s", dir, message(stderr))
+	}
+	branch, ok := strings.CutPrefix(strings.TrimSpace(string(out)), "refs/heads/")
+	if !ok {
+		return "", nil
+	}
+	return branch, nil
+}
+
 // ShowFileOnBranch returns the contents of path as it stands on the local
 // branch. found is false when the branch carries no blob at that path, which
 // includes the path naming a directory. It fails when the branch cannot be
@@ -667,7 +690,14 @@ func Rebase(path, base string) (Conflict, error) {
 	// on the user having configured one. The base is named as a ref rather
 	// than by its bare name, because a tag of the same name would otherwise
 	// decide what the Job is rebased onto.
-	args := append(append([]string{}, owlIdentity...), "rebase", "--autostash", "--", branchRef(base))
+	// --no-update-refs: git will otherwise carry other branches along with the
+	// commits it rewrites, and rebase.updateRefs is a setting a user may have
+	// on globally - or an Agent may set in the repository the worktree shares.
+	// Owl rebases its own Job branch and nothing else (ADR-0016).
+	// --no-verify: a pre-rebase hook is somebody else's code, and this runs
+	// unattended, exactly as the commit below does.
+	args := append(append([]string{}, owlIdentity...),
+		"rebase", "--no-update-refs", "--no-verify", "--autostash", "--", branchRef(base))
 	_, stderr, code, err := run(path, args...)
 	if err != nil {
 		return Conflict{}, err

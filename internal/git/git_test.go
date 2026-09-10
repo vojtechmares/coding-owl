@@ -1264,3 +1264,76 @@ func TestRebaseLeavesNoRebaseInProgressWhenItCannotCommit(t *testing.T) {
 		t.Errorf("the worktree is on %q, want the job's branch", got)
 	}
 }
+
+func TestRebaseCarriesNoOtherBranchWithIt(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	commit(t, worktree, "work.txt", "the agent's work\n")
+	// A branch of somebody else's on one of the commits about to be rewritten,
+	// and the setting that tells git to carry it along. An Agent can set it:
+	// the worktree shares the repository's configuration.
+	run(t, worktree, "branch", "someone-else", "HEAD")
+	elsewhere := strings.TrimSpace(run(t, worktree, "rev-parse", "someone-else"))
+	run(t, dir, "config", "rebase.updateRefs", "true")
+	commit(t, dir, "from-base.txt", "moved on\n")
+
+	conflict, err := git.Rebase(worktree, "main")
+
+	if err != nil || conflict.Conflicted() {
+		t.Fatalf("Rebase = %+v, %v, want a clean rebase", conflict, err)
+	}
+	if got := strings.TrimSpace(run(t, worktree, "rev-parse", "someone-else")); got != elsewhere {
+		t.Errorf("somebody else's branch was rewritten to %s, want it left at %s", got, elsewhere)
+	}
+}
+
+func TestRebaseDoesNotRunARepositorysHooks(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	commit(t, worktree, "work.txt", "the agent's work\n")
+	commit(t, dir, "from-base.txt", "moved on\n")
+	// A hook in the repository the worktree shares, which an Agent can write.
+	hooks := strings.TrimSpace(run(t, dir, "rev-parse", "--git-path", "hooks"))
+	if !filepath.IsAbs(hooks) {
+		hooks = filepath.Join(dir, hooks)
+	}
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ran := filepath.Join(t.TempDir(), "ran")
+	if err := os.WriteFile(filepath.Join(hooks, "pre-rebase"),
+		[]byte("#!/bin/sh\ntouch "+ran+"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	conflict, err := git.Rebase(worktree, "main")
+
+	if err != nil || conflict.Conflicted() {
+		t.Fatalf("Rebase = %+v, %v; a hook of somebody else's refused it", conflict, err)
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Errorf("the repository's pre-rebase hook was run")
+	}
+}
+
+func TestHeadBranchTellsADetachedWorktreeFromAFailure(t *testing.T) {
+	dir := newRepo(t)
+
+	if got, err := git.HeadBranch(dir); err != nil || got != "main" {
+		t.Errorf("HeadBranch = %q, %v, want main", got, err)
+	}
+	run(t, dir, "checkout", "--quiet", "--detach", "HEAD")
+	if got, err := git.HeadBranch(dir); err != nil || got != "" {
+		t.Errorf("HeadBranch on a detached worktree = %q, %v, want no branch and no error", got, err)
+	}
+	// Somewhere that is not a repository at all is a different answer.
+	if _, err := git.HeadBranch(t.TempDir()); err == nil {
+		t.Error("HeadBranch reported success outside a repository")
+	}
+}

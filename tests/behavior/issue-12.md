@@ -60,7 +60,7 @@ Then it exits 0 and the Run proceeds
 And the Job's branch points at the base branch's tip plus whatever the Agent did
 
 ### S8 - only the Job's branch is rebased
-Given the Job of S1, and a second branch in the Project carrying a commit of its own
+Given the Job of S1, a second branch pointing at one of the Job's own commits, and the Project configured to carry branches along with a rebase
 When the second Run has started
 Then the Project's own checkout is still on its base branch, at the same commit
 And that second branch still points where it did

@@ -252,6 +252,10 @@ func TestS8OnlyTheJobsBranchIsRebased(t *testing.T) {
 	// file in the Project.
 	rb.repo.git("branch", "someone-else", rb.branch(t))
 	elsewhere := strings.TrimSpace(rb.repo.git("rev-parse", "someone-else"))
+	// The setting that tells git to carry other branches along with the
+	// commits it rewrites, which an Agent can set in the repository its
+	// worktree shares.
+	rb.repo.git("config", "rebase.updateRefs", "true")
 	rb.repo.write("mine.txt", "not committed\n")
 	rb.moveBase(t, "from-base.txt", "added while the job was waiting\n")
 	head := strings.TrimSpace(rb.repo.git("rev-parse", "HEAD"))
