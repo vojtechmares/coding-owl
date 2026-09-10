@@ -45,6 +45,9 @@ type invocation struct {
 	PID  int      `json:"pid"`
 	PPID int      `json:"ppid"`
 	Dir  string   `json:"dir"`
+	// Entries are the names in its working directory when it started, which is
+	// how a scenario sees what a setup command left there.
+	Entries []string `json:"entries"`
 }
 
 // agentLayout returns an XDG layout whose daemon finds the stub agent first on
