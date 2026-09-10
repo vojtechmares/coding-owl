@@ -405,6 +405,13 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 		j.Branch, j.Worktree = branch, worktree
 	}
 
+	// Every Run starts from current code: Verification against a base nobody
+	// is on any more can fail for reasons that have nothing to do with the
+	// Job, and pass for reasons that will not survive contact (ADR-0016).
+	if err := s.rebase(ctx, j, details); err != nil {
+		return queue.Job{}, Run{}, false, err
+	}
+
 	// The Skills a Project declares are placed before anything reads them, and
 	// before the setup commands, which may want them. A Skill that cannot be
 	// fetched or placed refuses the Run rather than failing it: nothing is
@@ -1026,6 +1033,18 @@ func (s *Service) requeue(ctx context.Context, jobID int64, what string) {
 	}
 }
 
+// blocked records why a Job cannot be carried out and returns that as the
+// error the caller sees. Writing it down is bookkeeping, and outlives whatever
+// context the work itself ran under.
+func (s *Service) blocked(j store.Job, reason string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
+	defer cancel()
+	if err := s.opts.Store.DequeueJob(ctx, j.ID, string(queue.StateBlocked), reason); err != nil {
+		s.opts.Logger.Error("blocking a job", "job", j.ID, "error", err)
+	}
+	return errors.New(reason)
+}
+
 // prepare runs the Project's setup commands in the Job's worktree. A command
 // that fails blocks the Job and says which one it was: nothing an Agent could
 // do would help.
@@ -1051,14 +1070,7 @@ func (s *Service) prepare(ctx context.Context, j store.Job, setup []string) erro
 		default:
 			continue
 		}
-		// Writing down why is bookkeeping, and outlives the context the
-		// command itself ran under.
-		write, cancelWrite := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
-		if err := s.opts.Store.DequeueJob(write, j.ID, string(queue.StateBlocked), failure); err != nil {
-			s.opts.Logger.Error("blocking a job whose setup failed", "job", j.ID, "error", err)
-		}
-		cancelWrite()
-		return errors.New(failure)
+		return s.blocked(j, failure)
 	}
 	return nil
 }

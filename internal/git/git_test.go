@@ -984,3 +984,194 @@ func TestDefaultBranchIsWhatHeadPointsAt(t *testing.T) {
 		t.Errorf("DefaultBranch = %q, want trunk", got)
 	}
 }
+
+// onBranch cuts a branch in a worktree and commits a file on it.
+func onBranch(t *testing.T, dir, branch, path, body string) {
+	t.Helper()
+	run(t, dir, "checkout", "-q", "-b", branch)
+	commit(t, dir, path, body)
+}
+
+func TestRebaseReplaysABranchOntoAMovedBase(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	commit(t, worktree, "work.txt", "the agent's work\n")
+	commit(t, dir, "from-base.txt", "moved on\n")
+
+	conflicts, err := git.Rebase(worktree, "main")
+
+	if err != nil || conflicts != nil {
+		t.Fatalf("Rebase = %v, %v, want a clean rebase", conflicts, err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "from-base.txt")); err != nil {
+		t.Errorf("the base's new file is not in the worktree: %v", err)
+	}
+	if body, err := os.ReadFile(filepath.Join(worktree, "work.txt")); err != nil || string(body) != "the agent's work\n" {
+		t.Errorf("what was on the branch reads %q, %v", body, err)
+	}
+	if out := run(t, worktree, "merge-base", "--is-ancestor", "main", "HEAD"); out != "" {
+		t.Errorf("the base is not an ancestor of the branch: %s", out)
+	}
+}
+
+func TestRebaseAbortsAConflictAndNamesThePaths(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	commit(t, worktree, "both.txt", "what the agent wrote\n")
+	before := strings.TrimSpace(run(t, worktree, "rev-parse", "HEAD"))
+	commit(t, dir, "both.txt", "what the base says\n")
+
+	conflicts, err := git.Rebase(worktree, "main")
+
+	if err != nil {
+		t.Fatalf("Rebase: %v", err)
+	}
+	if strings.Join(conflicts, ",") != "both.txt" {
+		t.Errorf("conflicts = %v, want both.txt", conflicts)
+	}
+	if progress, err := git.RebaseInProgress(worktree); err != nil || progress {
+		t.Errorf("RebaseInProgress = %v, %v; an aborted rebase leaves none", progress, err)
+	}
+	if got := strings.TrimSpace(run(t, worktree, "rev-parse", "HEAD")); got != before {
+		t.Errorf("the worktree is at %s, want where it was, %s", got, before)
+	}
+	if body, err := os.ReadFile(filepath.Join(worktree, "both.txt")); err != nil || string(body) != "what the agent wrote\n" {
+		t.Errorf("the file reads %q, %v; an aborted rebase leaves the work alone", body, err)
+	}
+}
+
+func TestRebaseKeepsWhatNobodyCommitted(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	commit(t, worktree, "work.txt", "committed\n")
+	// What an interrupted Run leaves behind: a tracked file changed and not
+	// committed (ADR-0011).
+	if err := os.WriteFile(filepath.Join(worktree, "work.txt"), []byte("committed\nand more\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commit(t, dir, "from-base.txt", "moved on\n")
+
+	conflicts, err := git.Rebase(worktree, "main")
+
+	if err != nil || conflicts != nil {
+		t.Fatalf("Rebase = %v, %v, want a clean rebase", conflicts, err)
+	}
+	if body, err := os.ReadFile(filepath.Join(worktree, "work.txt")); err != nil || string(body) != "committed\nand more\n" {
+		t.Errorf("the uncommitted change reads %q, %v", body, err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "from-base.txt")); err != nil {
+		t.Errorf("the base's new file is not in the worktree: %v", err)
+	}
+}
+
+func TestRebaseReportsABaseThatIsNotThere(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+
+	conflicts, err := git.Rebase(worktree, "no-such-branch")
+
+	if err == nil {
+		t.Fatalf("Rebase onto a branch that is not there reported %v and no error", conflicts)
+	}
+	if !strings.Contains(err.Error(), "no-such-branch") {
+		t.Errorf("error %q does not name the base", err)
+	}
+}
+
+func TestRebaseInProgressSeesOneNobodyFinished(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	commit(t, worktree, "both.txt", "what the agent wrote\n")
+	commit(t, dir, "both.txt", "what the base says\n")
+	// Started by hand and left, which is what git does on a conflict.
+	if out := runAllowingFailure(t, worktree, "rebase", "main"); !strings.Contains(out, "CONFLICT") {
+		t.Fatalf("the rebase did not conflict:\n%s", out)
+	}
+
+	progress, err := git.RebaseInProgress(worktree)
+
+	if err != nil || !progress {
+		t.Errorf("RebaseInProgress = %v, %v, want a rebase in progress", progress, err)
+	}
+	run(t, worktree, "rebase", "--abort")
+	if progress, err := git.RebaseInProgress(worktree); err != nil || progress {
+		t.Errorf("RebaseInProgress after an abort = %v, %v, want none", progress, err)
+	}
+}
+
+func TestFetchBaseUpdatesWhatIsKnownWithoutMovingAnything(t *testing.T) {
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	dir := newRepo(t)
+	run(t, dir, "init", "--bare", origin)
+	run(t, dir, "remote", "add", "origin", origin)
+	run(t, dir, "push", "--quiet", "origin", "main")
+	// Somebody else pushes to it.
+	other := filepath.Join(t.TempDir(), "other")
+	run(t, dir, "clone", "--quiet", "--branch", "main", origin, other)
+	commit(t, other, "theirs.txt", "pushed by somebody else\n")
+	run(t, other, "push", "--quiet", "origin", "main")
+	pushed := strings.TrimSpace(run(t, other, "rev-parse", "HEAD"))
+	mine := strings.TrimSpace(run(t, dir, "rev-parse", "main"))
+
+	if err := git.FetchBase(dir, "main"); err != nil {
+		t.Fatalf("FetchBase: %v", err)
+	}
+
+	if got := strings.TrimSpace(run(t, dir, "rev-parse", "refs/remotes/origin/main")); got != pushed {
+		t.Errorf("the remote-tracking branch is at %s, want %s", got, pushed)
+	}
+	if got := strings.TrimSpace(run(t, dir, "rev-parse", "main")); got != mine {
+		t.Errorf("the local branch moved to %s, want it left at %s", got, mine)
+	}
+}
+
+func TestFetchBaseWithNoRemoteIsNothingToDo(t *testing.T) {
+	dir := newRepo(t)
+
+	if err := git.FetchBase(dir, "main"); err != nil {
+		t.Errorf("FetchBase on a repository with no remote: %v", err)
+	}
+}
+
+func TestFetchBaseReportsARemoteItCannotReach(t *testing.T) {
+	dir := newRepo(t)
+	run(t, dir, "remote", "add", "origin", filepath.Join(t.TempDir(), "not-there.git"))
+
+	err := git.FetchBase(dir, "main")
+
+	if err == nil {
+		t.Fatal("FetchBase reported success for a remote that is not there")
+	}
+	if !strings.Contains(err.Error(), "main") {
+		t.Errorf("error %q does not name the branch it was fetching", err)
+	}
+}
+
+// runAllowingFailure runs git and returns its output whether or not it
+// succeeded, for a command a test expects to fail.
+func runAllowingFailure(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Owl Test", "GIT_AUTHOR_EMAIL=owl@example.com",
+		"GIT_COMMITTER_NAME=Owl Test", "GIT_COMMITTER_EMAIL=owl@example.com",
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	out, _ := cmd.CombinedOutput()
+	return string(out)
+}
