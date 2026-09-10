@@ -452,7 +452,7 @@ func TestS18QueueJobsCarryTheLocalSourceAndAULIDReference(t *testing.T) {
 // that producing twice means producing the same reference twice (ADR-0032).
 type fixedSource struct{ ref string }
 
-func (fixedSource) Name() string          { return "test" }
+func (fixedSource) Name() string           { return "test" }
 func (s fixedSource) Ref() (string, error) { return s.ref, nil }
 
 // queueService opens a temporary database holding one Project and returns a
