@@ -6,7 +6,7 @@ import "strings"
 // it, so a Job inherits sane unattended behaviour without the user restating
 // it. It is short and stable on purpose: it is a contract, not a style guide,
 // and changing it changes behaviour in every Project at once.
-var Contract = `You are running unattended, as part of Coding Owl. Nobody is watching you and nobody can answer a question, so:
+const Contract = `You are running unattended, as part of Coding Owl. Nobody is watching you and nobody can answer a question, so:
 
 - Make reasonable assumptions rather than stalling, and write down what you assumed and why.
 - Commit incrementally, with messages that explain the reasoning rather than restating the diff.

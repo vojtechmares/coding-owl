@@ -339,11 +339,13 @@ func (s *Service) promptFor(phase Phase, j store.Job) (string, error) {
 	// The handoff in the worktree is what the last Run left and what the user
 	// may have edited since, so it wins. A Job whose worktree has lost the
 	// file still has its plan, which is what the handoff started as
-	// (ADR-0026).
+	// (ADR-0026), and the prompt says so rather than naming a file that is not
+	// there.
+	source := HandoffPath + " on this branch"
 	if strings.TrimSpace(handoff) == "" {
-		handoff = j.Plan
+		handoff, source = j.Plan, "the plan this job was given"
 	}
-	return executePrompt(j.Prompt, handoff), nil
+	return executePrompt(j.Prompt, handoff, source), nil
 }
 
 // readHandoff reads a Job's handoff from its worktree. A Job that has none yet

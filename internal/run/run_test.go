@@ -535,6 +535,9 @@ func TestExecutionFallsBackToThePlanWhenTheWorktreeLostItsHandoff(t *testing.T) 
 	j := queueJob(t, st, "work")
 	// A Job past planning, whose worktree no longer holds the handoff the plan
 	// was written to.
+	if err := st.SetJobState(ctx, j.ID, string(queue.StatePending)); err != nil {
+		t.Fatalf("SetJobState: %v", err)
+	}
 	if err := st.SetJobPlan(ctx, j.ID, "step one: read the tests"); err != nil {
 		t.Fatalf("SetJobPlan: %v", err)
 	}
