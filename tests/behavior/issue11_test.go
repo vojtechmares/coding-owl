@@ -197,17 +197,25 @@ func TestS2ResumeContinuesTheSameRun(t *testing.T) {
 func TestS3StatusReportsAFrozenRun(t *testing.T) {
 	b := beatingLayout(t, "")
 	daemonUp(t, b.l)
-	b.frozen(t)
+	run, job := b.frozen(t)
 
 	row := runningRow(t, mustOwl(t, b.l, "status").stdout)
 
 	if !contains(row, "paused") {
 		t.Errorf("owl status does not report the run as paused: %v", row)
 	}
+	if got := runRowOf(t, b.l, job, run).outcome; got != "paused" {
+		t.Errorf("owl jobs show reports the run as %q, want paused", got)
+	}
 	mustOwl(t, b.l, "resume")
 	row = runningRow(t, mustOwl(t, b.l, "status").stdout)
 	if contains(row, "paused") {
 		t.Errorf("owl status still reports the run as paused after resume: %v", row)
+	}
+	// Running again, not merely not-paused: a report that said nothing at all
+	// would satisfy the line above.
+	if !contains(row, "running") {
+		t.Errorf("owl status does not report the run as running again: %v", row)
 	}
 	b.stub.let(t)
 }
@@ -687,4 +695,28 @@ func TestS19WhatTheAgentStartedDoesNotOutliveItsRun(t *testing.T) {
 	if !b.still(t) {
 		t.Errorf("the child the agent started is still beating after its run ended")
 	}
+}
+
+func TestS20AnAgentThatWillNotStopIsKilled(t *testing.T) {
+	b := beatingLayout(t, "apiVersion: codingowl.dev/v1\ngraceWindow: 1s\n")
+	// An Agent that catches being asked to stop and carries on regardless.
+	b.l = b.l.withEnv("OWL_FAKE_CLAUDE_IGNORE_TERM=1")
+	daemonUp(t, b.l)
+	run, job := b.frozen(t)
+
+	row := waitRun(t, b.l, job, run)
+
+	if row.outcome != "interrupted" {
+		t.Errorf("run outcome = %q, want interrupted", row.outcome)
+	}
+	if got := line(t, mustOwl(t, b.l, "jobs", "show", job).stdout, "state"); got != "pending" {
+		t.Errorf("state = %q, want pending", got)
+	}
+	b.gone(t)
+	// And the queue is not held by it.
+	again, _ := startRun(t, b.l)
+	if again == run {
+		t.Errorf("owl start reported run %s again", again)
+	}
+	mustOwl(t, b.l, "pause")
 }

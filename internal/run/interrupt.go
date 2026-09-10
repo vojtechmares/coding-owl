@@ -16,6 +16,11 @@ const DefaultGraceWindow = 15 * time.Minute
 // expiredReason is what a Run that outstayed the grace window is recorded with.
 const expiredReason = "the grace window passed while this run was paused"
 
+// killAfterTerm is how long an Agent the grace window ended has to go before it
+// is killed outright. ADR-0011 escalates to SIGTERM; an Agent that will not act
+// on it would otherwise hold its Job for ever, with no verb that reaches it.
+const killAfterTerm = 5 * time.Second
+
 // live is a Run this daemon can still reach: the Agent it started, and whether
 // it is frozen.
 type live struct {
@@ -80,7 +85,9 @@ func (s *Service) Pause(ctx context.Context) (Run, error) {
 	}
 	if err := l.proc.SignalGroup(syscall.SIGSTOP); err != nil {
 		// The Agent exited between the lookup and the signal, which is the
-		// Run ending rather than anything going wrong.
+		// Run ending rather than anything going wrong - but whatever the
+		// system said is worth writing down, in case it was something else.
+		s.opts.Logger.Warn("a run could not be paused", "run", runID, "error", err)
 		return Run{}, refused("run %d ended before it could be paused", runID)
 	}
 	l.paused = true
@@ -102,6 +109,7 @@ func (s *Service) Resume(ctx context.Context) (Run, error) {
 		return Run{}, refused("run %d is not paused", runID)
 	}
 	if err := l.proc.SignalGroup(syscall.SIGCONT); err != nil {
+		s.opts.Logger.Warn("a run could not be resumed", "run", runID, "error", err)
 		l.release()
 		return Run{}, refused("run %d ended while it was paused", runID)
 	}
@@ -193,6 +201,25 @@ func (s *Service) expire(runID int64) {
 	}
 	if err := proc.SignalGroup(syscall.SIGTERM); err != nil {
 		s.opts.Logger.Error("ending a run the grace window expired on", "run", runID, "error", err)
+	}
+	// An Agent that has not gone by now is not going to: the Run would
+	// otherwise stay in progress with its Job held and nothing able to release
+	// it. Signalling a Run that has already ended is refused by the executor,
+	// so this costs nothing when the Agent did stop.
+	time.AfterFunc(killAfterTerm, func() { s.kill(runID) })
+}
+
+// kill ends an Agent that did not act on being asked to stop.
+func (s *Service) kill(runID int64) {
+	s.mu.Lock()
+	l, ok := s.live[runID]
+	s.mu.Unlock()
+	if !ok {
+		return
+	}
+	s.opts.Logger.Warn("an agent did not stop when it was asked, and is being killed", "run", runID)
+	if err := l.proc.SignalGroup(syscall.SIGKILL); err != nil {
+		s.opts.Logger.Error("killing a run that would not stop", "run", runID, "error", err)
 	}
 }
 
