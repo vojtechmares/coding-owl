@@ -797,3 +797,27 @@ func (v *blockingVerifier) Verify(ctx context.Context, req verifier.Request) ([]
 	}
 	return results, nil
 }
+
+func TestStartRefusesOnceTheDaemonsContextIsDone(t *testing.T) {
+	ctx := context.Background()
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{})
+	j := queueJob(t, st, "work")
+	// Close cancels before it sets the flag, so this is the moment between the
+	// two: a Job started here would be judged on a run that never happened.
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	_, _, started, err := svc.Start(ctx)
+
+	if started || err == nil {
+		t.Fatalf("Start = %v, %v, want it refused", started, err)
+	}
+	after, getErr := st.GetJob(ctx, j.ID)
+	if getErr != nil {
+		t.Fatalf("GetJob: %v", getErr)
+	}
+	if queue.State(after.State) != queue.StatePending {
+		t.Errorf("state = %q, want the job untouched and still waiting", after.State)
+	}
+}
