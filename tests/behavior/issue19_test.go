@@ -2,7 +2,9 @@ package behavior_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,6 +26,12 @@ type machine struct{ path string }
 // says the user has gone.
 func watching(t *testing.T, l *layout, config string) (*layout, *machine) {
 	t.Helper()
+	// Owl reads the machine on darwin and nowhere else yet (ADR-0005), so
+	// everything below is what a machine Owl can read does. Somewhere it
+	// cannot, nothing starts by itself and there is nothing here to see.
+	if runtime.GOOS != "darwin" {
+		t.Skipf("owl reads a machine's idleness on darwin, and this is %s", runtime.GOOS)
+	}
 	m := &machine{path: filepath.Join(l.root, "machine")}
 	m.inUse(t)
 	if config == "" {
@@ -360,7 +368,7 @@ func TestS10IdleStatusReportsTheMachine(t *testing.T) {
 	m.idleFor(t, 12*time.Minute, true)
 
 	waitFor(t, "status to report an idle machine", func() bool {
-		return strings.Contains(line(t, mustOwl(t, l, "status").stdout, "machine"), "idle")
+		return strings.Contains(maybeLine(mustOwl(t, l, "status").stdout, "machine"), "idle")
 	})
 	said := line(t, mustOwl(t, l, "status").stdout, "machine")
 	for _, want := range []string{"12m", "AC power"} {
@@ -372,7 +380,7 @@ func TestS10IdleStatusReportsTheMachine(t *testing.T) {
 	m.idleFor(t, 5*time.Second, false)
 
 	waitFor(t, "status to report a machine in use", func() bool {
-		return strings.Contains(line(t, mustOwl(t, l, "status").stdout, "machine"), "in use")
+		return strings.Contains(maybeLine(mustOwl(t, l, "status").stdout, "machine"), "in use")
 	})
 	said = line(t, mustOwl(t, l, "status").stdout, "machine")
 	for _, want := range []string{"5s", "battery"} {
@@ -434,6 +442,10 @@ func TestS12IdleAMachineOwlCannotReadStartsNothing(t *testing.T) {
 	said := line(t, mustOwl(t, l, "status").stdout, "machine")
 	if !strings.Contains(said, "could not be read") {
 		t.Errorf("status says %q, want it to say the machine could not be read", said)
+	}
+	// What the tool said is the tool's, and it is shown rather than obeyed.
+	if !strings.Contains(said, `\x1b`) {
+		t.Errorf("status says %q, want the escape the tool printed shown as text", said)
 	}
 
 	// A Run already in flight is left alone: not knowing is not the same as
@@ -503,6 +515,9 @@ func TestS14IdleTheNextJobStartsWhenTheOneBeforeItEnds(t *testing.T) {
 	if o.Holding != "" {
 		t.Errorf("the report says %q is holding work back while a run is in progress", o.Holding)
 	}
+	// The CLI says nothing about it while a Run is going, whatever the daemon
+	// recorded, so this is about `owl status` rather than about the daemon:
+	// what holds the daemon to it is the overview above.
 	if said := maybeLine(mustOwl(t, l, "status").stdout, "nothing is running"); said != "" {
 		t.Errorf("status says %q while a run is in progress", said)
 	}
@@ -610,7 +625,39 @@ func TestS16IdleFreezingDoesNotDependOnReadingTheConfiguration(t *testing.T) {
 	b.stub.let(t)
 }
 
-func TestS17IdleTheAppShowsWhetherTheMachineIsIdle(t *testing.T) {
+func TestS17IdleStoppingWhileARunIsGotReadyDoesNotHang(t *testing.T) {
+	l, _ := agentLayout(t, agentScript, 0)
+	l, m := watching(t, l, "")
+	d := daemonUp(t, l)
+	// Setup long enough that the daemon is certainly still in it, and a marker
+	// so the scenario knows rather than assumes.
+	marker := filepath.Join(l.root, "setup-started")
+	checkedProject(t, l, "apiVersion: codingowl.dev/v1\nsetup:\n  - touch "+marker+" && sleep 30\n")
+	// Somebody asks for the Job themselves, which holds the daemon in
+	// that Project's setup, and the machine then goes idle so the daemon's own
+	// watching queues up behind it.
+	asked := make(chan struct{})
+	go func() {
+		defer close(asked)
+		started := exec.Command(owlBin, "start")
+		started.Env = l.env
+		_ = started.Run()
+	}()
+	waitFor(t, "the project's setup to be running", func() bool {
+		_, err := os.Stat(marker)
+		return err == nil
+	})
+	m.away(t)
+	sleep(500 * time.Millisecond)
+
+	// stopDaemon gives it five seconds, which is what every other way of
+	// stopping it takes.
+	stopDaemon(t, d)
+
+	<-asked
+}
+
+func TestS18IdleTheAppShowsWhetherTheMachineIsIdle(t *testing.T) {
 	l, _ := agentLayout(t, agentScript, 0)
 	l, m := watching(t, l, "")
 	daemonUp(t, l)

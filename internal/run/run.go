@@ -369,9 +369,16 @@ func (s *Service) Recover(ctx context.Context) error {
 	return s.requeueLeftOver(ctx)
 }
 
-// Start takes the Job at the head of the queue and runs it. started is false
-// when nothing is pending, which is not an error.
-func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bool, err error) {
+// Start takes the Job at the head of the queue and runs it, because somebody
+// asked. started is false when nothing is pending, which is not an error.
+func (s *Service) Start(ctx context.Context) (queue.Job, Run, bool, error) {
+	return s.start(ctx, ByUser)
+}
+
+// start is Start, knowing who asked: a Run the daemon started itself because
+// the machine was Idle is one the machine may freeze again without being
+// asked, and a Run somebody asked for is theirs.
+func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run, started bool, err error) {
 	s.starting.Lock()
 	defer s.starting.Unlock()
 
@@ -522,6 +529,11 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	// that arrives the instant owl start returns finds the Run rather than an
 	// empty log it reads as the end of one.
 	b := s.openBroker(r.ID)
+	if by == ByMachine {
+		// Written down before the Run can end, so that a Run whose Agent came
+		// and went while this returned is not recorded as going.
+		s.mine(r.ID)
+	}
 	s.wg.Add(1)
 	s.carry(j.ID, true)
 	go s.carryOut(j, r, phase, req, b, details)

@@ -60,14 +60,12 @@ func (s *Service) Watch(ctx context.Context, d idle.Detector, every time.Duratio
 	// Starting a Job can take minutes - a Project's setup commands run first -
 	// and the machine has to stay in view throughout, so it is done off this
 	// loop, one at a time.
+	// It is not waited for on the way out: a start in the middle of a
+	// Project's setup commands is cut short by the daemon closing its Runs,
+	// and waiting for it here would sit in front of the very cancellation
+	// that ends it. What the goroutine still has to do it does on its own,
+	// and the Runs it started are waited for where every Run is.
 	var attempt chan string
-	defer func() {
-		// A Run half started is nobody's to walk away from: it is left to
-		// finish arriving, which it does whether this loop is over or not.
-		if attempt != nil {
-			<-attempt
-		}
-	}()
 	for {
 		state, err := d.Read(ctx)
 		switch {
@@ -201,9 +199,8 @@ func (s *Service) freeze(ctx context.Context) {
 }
 
 // mine records that this daemon started that Run itself, because the machine
-// was Idle. The Agent is not running yet when this is called - starting it is
-// the next thing that happens - so what is written down is the Run rather than
-// anything about the process.
+// was Idle. It is called while the Run is being started, before anything can
+// end it, so what is written down is never a note about a Run that is over.
 func (s *Service) mine(runID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -272,13 +269,12 @@ func (s *Service) thaw(ctx context.Context) {
 // for a refusal that clears itself. What it returns is both what `owl status`
 // says and what makes the watcher wait before asking again.
 func (s *Service) begin(ctx context.Context) string {
-	job, r, started, err := s.Start(ctx)
+	job, r, started, err := s.start(ctx, ByMachine)
 	var refusal *RefusedError
 	var inHand *busyError
 	switch {
 	case started:
 		s.opts.Logger.Info("run started on an idle machine", "run", r.ID, "job", job.ID)
-		s.mine(r.ID)
 	case errors.As(err, &inHand):
 		// The daemon already has work in hand, or is stopping. Nothing is
 		// waiting for a person, so nothing is reported and nothing waits.

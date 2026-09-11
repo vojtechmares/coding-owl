@@ -46,9 +46,11 @@ what garbage collection found and would not touch.`,
 func printOverview(env Env, o client.Overview) {
 	// The machine comes first, because it is the answer to why the rest of
 	// this report says what it says (ADR-0011).
-	_, _ = fmt.Fprintln(env.Stdout, machineLine(o.Machine))
+	// Both carry what something outside Owl said - a tool that could not be
+	// read, a Project's setup command - so both reach the terminal as text.
+	_, _ = fmt.Fprintln(env.Stdout, terminalSafe(machineLine(o.Machine)))
 	if why := heldBy(o); why != "" {
-		_, _ = fmt.Fprintf(env.Stdout, "nothing is running: %s\n", why)
+		_, _ = fmt.Fprintf(env.Stdout, "nothing is running: %s\n", terminalSafe(why))
 	}
 	_, _ = fmt.Fprintln(env.Stdout)
 	if o.Empty() {
