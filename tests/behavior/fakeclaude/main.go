@@ -64,6 +64,15 @@ func main() {
 		fmt.Println(env("OWL_FAKE_CLAUDE_VERSION", "2.1.267 (Claude Code)"))
 		return
 	}
+	// Everything below this writes something, in whatever directory the stub
+	// was started in. An Agent started without a working directory inherits
+	// whatever the process that started it had, so the stub refuses to be that
+	// Agent in Owl's own checkout: reporting a version is harmless anywhere,
+	// writing and committing are not.
+	if err := refuseOwlsOwnCheckout(); err != nil {
+		fmt.Fprintln(os.Stderr, "fakeclaude:", err)
+		os.Exit(95)
+	}
 	if path := os.Getenv("OWL_FAKE_CLAUDE_ARGV"); path != "" {
 		if err := record(path); err != nil {
 			fmt.Fprintln(os.Stderr, "fakeclaude:", err)
@@ -93,8 +102,7 @@ func main() {
 }
 
 // refuseOwlsOwnCheckout fails when the stub was started inside the repository
-// it is part of, which it can tell by the file only that repository has. A
-// probe that only reports a version is harmless anywhere; writing is not.
+// it is part of, which it can tell by the file only that repository has.
 func refuseOwlsOwnCheckout() error {
 	started, err := os.Getwd()
 	if err != nil {
@@ -183,13 +191,6 @@ func writeFiles() error {
 	spec := os.Getenv("OWL_FAKE_CLAUDE_WRITE")
 	if spec == "" {
 		return nil
-	}
-	// The files go in whatever directory the stub was started in, so it
-	// refuses to write in Owl's own checkout: an Agent started without a
-	// working directory would otherwise write, and commit, into the repository
-	// it is testing.
-	if err := refuseOwlsOwnCheckout(); err != nil {
-		return err
 	}
 	var files map[string]string
 	if err := json.Unmarshal([]byte(spec), &files); err != nil {

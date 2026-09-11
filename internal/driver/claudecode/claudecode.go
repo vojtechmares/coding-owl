@@ -148,7 +148,10 @@ func (d *Driver) SetupToken(configDir string) (agent.Invocation, error) {
 	if err != nil {
 		return agent.Invocation{}, err
 	}
-	return agent.Invocation{Path: path, Args: []string{"setup-token"}, Env: env}, nil
+	// The setup runs in the Account's own directory, not in whatever directory
+	// the user happened to type the command in: it is the tool's own flow, and
+	// an Agent belongs where its work is (ADR-0006, ADR-0019).
+	return agent.Invocation{Path: path, Args: []string{"setup-token"}, Dir: configDir, Env: env}, nil
 }
 
 // accountEnv is what an Account adds to the environment an Agent runs in: the

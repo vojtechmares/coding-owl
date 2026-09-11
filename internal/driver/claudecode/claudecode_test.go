@@ -216,3 +216,19 @@ func TestCapabilitiesSayWhatClaudeCodeCanDo(t *testing.T) {
 		t.Error("capabilities claim usage reporting, which Owl does not read yet")
 	}
 }
+
+func TestSetupTokenRunsInTheAccountsDirectoryRatherThanWhereverItWasTyped(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+
+	inv, err := claudecode.New().SetupToken("/accounts/work")
+
+	if err != nil {
+		t.Fatalf("SetupToken: %v", err)
+	}
+	// A tool started with no working directory inherits the one the process
+	// that started it had, which for owl account add is the user's own
+	// checkout (ADR-0006).
+	if inv.Dir != "/accounts/work" {
+		t.Errorf("the setup runs in %q, want the account's own directory", inv.Dir)
+	}
+}
