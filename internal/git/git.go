@@ -777,6 +777,27 @@ type DiffSummary struct {
 	Insertions, Deletions int
 }
 
+// DiffPatch is what branch changed since it left base, as a patch, cut at max
+// bytes. complete is false for a patch that did not fit, so a caller can say
+// so rather than passing off half a diff as the whole of one.
+//
+// The comparison is from the merge base, like DiffStat: what landed on base
+// since the branch left it is not the branch's doing.
+func DiffPatch(dir, base, branch string, max int) (patch string, complete bool, err error) {
+	out, stderr, code, err := run(dir, "diff", "--no-color", "--end-of-options",
+		branchRef(base)+"..."+branchRef(branch))
+	if err != nil {
+		return "", false, err
+	}
+	if code != 0 {
+		return "", false, fmt.Errorf("diffing %s against %s in %s: %s", branch, base, dir, message(stderr))
+	}
+	if max > 0 && len(out) > max {
+		return string(out[:max]), false, nil
+	}
+	return string(out), true, nil
+}
+
 // DiffStat summarises what branch changed since it left base: the files it
 // touched and the lines added and removed in each. Both are read as local
 // branches, and the comparison is from their merge base, so what landed on

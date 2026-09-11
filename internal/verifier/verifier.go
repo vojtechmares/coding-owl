@@ -26,7 +26,18 @@ type Result struct {
 	// Reason says why it failed, in the words the user reads. It is empty for
 	// a check that passed.
 	Reason string
+	// Verifier is which Verifier said it, so a report can tell a Project's own
+	// check from the review it asked for (ADR-0013). What a review says is its
+	// answer rather than evidence for a failure, and reads differently.
+	Verifier string
 }
+
+// KindCommand and KindAgent are what a Result's Verifier holds: the Project's
+// own checks, and the fresh Agent Session that reviews the work.
+const (
+	KindCommand = "command"
+	KindAgent   = "agent"
+)
 
 // Request is one Verification.
 type Request struct {
@@ -34,6 +45,31 @@ type Request struct {
 	WorkingDir string
 	// Checks are the Project's own checks, read from its base branch.
 	Checks []config.Check
+	// Review is what the Project asks of a reviewer (ADR-0013).
+	Review config.Review
+	// Plan is what the Job's planning Run decided, empty for a Job that was
+	// not planned (ADR-0026).
+	Plan string
+	// Diff is what the Job's branch changed against the Project's base
+	// branch, and DiffComplete is false when it was too long to carry whole.
+	Diff         string
+	DiffComplete bool
+	// Agent is what a Verifier needs to start an Agent of its own: the
+	// Account the Job runs on, and what its Runs run as (ADR-0019, ADR-0023).
+	Agent Agent
+}
+
+// Agent is the Account and the settings a Verifier starts its own Agent with.
+// It is what the Run it judges was given, so a reviewer is a second pair of
+// eyes on the same terms rather than on cheaper ones.
+type Agent struct {
+	// ConfigDir is the Account's own tool configuration directory, and Token
+	// the credential to run on.
+	ConfigDir string
+	Token     string
+	// Model is what it runs as, and Effort how hard it thinks (ADR-0028).
+	Model  string
+	Effort string
 }
 
 // Verifier decides whether a Run's work is acceptable.

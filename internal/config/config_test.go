@@ -90,6 +90,45 @@ func TestParseReadsAProjectsClausesAndSpendCap(t *testing.T) {
 	}
 }
 
+func TestParseReadsTheReviewAProjectAsksFor(t *testing.T) {
+	// A review costs a second Agent invocation, so it is opt-in per Project
+	// (ADR-0013).
+	cfg, err := config.Parse("main:.coding-owl.yaml",
+		[]byte("apiVersion: codingowl.dev/v1\nreview:\n  agent: true\n  timeout: 20m\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !cfg.Review.Agent {
+		t.Error("Review.Agent = false, want the review the file asks for")
+	}
+	if cfg.Review.Timeout != 20*time.Minute {
+		t.Errorf("Review.Timeout = %v, want 20m", cfg.Review.Timeout)
+	}
+}
+
+func TestParseLeavesAProjectThatAsksForNoReviewWithout(t *testing.T) {
+	cfg, err := config.Parse("main:.coding-owl.yaml", []byte("apiVersion: codingowl.dev/v1\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Review.Agent {
+		t.Error("Review.Agent = true for a file that asks for none")
+	}
+}
+
+func TestParseRefusesAReviewTimeoutItCannotRead(t *testing.T) {
+	for _, body := range []string{
+		"apiVersion: codingowl.dev/v1\nreview:\n  agent: true\n  timeout: soon\n",
+		"apiVersion: codingowl.dev/v1\nreview:\n  agent: true\n  timeout: -1m\n",
+	} {
+		_, err := config.Parse("main:.coding-owl.yaml", []byte(body))
+
+		if err == nil {
+			t.Errorf("Parse accepted %q", body)
+		}
+	}
+}
+
 func TestParseReadsPhases(t *testing.T) {
 	cfg, err := config.Parse("main:.coding-owl.yaml", []byte(
 		"apiVersion: codingowl.dev/v1\nphases:\n  plan:\n    model: haiku\n  execute:\n    effort: medium\n"))

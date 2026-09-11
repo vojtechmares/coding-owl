@@ -19,6 +19,9 @@ type CheckResult struct {
 	Output string
 	// Reason is why it failed, empty when it passed.
 	Reason string
+	// Verifier is which Verifier said it: the Project's own checks, or the
+	// review a Project asked for (ADR-0013).
+	Verifier string
 }
 
 // SaveCheckResults records what Verification said about a Run, replacing
@@ -30,9 +33,10 @@ func (s *Store) SaveCheckResults(ctx context.Context, runID int64, results []Che
 		}
 		for i, r := range results {
 			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO check_results (run_id, position, name, command, passed, exit_code, output, reason)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-				runID, i+1, r.Name, r.Command, boolToInt(r.Passed), r.ExitCode, r.Output, r.Reason); err != nil {
+				`INSERT INTO check_results (run_id, position, name, command, passed, exit_code, output, reason, verifier)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				runID, i+1, r.Name, r.Command, boolToInt(r.Passed), r.ExitCode, r.Output, r.Reason,
+				r.Verifier); err != nil {
 				return err
 			}
 		}
@@ -44,7 +48,7 @@ func (s *Store) SaveCheckResults(ctx context.Context, runID int64, results []Che
 // the checks were configured.
 func (s *Store) ListCheckResults(ctx context.Context, runID int64) ([]CheckResult, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT name, command, passed, exit_code, output, reason
+		`SELECT name, command, passed, exit_code, output, reason, verifier
 		 FROM check_results WHERE run_id = ? ORDER BY position, id`, runID)
 	if err != nil {
 		return nil, err
@@ -54,7 +58,8 @@ func (s *Store) ListCheckResults(ctx context.Context, runID int64) ([]CheckResul
 	for rows.Next() {
 		var r CheckResult
 		var passed int
-		if err := rows.Scan(&r.Name, &r.Command, &passed, &r.ExitCode, &r.Output, &r.Reason); err != nil {
+		if err := rows.Scan(&r.Name, &r.Command, &passed, &r.ExitCode, &r.Output, &r.Reason,
+			&r.Verifier); err != nil {
 			return nil, err
 		}
 		r.Passed = passed != 0

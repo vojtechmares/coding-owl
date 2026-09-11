@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/vojtechmares/coding-owl/internal/client"
+	"github.com/vojtechmares/coding-owl/internal/verifier"
 )
 
 // nothingPending is what owl start prints when the queue holds nothing to run.
@@ -413,7 +414,11 @@ func printChecks(env Env, checks []client.CheckResult) {
 			}
 		}
 		_, _ = fmt.Fprintf(env.Stdout, "- %s: %s\n", c.Name, verdict)
-		if c.Passed {
+		// A check's output is evidence for a failure, and noise when it
+		// passed. A review's findings are its answer either way: a reviewer
+		// that passed the work with a note wrote that note to be read
+		// (ADR-0013).
+		if c.Passed && c.Verifier != verifier.KindAgent {
 			continue
 		}
 		for _, ln := range strings.Split(strings.TrimRight(c.Output, "\n"), "\n") {

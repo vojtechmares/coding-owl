@@ -132,6 +132,9 @@ message CheckResult {
   string output = 5;
   // Reason says why it failed, empty for a check that passed.
   string reason = 6;
+  // Verifier is which Verifier said it: `command` for a Project's own check,
+  // `agent` for the review it asked for (ADR-0013).
+  string verifier = 7;
 }
 
 // PhaseSettings is what one phase of a Job runs at, and where each setting

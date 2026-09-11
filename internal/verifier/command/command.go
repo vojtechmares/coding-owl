@@ -29,7 +29,7 @@ type Verifier struct {
 func New() *Verifier { return &Verifier{timeout: DefaultTimeout} }
 
 // Name identifies the Verifier.
-func (*Verifier) Name() string { return "command" }
+func (*Verifier) Name() string { return verifier.KindCommand }
 
 // Verify runs every check, in order, and reports what each one said.
 func (v *Verifier) Verify(ctx context.Context, req verifier.Request) ([]verifier.Result, error) {
@@ -46,7 +46,7 @@ func (v *Verifier) run(ctx context.Context, dir string, check config.Check) veri
 	if timeout <= 0 {
 		timeout = v.timeout
 	}
-	out := verifier.Result{Name: check.Name, Command: check.Run}
+	out := verifier.Result{Name: check.Name, Command: check.Run, Verifier: verifier.KindCommand}
 	res, err := shell.Run(ctx, dir, check.Run, timeout)
 	out.ExitCode = res.ExitCode
 	out.Output = res.Output

@@ -50,6 +50,11 @@ const maxLine = 8 << 20
 // database and the next Agent's prompt.
 const maxHandoff = 256 << 10
 
+// maxDiff is how much of what a Run changed is carried into a reviewer's
+// prompt. A reviewer given more than this is told to read the rest itself,
+// which it can: it works in the worktree (ADR-0013).
+const maxDiff = 256 << 10
+
 // stderrTail is how much of a failed Agent's standard error is quoted in the
 // reason the Job is blocked with.
 const stderrTail = 500
@@ -181,6 +186,11 @@ type Options struct {
 	Executor executor.Executor
 	// Verifier decides whether what a Run produced is acceptable (ADR-0013).
 	Verifier verifier.Verifier
+	// Reviewer is the second pair of eyes a Project can ask for after its own
+	// checks: a fresh Agent Session that reviews the work (ADR-0013). A
+	// Service without one refuses a Project that asks for a review rather than
+	// letting the Job through unreviewed.
+	Reviewer verifier.Verifier
 	// Skills fetches and places what a Project declares (ADR-0024).
 	Skills *skill.Service
 	// WorktreeConfigDir holds the exclude file Owl owns for each Job's
@@ -467,7 +477,7 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	b := s.openBroker(r.ID)
 	s.wg.Add(1)
 	s.carry(j.ID, true)
-	go s.carryOut(j, r, phase, req, b, details.Config)
+	go s.carryOut(j, r, phase, req, b, details)
 
 	return queue.FromStore(j), toRun(r), true, nil
 }
@@ -751,7 +761,7 @@ func (s *Service) sendFile(path string, send func(Line) error) (int64, error) {
 }
 
 // carryOut runs the Agent and records what became of the Job.
-func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Request, b *broker, cfg config.Config) {
+func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Request, b *broker, details project.Details) {
 	defer s.wg.Done()
 	// The Job stops being carried only once everything about it is written
 	// down, so that nothing can see it between its Run ending and the Job
@@ -771,7 +781,7 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 	s.setStage(r.ID, StageFinishing)
 	if outcome == OutcomeSucceeded && phase == PhaseExecute {
 		s.setStage(r.ID, StageVerifying)
-		refused = s.verify(s.ctx, j, r.ID, cfg)
+		refused = s.verify(s.ctx, j, r.ID, details, req)
 		s.setStage(r.ID, StageFinishing)
 		if s.ctx.Err() != nil {
 			// The daemon stopped before Verification could finish, so nothing
@@ -1054,25 +1064,47 @@ func (s *Service) prepare(ctx context.Context, j store.Job, setup []string) erro
 // the repository's refs: an Agent can move the base branch while it works, and
 // what judges its work must be what was there before it did (ADR-0014,
 // ADR-0030).
-func (s *Service) verify(ctx context.Context, j store.Job, runID int64, cfg config.Config) string {
-	if len(cfg.Checks) == 0 {
+func (s *Service) verify(ctx context.Context, j store.Job, runID int64, details project.Details, req driver.Request) string {
+	cfg := details.Config
+	var results []verifier.Result
+	if len(cfg.Checks) > 0 {
+		if s.opts.Verifier == nil {
+			// A Job must not reach review because nobody was asked (ADR-0013).
+			return "verification could not be carried out: this daemon has no verifier"
+		}
+		got, err := s.opts.Verifier.Verify(ctx, verifier.Request{
+			WorkingDir: j.Worktree, Checks: cfg.Checks,
+		})
+		if ctx.Err() != nil {
+			// The daemon stopped part way through. Nothing has judged this
+			// work, so nothing is written down about it: the Run is recorded
+			// as interrupted and the Job waits its turn again.
+			return ""
+		}
+		if err != nil {
+			return fmt.Sprintf("verification could not be carried out: %v", err)
+		}
+		results = append(results, got...)
+	}
+	// The review comes after the Project's own checks: it is the expensive
+	// opinion, and it reads the same work (ADR-0013). It runs whatever the
+	// checks said, so a blocked Job reports everything that is wrong at once
+	// rather than one thing a morning (ADR-0030).
+	if cfg.Review.Agent {
+		if s.opts.Reviewer == nil {
+			return "verification could not be carried out: this daemon has no agent reviewer"
+		}
+		got, err := s.opts.Reviewer.Verify(ctx, s.reviewRequest(j, details, req))
+		if ctx.Err() != nil {
+			return ""
+		}
+		if err != nil {
+			return fmt.Sprintf("verification could not be carried out: %v", err)
+		}
+		results = append(results, got...)
+	}
+	if len(results) == 0 {
 		return ""
-	}
-	if s.opts.Verifier == nil {
-		// A Job must not reach review because nobody was asked (ADR-0013).
-		return "verification could not be carried out: this daemon has no verifier"
-	}
-	results, err := s.opts.Verifier.Verify(ctx, verifier.Request{
-		WorkingDir: j.Worktree, Checks: cfg.Checks,
-	})
-	if ctx.Err() != nil {
-		// The daemon stopped part way through. Nothing has judged this work,
-		// so nothing is written down about it: the Run is recorded as
-		// interrupted and the Job waits its turn again.
-		return ""
-	}
-	if err != nil {
-		return fmt.Sprintf("verification could not be carried out: %v", err)
 	}
 	rows := make([]store.CheckResult, 0, len(results))
 	for _, r := range results {
@@ -1095,6 +1127,40 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64, cfg conf
 	}
 	s.opts.Logger.Info("verification refused a run", "run", runID, "job", j.ID, "checks", strings.Join(names, ", "))
 	return "verification failed: " + strings.Join(names, ", ")
+}
+
+// reviewRequest is what a reviewer is given: the plan the work was meant to
+// carry out, what the branch changed, and the Account and settings the Run it
+// judges ran on (ADR-0013, ADR-0023).
+//
+// The diff is read here rather than by the reviewer, so that what it judges is
+// what the branch changed against the base branch the Run started from, and
+// not whatever the Agent left the worktree looking at.
+func (s *Service) reviewRequest(j store.Job, details project.Details, req driver.Request) verifier.Request {
+	out := verifier.Request{
+		WorkingDir: j.Worktree,
+		Review:     details.Config.Review,
+		Plan:       j.Plan,
+		Agent: verifier.Agent{
+			ConfigDir: req.ConfigDir,
+			Token:     req.Token,
+			Model:     req.Model,
+			Effort:    req.Effort,
+		},
+	}
+	if j.Branch == "" {
+		return out
+	}
+	patch, complete, err := git.DiffPatch(details.Path, details.BaseBranch, j.Branch, maxDiff)
+	if err != nil {
+		// A diff Owl cannot read is not a reason to skip the review: the
+		// reviewer works in the worktree and can read it for itself.
+		s.opts.Logger.Warn("reading what a run changed, for the review",
+			"job", j.ID, "branch", j.Branch, "error", err)
+		return out
+	}
+	out.Diff, out.DiffComplete = patch, complete
+	return out
 }
 
 // global reads the daemon's own configuration, so an edit takes effect on the

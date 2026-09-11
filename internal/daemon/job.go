@@ -120,6 +120,7 @@ func (s *jobService) GetJob(ctx context.Context, req *connect.Request[codingowlv
 			ExitCode: int32(c.ExitCode),
 			Output:   c.Output,
 			Reason:   c.Reason,
+			Verifier: c.Verifier,
 		})
 	}
 	for _, p := range d.Phases {
