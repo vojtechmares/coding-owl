@@ -126,6 +126,35 @@ func TestPlaceHidesTheSkillsFromGit(t *testing.T) {
 	}
 }
 
+func TestPlaceLeavesTheAgentsOwnWorkVisibleToGit(t *testing.T) {
+	// The Skills Owl places are not the Job's work, but a skill the Agent
+	// writes is: hiding the whole directory would drop it from the diff, the
+	// commit and verification.
+	p := newPlacement(t)
+	src := newSource(t, "go-review")
+	p.place(t, p.fetch(t, src, "main"))
+	theirs := filepath.Join(p.worktree, ".claude", "skills", "project-conventions")
+	if err := os.MkdirAll(theirs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(theirs, "SKILL.md"), []byte("ours\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := p.status(t); got == "" {
+		t.Error("git reports nothing at all for the skill the agent wrote")
+	}
+	gitIn(t, p.worktree, "add", "-A")
+	staged := gitIn(t, p.worktree, "diff", "--cached", "--name-only")
+
+	if !strings.Contains(staged, "project-conventions/SKILL.md") {
+		t.Errorf("the skill the agent wrote was not staged:\n%s", staged)
+	}
+	if strings.Contains(staged, "go-review") {
+		t.Errorf("the skill Owl placed was staged as the job's work:\n%s", staged)
+	}
+}
+
 func TestPlaceCarriesForwardAnExcludeFileTheRepositoryAlreadyHad(t *testing.T) {
 	p := newPlacement(t)
 	src := newSource(t, "go-review")

@@ -1,12 +1,14 @@
 package skill
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -66,6 +68,14 @@ func (s *Service) Prepare(ctx context.Context, declared []Declared, locked Lock)
 			commit, digest = was.Commit, was.Digest
 		}
 		if commit == "" {
+			if !d.AutoUpdate {
+				// Resolving it here would make a Skill nobody declared to move
+				// move at the start of every Run, and a Run cannot write the
+				// lockfile back: it reads the base branch, which is the user's
+				// to commit (ADR-0014). Pinning by default means saying so
+				// rather than floating (ADR-0024).
+				return nil, Lock{}, unlocked(name, d, locked)
+			}
 			resolved, err := s.cache.Resolve(d.Source, d.Ref)
 			if err != nil {
 				return nil, Lock{}, err
@@ -85,6 +95,28 @@ func (s *Service) Prepare(ctx context.Context, declared []Declared, locked Lock)
 		used.Skills[name] = got.Locked
 	}
 	return out, used, nil
+}
+
+// unlocked is what to tell a user whose lockfile does not answer for a Skill
+// that is not declared to move on its own.
+func unlocked(name string, d Declared, locked Lock) error {
+	if was, ok := locked.Skills[name]; ok {
+		return invalid(
+			"the lockfile records %s from %s at %s, and this project asks for %s at %s; "+
+				"run `owl skills update %s` and commit the lockfile",
+			name, was.Source, orDefaultBranch(was.Ref), d.Source, orDefaultBranch(d.Ref), name)
+	}
+	return invalid(
+		"the lockfile records nothing for %s, and a skill runs at the commit the lockfile records; "+
+			"run `owl skills update` and commit the lockfile", name)
+}
+
+// orDefaultBranch names a ref as a message does, including the empty one.
+func orDefaultBranch(ref string) string {
+	if ref == "" {
+		return "its source's default branch"
+	}
+	return ref
 }
 
 // sameRef reports whether a locked ref answers the manifest's. An empty
@@ -182,7 +214,8 @@ func WriteManifest(path string, declared []Declared) error {
 	case err != nil:
 		return err
 	}
-	if err := yaml.Unmarshal([]byte(holdBlankLines(string(data))), &doc); err != nil {
+	held, blanks := holdBlankLines(data)
+	if err := yaml.Unmarshal(held, &doc); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	root := mappingOf(&doc)
@@ -198,7 +231,7 @@ func WriteManifest(path string, declared []Declared) error {
 	if err != nil {
 		return err
 	}
-	out := []byte(freeBlankLines(string(rendered)))
+	out := blanks.free(rendered)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -233,10 +266,30 @@ func notThroughALink(path string) error {
 // person wrote and has to commit should come back with its paragraphs.
 const blankLineMarker = "#owl-kept-this-line-blank"
 
-// holdBlankLines turns every blank line into a comment nothing else would
+// blankLines is whether a document's blank lines are being carried through the
+// round trip as markers. They are not, whenever carrying them would change
+// anything but a blank line: inside a block scalar a blank line is part of a
+// value, and a value is not Owl's to edit.
+type blankLines struct{ held bool }
+
+// holdBlankLines returns the source to parse, and whether the markers are in
+// it. A document that already carries the marker is left alone: freeing it
+// afterwards would blank a line the user wrote.
+func holdBlankLines(data []byte) ([]byte, blankLines) {
+	if bytes.Contains(data, []byte(blankLineMarker)) {
+		return data, blankLines{}
+	}
+	marked := []byte(markBlankLines(string(data)))
+	if !sameValues(data, marked) {
+		return data, blankLines{}
+	}
+	return marked, blankLines{held: true}
+}
+
+// markBlankLines turns every blank line into a comment nothing else would
 // write. The last element is the empty string after the final newline, which
 // is not a line at all.
-func holdBlankLines(in string) string {
+func markBlankLines(in string) string {
 	lines := strings.Split(in, "\n")
 	for i, ln := range lines[:max(len(lines)-1, 0)] {
 		if strings.TrimSpace(ln) == "" {
@@ -246,15 +299,33 @@ func holdBlankLines(in string) string {
 	return strings.Join(lines, "\n")
 }
 
-// freeBlankLines turns them back, wherever the encoder indented them to.
-func freeBlankLines(in string) string {
-	lines := strings.Split(in, "\n")
+// free turns the markers back into blank lines, wherever the encoder indented
+// them to.
+func (b blankLines) free(rendered []byte) []byte {
+	if !b.held {
+		return rendered
+	}
+	lines := strings.Split(string(rendered), "\n")
 	for i, ln := range lines {
 		if strings.TrimSpace(ln) == blankLineMarker {
 			lines[i] = ""
 		}
 	}
-	return strings.Join(lines, "\n")
+	return []byte(strings.Join(lines, "\n"))
+}
+
+// sameValues reports whether two documents say the same thing. Comments and
+// blank lines are not values, so a marker that changed one is a marker that
+// landed inside a value.
+func sameValues(a, b []byte) bool {
+	var x, y any
+	if err := yaml.Unmarshal(a, &x); err != nil {
+		return false
+	}
+	if err := yaml.Unmarshal(b, &y); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(x, y)
 }
 
 // render writes a document back out the way it was written: yaml.Marshal

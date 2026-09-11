@@ -25,7 +25,7 @@ type Lock struct {
 // lockFile is the on-disk shape.
 type lockFile struct {
 	APIVersion string               `yaml:"apiVersion"`
-	Skills     map[string]lockEntry `yaml:"skills"`
+	Skills     map[string]lockEntry `yaml:"skills,omitempty"`
 }
 
 // lockEntry is one Skill's identity on disk. The name is the key, so it is not

@@ -58,14 +58,20 @@ func (s *SkillService) Add(ctx context.Context, req SkillRequest, source, ref st
 	if err != nil {
 		return Skill{}, Files{}, err
 	}
-	got, added, err := s.skills.Add(ctx, source, ref, autoUpdate)
+	// The name a source yields is known before anything is fetched, so a
+	// Project that already has it is told so rather than after a clone.
+	wanted, err := skill.ParseSource(source)
 	if err != nil {
 		return Skill{}, Files{}, err
 	}
-	if slices.ContainsFunc(d, func(x skill.Declared) bool { return x.Name() == added.Name() }) {
+	if slices.ContainsFunc(d, func(x skill.Declared) bool { return x.Name() == wanted.Name() }) {
 		return Skill{}, Files{}, &InvalidError{Err: fmt.Errorf(
 			"project %s already has a skill called %s; remove it first, or add one under another name",
-			name, added.Name())}
+			name, wanted.Name())}
+	}
+	got, added, err := s.skills.Add(ctx, source, ref, autoUpdate)
+	if err != nil {
+		return Skill{}, Files{}, err
 	}
 	lock, err := skill.ReadLock(files.Lock)
 	if err != nil {

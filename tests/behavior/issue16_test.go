@@ -747,6 +747,38 @@ func TestS21AWithdrawnSkillIsGoneFromTheNextRun(t *testing.T) {
 	}
 }
 
+func TestS22ARunIsRefusedWhenTheLockDoesNotAnswer(t *testing.T) {
+	l, r, src := skillLayout(t)
+	addSkill(t, l, r.dir, src.path(), "--ref", "v1.0.0")
+	// The user edits the ref by hand and commits, without running
+	// owl skills update: the lockfile now answers a question nobody is asking.
+	manifest := filepath.Join(r.dir, ".coding-owl.yaml")
+	edited := strings.ReplaceAll(readFile(t, manifest), "ref: v1.0.0", "ref: main")
+	if err := os.WriteFile(manifest, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitSkills(t, r)
+	addJob(t, l, r.dir, "work", "--no-plan")
+
+	res := runOwl(t, l, "start")
+
+	if res.code == 0 {
+		t.Fatalf("owl start with a lockfile that does not answer exited 0\nstdout:\n%s", res.stdout)
+	}
+	for _, want := range []string{"go-review", "v1.0.0", "main", "owl skills update"} {
+		if !strings.Contains(res.stderr, want) {
+			t.Errorf("stderr does not say %q:\n%s", want, res.stderr)
+		}
+	}
+	out := mustOwl(t, l, "jobs", "show", "1").stdout
+	if got := line(t, out, "state"); got != "pending" {
+		t.Errorf("state = %q, want the job left pending", got)
+	}
+	if !strings.Contains(out, "runs: none") {
+		t.Errorf("a run was started for a job that could not run:\n%s", out)
+	}
+}
+
 func TestS20SkillsReportsAStoppedDaemon(t *testing.T) {
 	l := newLayout(t)
 
