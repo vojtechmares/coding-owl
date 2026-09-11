@@ -55,10 +55,17 @@ func newFixture(t *testing.T, opts ...func(*gc.Options)) fixture {
 // of its own is a case of its own, and has a test of its own.
 func (f fixture) job(t *testing.T, ref, state string, worktree bool) store.Job {
 	t.Helper()
+	return f.jobCreated(t, ref, state, worktree, time.Now().UTC())
+}
+
+// jobCreated is job with a time of its own, for the scenarios about how long
+// something has been where it is.
+func (f fixture) jobCreated(t *testing.T, ref, state string, worktree bool, created time.Time) store.Job {
+	t.Helper()
 	ctx := context.Background()
 	j, err := f.store.UpsertJob(ctx, store.Job{
 		Source: "local", SourceRef: ref, Project: "api", Prompt: ref,
-		State: string(queue.StatePending), TTL: queue.DefaultTTL, Created: time.Now().UTC(),
+		State: string(queue.StatePending), TTL: queue.DefaultTTL, Created: created.UTC(),
 	})
 	if err != nil {
 		t.Fatalf("UpsertJob: %v", err)
@@ -546,16 +553,11 @@ func TestCollectLeavesAJobTheDaemonIsCarrying(t *testing.T) {
 
 func TestCollectMeasuresWaitingFromWhenTheJobsRunEnded(t *testing.T) {
 	f := newFixture(t, func(o *gc.Options) { o.ReviewAfter = time.Hour })
-	// A Job produced long ago whose Run ended a moment ago has been waiting
-	// for a decision for a moment, not for as long as it has existed.
-	j := f.job(t, "a", string(queue.StateReview), false)
+	// A Job produced a month ago whose Run ended a moment ago has been waiting
+	// for a decision for a moment, not for as long as it has existed: a Job
+	// can queue for weeks before anything runs it.
+	j := f.jobCreated(t, "a", string(queue.StateReview), false, time.Now().Add(-30*24*time.Hour))
 	ctx := context.Background()
-	if _, err := f.store.UpsertJob(ctx, store.Job{
-		Source: "local", SourceRef: "a", Project: "api", Prompt: "a",
-		State: string(queue.StateReview), Created: time.Now().Add(-30 * 24 * time.Hour).UTC(),
-	}); err != nil {
-		t.Fatalf("UpsertJob: %v", err)
-	}
 	r, err := f.store.StartRun(ctx, store.Run{JobID: j.ID, Started: time.Now().UTC()})
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)
@@ -568,6 +570,33 @@ func TestCollectMeasuresWaitingFromWhenTheJobsRunEnded(t *testing.T) {
 
 	if len(report.Unfinished) != 0 {
 		t.Errorf("unfinished = %+v, want nothing: the job has been in review for a moment", report.Unfinished)
+	}
+}
+
+func TestCollectMeasuresAnAbandonedJobFromWhenItsRunStarted(t *testing.T) {
+	f := newFixture(t)
+	// A Run that started three days ago and was ended by a daemon starting a
+	// moment ago: nothing has been running the Job for three days, which is
+	// what the report has to say rather than "for a moment".
+	j := f.jobCreated(t, "a", string(queue.StateActive), false, time.Now().Add(-3*24*time.Hour))
+	ctx := context.Background()
+	r, err := f.store.StartRun(ctx, store.Run{
+		JobID: j.ID, Started: time.Now().Add(-3 * 24 * time.Hour).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if err := f.store.FinishRun(ctx, r.ID, time.Now().UTC(), "interrupted", "the daemon stopped", -1); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+
+	report := f.collect(t)
+
+	if len(report.Unfinished) != 1 || report.Unfinished[0].Reason != gc.ReasonAbandoned {
+		t.Fatalf("unfinished = %+v, want the abandoned job", report.Unfinished)
+	}
+	if got := report.Unfinished[0].Since; got < 3*24*time.Hour {
+		t.Errorf("nothing has been running it for %s, want about three days", got)
 	}
 }
 

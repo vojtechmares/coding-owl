@@ -92,6 +92,27 @@ func main() {
 	os.Exit(code)
 }
 
+// refuseOwlsOwnCheckout fails when the stub was started inside the repository
+// it is part of, which it can tell by the file only that repository has. A
+// probe that only reports a version is harmless anywhere; writing is not.
+func refuseOwlsOwnCheckout() error {
+	started, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	for dir := started; ; {
+		if _, err := os.Stat(filepath.Join(dir, "tests", "behavior", "fakeclaude", "main.go")); err == nil {
+			return fmt.Errorf("started in %s, which is inside Owl's own checkout at %s; an agent belongs in a job's worktree",
+				started, dir)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil
+		}
+		dir = parent
+	}
+}
+
 func env(name, fallback string) string {
 	if v := os.Getenv(name); v != "" {
 		return v
@@ -163,6 +184,13 @@ func writeFiles() error {
 	if spec == "" {
 		return nil
 	}
+	// The files go in whatever directory the stub was started in, so it
+	// refuses to write in Owl's own checkout: an Agent started without a
+	// working directory would otherwise write, and commit, into the repository
+	// it is testing.
+	if err := refuseOwlsOwnCheckout(); err != nil {
+		return err
+	}
 	var files map[string]string
 	if err := json.Unmarshal([]byte(spec), &files); err != nil {
 		return fmt.Errorf("OWL_FAKE_CLAUDE_WRITE: %w", err)
@@ -186,10 +214,13 @@ func writeFiles() error {
 	}
 	// A run that wrote what was already there has nothing to commit, which is
 	// not a failure.
-	if err := git([]string{"diff", "--cached", "--quiet"}); err == nil {
+	if err := git(append([]string{"diff", "--cached", "--quiet", "--"}, paths...)); err == nil {
 		return nil
 	}
-	return git([]string{"commit", "-m", "the agent's own commit"})
+	// The paths are named, so a stub that finds itself running somewhere it
+	// was not meant to - a working directory nobody set, which is whatever
+	// the process inherited - commits what it wrote and nothing else.
+	return git(append([]string{"commit", "-m", "the agent's own commit", "--"}, paths...))
 }
 
 // runGit runs the git commands of OWL_FAKE_CLAUDE_GIT, which is how a scenario

@@ -447,26 +447,29 @@ func TestLatestRunIsTheMostRecentOneWhateverTheClockSays(t *testing.T) {
 	s := jobStore(t)
 	j := queuedJob(t, s, "work", "a")
 	// Times are stored as text, and RFC 3339 trims the trailing zeros of a
-	// fraction: ".5Z" sorts after ".55Z" as a string. The later Run here is
-	// the one whose time would compare as earlier.
+	// fraction, so text order is not time order. The later Run here is the one
+	// whose time sorts first as text, which is what an ordering by time would
+	// get wrong.
+	// The later Run's time sorts first as text: ".55Z" is less than ".5Z",
+	// because '5' comes before 'Z'.
 	first, err := s.StartRun(ctx, store.Run{
-		JobID: j.ID, Started: time.Date(2026, 9, 11, 10, 0, 0, 550000000, time.UTC),
+		JobID: j.ID, Started: time.Date(2026, 9, 11, 10, 0, 0, 500000000, time.UTC),
 	})
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 	if err := s.FinishRun(ctx, first.ID,
-		time.Date(2026, 9, 11, 10, 0, 0, 550000000, time.UTC), "failed", "", 1); err != nil {
+		time.Date(2026, 9, 11, 10, 0, 0, 500000000, time.UTC), "failed", "", 1); err != nil {
 		t.Fatalf("FinishRun: %v", err)
 	}
 	second, err := s.StartRun(ctx, store.Run{
-		JobID: j.ID, Started: time.Date(2026, 9, 11, 11, 0, 0, 500000000, time.UTC),
+		JobID: j.ID, Started: time.Date(2026, 9, 11, 10, 0, 0, 550000000, time.UTC),
 	})
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 	if err := s.FinishRun(ctx, second.ID,
-		time.Date(2026, 9, 11, 11, 0, 0, 500000000, time.UTC), "succeeded", "", 0); err != nil {
+		time.Date(2026, 9, 11, 10, 0, 0, 550000000, time.UTC), "succeeded", "", 0); err != nil {
 		t.Fatalf("FinishRun: %v", err)
 	}
 

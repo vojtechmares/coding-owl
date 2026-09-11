@@ -115,12 +115,17 @@ func TestGetAccountReportsOneThatIsNotThere(t *testing.T) {
 func TestListAccountsReturnsThemInTheOrderTheyWereAdded(t *testing.T) {
 	ctx := context.Background()
 	s := accountStore(t)
+	// The two times differ only in a fraction, and as text the later one sorts
+	// first: ".55Z" is less than ".5Z", because '5' comes before 'Z'. The
+	// order asked for is the order they were added, whatever the text does.
 	first := account("work")
-	first.Created = time.Now().UTC().Add(-time.Hour)
+	first.Created = time.Date(2026, 9, 11, 10, 0, 0, 500000000, time.UTC)
 	if err := s.AddAccount(ctx, first); err != nil {
 		t.Fatalf("AddAccount: %v", err)
 	}
-	if err := s.AddAccount(ctx, account("personal")); err != nil {
+	second := account("personal")
+	second.Created = time.Date(2026, 9, 11, 10, 0, 0, 550000000, time.UTC)
+	if err := s.AddAccount(ctx, second); err != nil {
 		t.Fatalf("AddAccount: %v", err)
 	}
 
