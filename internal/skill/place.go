@@ -1,12 +1,15 @@
 package skill
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/vojtechmares/coding-owl/internal/git"
 )
@@ -162,21 +165,34 @@ func placedIn(into, cache string) ([]string, error) {
 // relink points a name at a cached Skill, replacing a link a previous
 // placement left. The link is made beside its place and moved onto it, so that
 // a worktree never has a moment with no Skill where one should be.
+//
+// The name it is made under is one nothing else can be standing at: Owl
+// removes what it stages, and staging at a name an Agent could have taken
+// first would be removing somebody else's work.
 func relink(link, target string) error {
-	staged := link + ".owl-linking"
-	_ = os.RemoveAll(staged)
+	staged, err := stagingName(link)
+	if err != nil {
+		return err
+	}
 	if err := os.Symlink(target, staged); err != nil {
 		return fmt.Errorf("linking %s: %w", link, err)
 	}
-	if err := os.RemoveAll(link); err != nil {
-		_ = os.RemoveAll(staged)
-		return err
-	}
+	// A rename replaces the link that is there, which is the only thing that
+	// can be: the entry has already been found to be Owl's.
 	if err := os.Rename(staged, link); err != nil {
-		_ = os.RemoveAll(staged)
+		_ = os.Remove(staged)
 		return fmt.Errorf("linking %s: %w", link, err)
 	}
 	return nil
+}
+
+// stagingName is a name beside a link that nothing else holds.
+func stagingName(link string) (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return link + ".owl-linking-" + hex.EncodeToString(b[:]), nil
 }
 
 // skillsIn is the Driver's skills directory inside a worktree, checked to be
@@ -225,6 +241,17 @@ func resolved(path string) (string, error) {
 	}
 }
 
+// oneLine is a value as a comment may carry it: anything that would end the
+// line, or print as something other than itself, becomes a space.
+func oneLine(value string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\t' || (unicode.IsPrint(r) && r != '\uFFFD') {
+			return r
+		}
+		return ' '
+	}, value)
+}
+
 // within reports whether a path is root or inside it.
 func within(root, path string) bool {
 	root, path = filepath.Clean(root), filepath.Clean(path)
@@ -250,9 +277,11 @@ func hide(site Site) error {
 	body := "# Written by Owl. The skills it places are not the job's work.\n"
 	if theirs != "" {
 		// Setting this shadows whatever the user had, so their file is read
-		// from here rather than silently stopping to apply.
+		// from here rather than silently stopping to apply. The path is
+		// written as one line whatever it holds: a newline in it would end the
+		// comment and make the rest of it a pattern.
 		body += "# What this repository was already told to ignore:\n" +
-			"# " + theirs + "\n"
+			"# " + oneLine(theirs) + "\n"
 	}
 	body += "/" + strings.Trim(site.SkillsDir, "/") + "/\n"
 	if theirs != "" {

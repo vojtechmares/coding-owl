@@ -152,6 +152,9 @@ func ReadLock(path string) (Lock, error) {
 
 // WriteLock writes a lockfile, replacing what was there.
 func WriteLock(path string, lock Lock) error {
+	if err := notThroughALink(path); err != nil {
+		return err
+	}
 	data, err := lock.Render()
 	if err != nil {
 		return err
@@ -166,6 +169,9 @@ func WriteLock(path string, lock Lock) error {
 // everything else in it exactly as it was. The file is the user's, and Owl
 // edits one key of it.
 func WriteManifest(path string, declared []Declared) error {
+	if err := notThroughALink(path); err != nil {
+		return err
+	}
 	var doc yaml.Node
 	data, err := os.ReadFile(path)
 	switch {
@@ -176,7 +182,7 @@ func WriteManifest(path string, declared []Declared) error {
 	case err != nil:
 		return err
 	}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	if err := yaml.Unmarshal([]byte(holdBlankLines(string(data))), &doc); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	root := mappingOf(&doc)
@@ -188,10 +194,11 @@ func WriteManifest(path string, declared []Declared) error {
 	} else {
 		setKey(root, "skills", skillsNode(declared))
 	}
-	out, err := render(&doc)
+	rendered, err := render(&doc)
 	if err != nil {
 		return err
 	}
+	out := []byte(freeBlankLines(string(rendered)))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -202,6 +209,52 @@ func WriteManifest(path string, declared []Declared) error {
 		return nil
 	}
 	return os.WriteFile(path, out, 0o644)
+}
+
+// notThroughALink refuses a path that is a symlink. Both of these files are
+// found by discovery inside a repository an Agent works in, and writing
+// through a link there is writing wherever the link says.
+func notThroughALink(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return invalid("%s is a symlink, and Owl writes a project's own files where they stand", path)
+	}
+	return nil
+}
+
+// blankLineMarker stands in for a blank line while the document is a tree.
+// yaml.v3 keeps comments and drops blank lines, and a configuration file a
+// person wrote and has to commit should come back with its paragraphs.
+const blankLineMarker = "#owl-kept-this-line-blank"
+
+// holdBlankLines turns every blank line into a comment nothing else would
+// write. The last element is the empty string after the final newline, which
+// is not a line at all.
+func holdBlankLines(in string) string {
+	lines := strings.Split(in, "\n")
+	for i, ln := range lines[:max(len(lines)-1, 0)] {
+		if strings.TrimSpace(ln) == "" {
+			lines[i] = blankLineMarker
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// freeBlankLines turns them back, wherever the encoder indented them to.
+func freeBlankLines(in string) string {
+	lines := strings.Split(in, "\n")
+	for i, ln := range lines {
+		if strings.TrimSpace(ln) == blankLineMarker {
+			lines[i] = ""
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // render writes a document back out the way it was written: yaml.Marshal

@@ -337,6 +337,45 @@ func TestPlaceCreatesNothingThroughASymlinkOutOfTheWorktree(t *testing.T) {
 	}
 }
 
+func TestPlaceLeavesWhatAnAgentPutBesideALink(t *testing.T) {
+	// Placement stages a link beside its place. A name an Agent could have
+	// taken first is not a name Owl may remove.
+	p := newPlacement(t)
+	src := newSource(t, "go-review")
+	p.place(t, p.fetch(t, src, "main"))
+	beside := filepath.Join(p.worktree, ".claude", "skills", "go-review.owl-linking")
+	if err := os.MkdirAll(beside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(beside, "work.txt"), []byte("mine\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	p.place(t, p.fetch(t, src, "v1.0.0"))
+
+	if _, err := os.Stat(filepath.Join(beside, "work.txt")); err != nil {
+		t.Errorf("what an agent left beside the link was removed: %v", err)
+	}
+}
+
+func TestPlaceCarriesForwardAnExcludeFileNamedOnMoreThanOneLine(t *testing.T) {
+	// core.excludesFile is whatever the repository says, and an Agent can set
+	// it in the configuration every worktree shares. A newline in it would end
+	// the comment Owl writes and leave the rest of it as a live pattern.
+	p := newPlacement(t)
+	src := newSource(t, "go-review")
+	gitIn(t, p.repo, "config", "core.excludesFile", "/nowhere/theirs\n*")
+
+	p.place(t, p.fetch(t, src, "main"))
+
+	if err := os.WriteFile(filepath.Join(p.worktree, "work.txt"), []byte("mine\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.status(t); !strings.Contains(got, "work.txt") {
+		t.Errorf("the worktree stopped reporting the job's own work:\n%s", got)
+	}
+}
+
 func TestPlaceWritesNothingWhenItIsGoingToRefuse(t *testing.T) {
 	p := newPlacement(t)
 	src := newSource(t, "go-review")

@@ -1,11 +1,14 @@
 package git_test
 
 import (
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/git"
 )
@@ -817,6 +820,53 @@ func TestGlobalExcludesFindsTheFileGitWouldHaveRead(t *testing.T) {
 	}
 	if got != theirs {
 		t.Errorf("GlobalExcludes = %q, want the file git would have read %q", got, theirs)
+	}
+}
+
+func TestMirrorGivesUpOnASourceThatNeverAnswers(t *testing.T) {
+	// A source is named in a file, and a file can name a server that accepts a
+	// connection and then says nothing. Without a deadline that is a queue
+	// that never moves again.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	var held []net.Conn
+	var mu sync.Mutex
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			held = append(held, c)
+			mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range held {
+			_ = c.Close()
+		}
+	})
+	defer func(was time.Duration) { git.FetchTimeout = was }(git.FetchTimeout)
+	git.FetchTimeout = 2 * time.Second
+
+	done := make(chan error, 1)
+	go func() {
+		done <- git.Mirror(filepath.Join(t.TempDir(), "mirror"), "git://"+ln.Addr().String()+"/repo.git")
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("Mirror of a source that never answers = nil, want it given up on")
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Mirror of a source that never answers had not given up")
 	}
 }
 
