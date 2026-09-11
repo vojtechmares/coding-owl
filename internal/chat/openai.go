@@ -70,7 +70,7 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, emit func(string
 			} `json:"error"`
 		}
 		if err := json.Unmarshal(data, &ev); err != nil {
-			return invalid("the provider sent an event Owl could not read: %v", err)
+			return fmt.Errorf("the provider sent an event Owl could not read: %v", err)
 		}
 		if strings.TrimSpace(ev.Error.Message) != "" {
 			return fmt.Errorf("the provider refused: %s", strings.TrimSpace(ev.Error.Message))
@@ -125,6 +125,11 @@ func openAIMessages(system string, turns []Turn) []map[string]any {
 				out = append(out, map[string]any{
 					"role": "tool", "tool_call_id": result.CallID, "content": result.Text,
 				})
+			}
+			// A turn merged with another can carry both, and what the user
+			// said is not a tool result to be dropped beside one.
+			if strings.TrimSpace(t.Text) != "" {
+				out = append(out, map[string]any{"role": t.Role, "content": t.Text})
 			}
 		case len(t.ToolCalls) > 0:
 			calls := make([]map[string]any, 0, len(t.ToolCalls))

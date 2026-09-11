@@ -134,6 +134,10 @@ func TestAddProviderRefusesWhatOwlCannotUse(t *testing.T) {
 			_, err := f.chat.AddProvider(ctx, "anthropic", "k", "https://models.test/v1?key=s3cr3t", nil)
 			return err
 		},
+		"a base url carrying a fragment": func() error {
+			_, err := f.chat.AddProvider(ctx, "anthropic", "k", "https://models.test/v1#s3cr3t", nil)
+			return err
+		},
 		"a model name Owl cannot use": func() error {
 			_, err := f.chat.AddProvider(ctx, "openrouter", "k", "", []string{"--upload-pack=evil"})
 			return err
@@ -259,7 +263,8 @@ func TestAConversationsTitleIsCutAtAWholeCharacter(t *testing.T) {
 // a rotation has to survive.
 type breakingStore struct {
 	chat.Store
-	broken bool
+	broken        bool
+	answersBroken bool
 }
 
 func (s *breakingStore) AddChatProvider(ctx context.Context, p store.ChatProvider) error {
@@ -267,6 +272,15 @@ func (s *breakingStore) AddChatProvider(ctx context.Context, p store.ChatProvide
 		return errors.New("the database is not having it")
 	}
 	return s.Store.AddChatProvider(ctx, p)
+}
+
+func (s *breakingStore) AddChatMessage(ctx context.Context, m store.ChatMessage) (store.ChatMessage, error) {
+	// Only an answer: what the user said has to land, or there is no half
+	// answer to fail to keep.
+	if s.answersBroken && m.Role == chat.RoleAssistant {
+		return store.ChatMessage{}, errors.New("the database would not keep it")
+	}
+	return s.Store.AddChatMessage(ctx, m)
 }
 
 func TestAFailedRotationLeavesTheConfiguredProviderItsKey(t *testing.T) {
@@ -397,6 +411,13 @@ func recordingProvider(t *testing.T, text string) *recording {
 	t.Cleanup(srv.Close)
 	r.url = srv.URL
 	return r
+}
+
+// asked is how many times the provider was asked anything.
+func (r *recording) asked() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.sent)
 }
 
 // roles is what the last request carried, turn by turn, with what each said.
@@ -706,5 +727,115 @@ func TestARotationThatCannotReadTheKeyItReplacesSaysSo(t *testing.T) {
 	key, err := f.creds.Get(ctx, "chat/anthropic")
 	if err != nil || key != "sk-ant-second" {
 		t.Errorf("the credential store holds %q, %v; want what the error says it does", key, err)
+	}
+}
+
+func TestWhyAnAnswerStoppedSurvivesAStoreThatCannotKeepIt(t *testing.T) {
+	f := newFixture(t)
+	kept := &breakingStore{Store: f.store}
+	service := chat.NewService(kept, f.creds, chat.NewTools(f.view))
+	// A provider that says one piece and then breaks the connection, as S14
+	// has it, and a store that will not keep what arrived.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\"}\n\n"+
+			"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,"+
+			"\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"+
+			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,"+
+			"\"delta\":{\"type\":\"text_delta\",\"text\":\"half an ans\"}}\n\n")
+		w.(http.Flusher).Flush()
+		srvHijack(t, w)
+	}))
+	t.Cleanup(srv.Close)
+	if _, err := service.AddProvider(ctx, "anthropic", "sk-ant-secret",
+		srv.URL, []string{"claude-opus-5"}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	kept.answersBroken = true
+
+	_, err := service.Send(ctx, chat.SendRequest{Model: "claude-opus-5", Text: "are you there"}, nil)
+
+	if err == nil {
+		t.Fatal("a failed answer that could not be kept was reported as an answer")
+	}
+	// Why the answer stopped is what the user asked about; that it could not
+	// be written down as well is the second half of it.
+	for _, want := range []string{"anthropic", "would not keep it"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the failure is %q, want it to carry %q", err, want)
+		}
+	}
+}
+
+// srvHijack breaks the connection under the answer, the way a provider that
+// stops mid-stream does.
+func srvHijack(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
+	conn, _, err := http.NewResponseController(w).Hijack()
+	if err != nil {
+		t.Errorf("the fake provider could not break the connection: %v", err)
+		return
+	}
+	_ = conn.Close()
+}
+
+func TestAMessageGoesToTheProviderItNames(t *testing.T) {
+	f := newFixture(t)
+	// Two providers offering one model, which is why a message may name one:
+	// overlapping access is expected rather than a problem to solve.
+	anthropic := recordingProvider(t, "anthropic answered")
+	openrouter := recordingOpenRouter(t, "openrouter answered")
+	if _, err := f.chat.AddProvider(ctx, "anthropic", "sk-ant-secret",
+		anthropic.url, []string{"shared-model"}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	if _, err := f.chat.AddProvider(ctx, "openrouter", "sk-or-secret",
+		openrouter.url, []string{"shared-model"}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+
+	if _, err := f.chat.Send(ctx, chat.SendRequest{
+		Model: "shared-model", Provider: "openrouter", Text: "which of you is this",
+	}, nil); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	if got := openrouter.asked(); got != 1 {
+		t.Errorf("the provider the message named was asked %d times, want once", got)
+	}
+	if got := anthropic.asked(); got != 0 {
+		t.Errorf("a provider the message did not name was asked %d times, want not at all", got)
+	}
+}
+
+func TestAMessageForAModelAProviderDoesNotOfferIsRefused(t *testing.T) {
+	f := newFixture(t)
+	openrouter := recordingOpenRouter(t, "answered")
+	if _, err := f.chat.AddProvider(ctx, "anthropic", "sk-ant-secret",
+		answering(t, "answered"), []string{"a-model"}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	if _, err := f.chat.AddProvider(ctx, "openrouter", "sk-or-secret",
+		openrouter.url, []string{"another-model"}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+
+	_, err := f.chat.Send(ctx, chat.SendRequest{
+		Model: "a-model", Provider: "openrouter", Text: "hello",
+	}, nil)
+
+	var invalid *chat.InvalidError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Send to a provider that does not offer that model = %v, want it refused", err)
+	}
+	for _, want := range []string{"openrouter", "a-model"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal is %q, want it to carry %q", err, want)
+		}
+	}
+	// The one that does offer it was not asked instead: a message names a
+	// provider so that it goes there and nowhere else.
+	if got := openrouter.asked(); got != 0 {
+		t.Errorf("the provider was asked %d times for a model it does not offer", got)
 	}
 }
