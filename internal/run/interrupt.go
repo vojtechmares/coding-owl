@@ -100,6 +100,12 @@ func (s *Service) Pause(ctx context.Context, by Freezer) (Run, error) {
 		return Run{}, ending(runID)
 	}
 	if l.paused {
+		// Nothing to do, but who asked still matters: `owl pause` stops a Run
+		// regardless (ADR-0011), so a user asking for a Run the machine froze
+		// takes it over, and walking away again will not continue it.
+		if by == ByUser {
+			l.by = ByUser
+		}
 		return Run{}, refused("run %d is already paused; owl resume continues it", runID)
 	}
 	if err := l.proc.SignalGroup(syscall.SIGSTOP); err != nil {

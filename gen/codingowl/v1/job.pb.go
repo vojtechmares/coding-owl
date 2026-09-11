@@ -2237,7 +2237,10 @@ type GetOverviewResponse struct {
 	Unfinished []*Unfinished `protobuf:"bytes,6,rep,name=unfinished,proto3" json:"unfinished,omitempty"`
 	// Machine is what the daemon last read about the machine it runs on, which
 	// is why work is or is not happening (ADR-0011).
-	Machine       *Machine `protobuf:"bytes,7,opt,name=machine,proto3" json:"machine,omitempty"`
+	Machine *Machine `protobuf:"bytes,7,opt,name=machine,proto3" json:"machine,omitempty"`
+	// Holding is what refused to start work on a machine Owl may work on, empty
+	// when nothing has refused.
+	Holding       string `protobuf:"bytes,8,opt,name=holding,proto3" json:"holding,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2319,6 +2322,13 @@ func (x *GetOverviewResponse) GetMachine() *Machine {
 		return x.Machine
 	}
 	return nil
+}
+
+func (x *GetOverviewResponse) GetHolding() string {
+	if x != nil {
+		return x.Holding
+	}
+	return ""
 }
 
 // Machine is the machine Owl runs on, as the daemon last read it (ADR-0011).
@@ -2543,7 +2553,7 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\x05count\x18\x02 \x01(\x05R\x05count\"Y\n" +
 	"\rRunInProgress\x12#\n" +
 	"\x03run\x18\x01 \x01(\v2\x11.codingowl.v1.RunR\x03run\x12#\n" +
-	"\x03job\x18\x02 \x01(\v2\x11.codingowl.v1.JobR\x03job\"\xf9\x02\n" +
+	"\x03job\x18\x02 \x01(\v2\x11.codingowl.v1.JobR\x03job\"\x93\x03\n" +
 	"\x13GetOverviewResponse\x125\n" +
 	"\arunning\x18\x01 \x03(\v2\x1b.codingowl.v1.RunInProgressR\arunning\x123\n" +
 	"\x06counts\x18\x02 \x03(\v2\x1b.codingowl.v1.JobStateCountR\x06counts\x12-\n" +
@@ -2553,7 +2563,8 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\n" +
 	"unfinished\x18\x06 \x03(\v2\x18.codingowl.v1.UnfinishedR\n" +
 	"unfinished\x12/\n" +
-	"\amachine\x18\a \x01(\v2\x15.codingowl.v1.MachineR\amachine\"\x95\x01\n" +
+	"\amachine\x18\a \x01(\v2\x15.codingowl.v1.MachineR\amachine\x12\x18\n" +
+	"\aholding\x18\b \x01(\tR\aholding\"\x95\x01\n" +
 	"\aMachine\x12\x12\n" +
 	"\x04read\x18\x01 \x01(\bR\x04read\x12\x12\n" +
 	"\x04idle\x18\x02 \x01(\bR\x04idle\x12/\n" +

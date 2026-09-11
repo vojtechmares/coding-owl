@@ -663,7 +663,11 @@ exit 0
 	if err := os.WriteFile(filepath.Join(dir, "launchctl"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return l.withEnv("PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH")), log
+	// The stub launchctl goes in front of the stub machine rather than in
+	// place of it: a second PATH= would win and leave this daemon reading the
+	// developer's own machine (issue #19).
+	return l.withoutEnv("PATH").withEnv("PATH=" + dir + string(os.PathListSeparator) +
+		fakeMachineDir + string(os.PathListSeparator) + os.Getenv("PATH")), log
 }
 
 func launchctlCalls(t *testing.T, log string) []string {

@@ -254,6 +254,9 @@ type Overview struct {
 	// Machine is what the daemon last read about the machine it runs on, which
 	// is why work is or is not happening (ADR-0011).
 	Machine Machine
+	// Holding is what refused to start work on a machine Owl may work on,
+	// empty when nothing has refused.
+	Holding string
 }
 
 // Machine is the machine Owl runs on, as the daemon last read it (ADR-0011).
@@ -315,5 +318,6 @@ func (c *Client) GetOverview(ctx context.Context) (Overview, error) {
 			Detail:  m.GetDetail(),
 		}
 	}
+	o.Holding = res.Msg.GetHolding()
 	return o, nil
 }

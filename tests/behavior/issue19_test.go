@@ -76,6 +76,18 @@ func (m *machine) unreadable(t *testing.T) {
 	m.says(t, "unreadable")
 }
 
+// maybeLine is a key line of some output, empty when there is none: a line
+// that is not there yet is what a scenario is waiting for rather than a
+// failure.
+func maybeLine(out, key string) string {
+	for _, ln := range strings.Split(out, "\n") {
+		if after, ok := strings.CutPrefix(ln, key+":"); ok {
+			return strings.TrimSpace(after)
+		}
+	}
+	return ""
+}
+
 // looked gives the daemon time to look at the machine several times, for the
 // scenarios that assert nothing happened.
 func looked() { sleep(700 * time.Millisecond) }
@@ -149,8 +161,8 @@ func TestS3IdleAnIdleMachineStartsARunWithNobodyAsking(t *testing.T) {
 	l, _ := agentLayout(t, agentScript, 0)
 	l, m := watching(t, l, "")
 	daemonUp(t, l)
-	r := checkedProject(t, l, "apiVersion: codingowl.dev/v1\n")
-	addJob(t, l, r.dir, "work", "--no-plan")
+	// checkedProject queues the Job; nothing asks for it to be run.
+	checkedProject(t, l, "apiVersion: codingowl.dev/v1\n")
 	job := "1"
 
 	m.away(t)
@@ -169,8 +181,7 @@ func TestS4IdleThePolicyIsWhatTheConfigurationSays(t *testing.T) {
 	l, m := watching(t, l, "apiVersion: codingowl.dev/v1\nidle:\n"+
 		"  interval: 100ms\n  after: 1s\n  requirePower: false\n")
 	daemonUp(t, l)
-	r := checkedProject(t, l, "apiVersion: codingowl.dev/v1\n")
-	addJob(t, l, r.dir, "work", "--no-plan")
+	checkedProject(t, l, "apiVersion: codingowl.dev/v1\n")
 	job := "1"
 
 	// Two seconds without input, on battery: idle under this policy and under
@@ -317,6 +328,27 @@ func TestS9IdlePauseIsNotUndoneByTheMachineGoingIdle(t *testing.T) {
 	mustOwl(t, l, "resume")
 
 	b.growing(t)
+
+	// And the other way round: a Run the machine froze, which the user then
+	// asked to pause as well, is theirs now. `owl pause` stops a Run whatever
+	// the machine is doing, so the machine leaving cannot undo it.
+	m.inUse(t)
+	waitFor(t, "the machine to freeze the run", func() bool {
+		return runRowOf(t, l, job, run).outcome == "paused"
+	})
+	if res := runOwl(t, l, "pause"); res.code == 0 {
+		t.Errorf("owl pause reported success for a run that was already frozen:\n%s", res.stdout)
+	}
+
+	m.away(t)
+
+	looked()
+	if !b.still(t) {
+		t.Error("the agent's child is beating again: the machine undid what the user asked for")
+	}
+	if got := runRowOf(t, l, job, run).outcome; got != "paused" {
+		t.Errorf("run state = %q, want it still paused", got)
+	}
 	b.stub.let(t)
 }
 
@@ -354,7 +386,7 @@ func TestS11IdleStatusSaysWhyNothingIsRunning(t *testing.T) {
 	l, _ := agentLayout(t, agentScript, 0)
 	l, m := watching(t, l, "")
 	daemonUp(t, l)
-	_, job := queuedJob(t, l)
+	r, job := queuedJob(t, l)
 	m.inUse(t)
 
 	looked()
@@ -372,6 +404,17 @@ func TestS11IdleStatusSaysWhyNothingIsRunning(t *testing.T) {
 
 	waitFor(t, "status to stop blaming the machine", func() bool {
 		return strings.Contains(line(t, mustOwl(t, l, "status").stdout, "nothing is running"), "queued")
+	})
+
+	// A Job that cannot run on a machine Owl may work on: what refused it is
+	// what a person needs, and the machine is not to blame for it.
+	r.commit(".coding-owl.yaml", "apiVersion: codingowl.dev/v1\naccount: nobody\n",
+		"name an account nobody has")
+	addJob(t, l, r.dir, "work", "--no-plan")
+
+	waitFor(t, "status to say what refused the job", func() bool {
+		said := maybeLine(mustOwl(t, l, "status").stdout, "nothing is running")
+		return strings.Contains(said, "nobody") && !strings.Contains(said, "machine")
 	})
 }
 
@@ -408,7 +451,30 @@ func TestS12IdleAMachineOwlCannotReadStartsNothing(t *testing.T) {
 	b.stub.let(t)
 }
 
-func TestS13IdleTheAppShowsWhetherTheMachineIsIdle(t *testing.T) {
+func TestS13IdleAPolicyChangedWhileRunningIsTheOneThatHolds(t *testing.T) {
+	l, _ := agentLayout(t, agentScript, 0)
+	l, m := watching(t, l, "")
+	daemonUp(t, l)
+	checkedProject(t, l, "apiVersion: codingowl.dev/v1\n")
+	job := "1"
+	// Idle for two seconds on battery, which the default policy refuses twice
+	// over.
+	m.idleFor(t, 2*time.Second, false)
+	looked()
+	if running(t, l, job) {
+		t.Fatal("a run started under the default policy")
+	}
+
+	globalConfig(t, l, "apiVersion: codingowl.dev/v1\nidle:\n"+
+		"  interval: 100ms\n  after: 1s\n  requirePower: false\n")
+
+	run := waitStarted(t, l, job)
+	if row := waitRun(t, l, job, run); row.outcome != "succeeded" {
+		t.Errorf("run outcome = %q, want the job carried out under the new policy", row.outcome)
+	}
+}
+
+func TestS14IdleTheAppShowsWhetherTheMachineIsIdle(t *testing.T) {
 	l, _ := agentLayout(t, agentScript, 0)
 	l, m := watching(t, l, "")
 	daemonUp(t, l)

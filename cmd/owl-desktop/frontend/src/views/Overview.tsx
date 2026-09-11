@@ -95,7 +95,7 @@ export function Overview({
 
       <Panel title="Machine">
         <div className="tiles">
-          <Tile label="State" value={<StatePill state={machinePill(data?.Machine)} />} />
+          <Tile label="Idle" value={<StatePill state={machinePill(data?.Machine)} />} />
           <Tile label="Last input" value={data?.Machine?.Read ? sinceInput(data.Machine.Since) : "-"} />
           <Tile label="Power" value={powerLabel(data?.Machine)} />
         </div>
@@ -212,9 +212,10 @@ export function Overview({
 
 // machinePill is whether Owl may work: Idle is the state the whole product
 // waits for (ADR-0011), so it is said in the same words the CLI says it in.
+// One lowercase word, because that is what a pill's class is made of.
 function machinePill(m: Machine | undefined): string {
   if (!m || !m.Read) return "unknown";
-  return m.Idle ? "Idle" : "In use";
+  return m.Idle ? "idle" : "busy";
 }
 
 // machineDetail is why the machine is not one Owl may work on, or why it could

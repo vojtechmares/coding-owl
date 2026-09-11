@@ -1,6 +1,6 @@
 //go:build darwin
 
-package idle_test
+package system_test
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/idle"
+	"github.com/vojtechmares/coding-owl/internal/idle/system"
 )
 
 var ctx = context.Background()
@@ -35,7 +36,7 @@ func machine(t *testing.T, ioreg, pmset string) idle.Detector {
 	}
 	// First, rather than only: the script itself needs the shell's own tools.
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return idle.New()
+	return system.New()
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
@@ -107,7 +108,10 @@ func TestAMachineThatCannotBeReadIsAFailureRatherThanAnIdleOne(t *testing.T) {
 		"nothing answers about the power": {ioreg: ioregSaying(time.Minute), pmset: "!pmset: cannot", says: "pmset"},
 		"the input is not in the answer":  {ioreg: "+-o IOHIDSystem\n{\n}", pmset: onAC, says: "idle"},
 		"the power is not in the answer":  {ioreg: ioregSaying(time.Minute), pmset: "nothing useful", says: "drawing"},
-		"the input is not a number":       {ioreg: `"HIDIdleTime" = <pointer>`, pmset: onAC, says: "idle"},
+		"the input is not one Owl can hold": {
+			ioreg: `"HIDIdleTime" = 99999999999999999999999`, pmset: onAC, says: "idle",
+		},
+		"the input is not a number at all": {ioreg: `"HIDIdleTime" = <pointer>`, pmset: onAC, says: "idle"},
 	} {
 		d := machine(t, c.ioreg, c.pmset)
 

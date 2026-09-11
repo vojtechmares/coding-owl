@@ -39,6 +39,10 @@ type Overview struct {
 	// Machine is what the last look at the machine said, which is why work is
 	// or is not happening (ADR-0011).
 	Machine Machine
+	// Holding is what refused to start work on a machine Owl may work on - a
+	// Job with no Account, a tool nobody can run - and is empty when nothing
+	// has refused.
+	Holding string
 }
 
 // DisposalLock is the lock that serialises deciding a Job's fate. Garbage
@@ -161,7 +165,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	machine := s.MachineState()
 	byID := make(map[int64]store.Job, len(jobs))
 	counts := map[queue.State]int{}
-	out := Overview{Machine: machine}
+	out := Overview{Machine: machine, Holding: s.Holding()}
 	for _, j := range jobs {
 		byID[j.ID] = j
 		state := queue.State(j.State)

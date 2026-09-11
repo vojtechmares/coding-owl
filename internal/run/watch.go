@@ -8,6 +8,12 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/idle"
 )
 
+// maxHold is the longest the watcher waits after something refused to start
+// before asking again. A Job that cannot start - no Account named, a Claude
+// Code nobody can run - is waiting for a person, and asking every few seconds
+// all night would spend the machine this product exists to leave alone.
+const maxHold = 5 * time.Minute
+
 // Machine is what the daemon last read about the machine it runs on, and what
 // that reading meant (ADR-0011). It is what `owl status` and the app say about
 // why work is or is not happening.
@@ -35,30 +41,52 @@ type Machine struct {
 // what freezes a Run is somebody arriving at a machine Owl had to itself, so a
 // Run somebody started while sitting at the machine is left alone, as
 // `owl start` means it to be.
-func (s *Service) Watch(ctx context.Context, d idle.Detector, p idle.Policy, every time.Duration) {
+//
+// The policy is read from the configuration on every look, so that changing
+// what counts as Idle takes effect the way changing the grace window does.
+// How often the machine is looked at is this daemon's for its lifetime.
+func (s *Service) Watch(ctx context.Context, d idle.Detector, every time.Duration) {
 	if every <= 0 {
 		every = idle.DefaultInterval
 	}
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	// What the last readable look said, and nothing before the first one: a
-	// machine Owl has not read yet has not changed.
+	// machine Owl has not read yet has not changed. A look that fails leaves
+	// this alone, so that a reading lost in the middle of somebody returning
+	// is caught by the next one rather than forgotten.
 	var was *bool
+	// When to ask again after something refused to start, and how long the
+	// wait has grown to.
+	var askAgain time.Time
+	var waited time.Duration
 	for {
-		if state, err := d.Read(ctx); err != nil {
+		state, err := d.Read(ctx)
+		switch {
+		case err != nil:
 			// Not knowing is not knowing somebody is back, and it is not
-			// permission to work either: nothing is started, nothing is
-			// frozen, and what the machine last said is forgotten so that the
-			// next reading is a fresh look rather than a change.
+			// permission to work either: nothing is started and nothing is
+			// frozen.
 			if ctx.Err() == nil {
 				s.opts.Logger.Debug("the machine could not be read", "error", err)
 			}
 			s.machineUnreadable(err)
-			was = nil
-		} else {
-			isIdle, why := p.Allows(state)
+		default:
+			isIdle, why := s.idlePolicy().Allows(state)
 			s.machineRead(state, isIdle, why)
 			s.act(ctx, isIdle, was)
+			if !isIdle {
+				// A fresh idle window is a fresh chance: whatever refused
+				// last night may have been seen to.
+				askAgain, waited = time.Time{}, 0
+			} else if now := s.now(); !now.Before(askAgain) {
+				if refused := s.begin(ctx); refused != "" {
+					waited = nextAsk(waited, every)
+					askAgain = now.Add(waited)
+				} else {
+					askAgain, waited = time.Time{}, 0
+				}
+			}
 			was = &isIdle
 		}
 		select {
@@ -69,8 +97,37 @@ func (s *Service) Watch(ctx context.Context, d idle.Detector, p idle.Policy, eve
 	}
 }
 
-// act is what a reading means for the work: the change, and then the standing
-// state. The caller holds no lock.
+// nextAsk is how long to wait before asking again after something refused to
+// start, given how long the last wait was: one look, then twice that each time,
+// up to maxHold. A Job that cannot start is waiting for a person, and a person
+// is not going to answer in the next five seconds.
+func nextAsk(waited, every time.Duration) time.Duration {
+	return min(max(waited*2, every), maxHold)
+}
+
+// idlePolicy is what this look holds the machine to: what the configuration
+// says, with Owl's own answer where it says nothing. A configuration that
+// cannot be read leaves the default in place rather than stopping the watch,
+// because a daemon that stopped looking would neither work nor give the
+// machine back.
+func (s *Service) idlePolicy() idle.Policy {
+	policy := idle.DefaultPolicy()
+	global, err := s.global()
+	if err != nil {
+		s.opts.Logger.Debug("the idle policy could not be read", "error", err)
+		return policy
+	}
+	if global.Idle.After > 0 {
+		policy.After = global.Idle.After
+	}
+	if global.Idle.RequirePower != nil {
+		policy.RequirePower = *global.Idle.RequirePower
+	}
+	return policy
+}
+
+// act is what a reading means for the work in flight: the change, and nothing
+// otherwise. The caller holds no lock.
 func (s *Service) act(ctx context.Context, isIdle bool, was *bool) {
 	switch {
 	case was != nil && *was && !isIdle:
@@ -82,18 +139,36 @@ func (s *Service) act(ctx context.Context, isIdle bool, was *bool) {
 		// was, inside its grace window.
 		s.thaw(ctx)
 	}
-	if isIdle {
-		s.begin(ctx)
-	}
 }
 
 // freeze stops the Agent of the Run in flight, if there is one to stop.
 func (s *Service) freeze(ctx context.Context) {
-	if _, err := s.Pause(ctx, ByMachine); err != nil {
-		// There is usually nothing to freeze - no Run, or one the user froze
+	toFreeze := s.freezable()
+	_, err := s.Pause(ctx, ByMachine)
+	switch {
+	case err == nil:
+	case !toFreeze:
+		// There was usually nothing to freeze - no Run, or one the user froze
 		// themselves - which is not worth a word above debug.
 		s.opts.Logger.Debug("nothing was frozen when the machine came back into use", "error", err)
+	default:
+		// There was a Run going and it is still going: the machine is not the
+		// user's again, and nothing else is going to say so.
+		s.opts.Logger.Warn("a run could not be frozen when the machine came back into use", "error", err)
 	}
+}
+
+// freezable reports whether there is a Run this daemon could freeze, which is
+// what tells a refusal nobody needs from one somebody does.
+func (s *Service) freezable() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, l := range s.live {
+		if !l.paused {
+			return true
+		}
+	}
+	return false
 }
 
 // thaw continues a Run frozen because somebody came back.
@@ -104,23 +179,32 @@ func (s *Service) thaw(ctx context.Context) {
 }
 
 // begin starts the Job at the head of the queue, if the daemon is in a
-// position to start anything.
-func (s *Service) begin(ctx context.Context) {
+// position to start anything. It returns what refused, empty when nothing did,
+// which is both what `owl status` says and what makes the watcher wait a while
+// before asking again.
+func (s *Service) begin(ctx context.Context) string {
 	job, r, started, err := s.Start(ctx)
+	var refusal *RefusedError
 	switch {
 	case started:
 		s.opts.Logger.Info("run started on an idle machine", "run", r.ID, "job", job.ID)
-	case err != nil && !errors.Is(err, context.Canceled):
-		// A refusal is the ordinary case: a Run already in progress, or a Job
-		// whose Account or tool is not ready. It is the daemon's own business
-		// rather than anybody's failure, so it is logged and not raised.
-		var refused *RefusedError
-		if errors.As(err, &refused) {
-			s.opts.Logger.Debug("nothing was started on an idle machine", "reason", err)
-			return
-		}
+	case errors.Is(err, context.Canceled):
+		// The daemon is stopping, which is not a refusal to report.
+		return ""
+	case errors.As(err, &refusal):
+		// A Job that cannot start is waiting for a person - an Account nobody
+		// named, a tool nobody installed - so it is what `owl status` should
+		// say rather than something to raise.
+		s.opts.Logger.Debug("nothing was started on an idle machine", "reason", err)
+		s.holdingBack(err.Error())
+		return err.Error()
+	case err != nil:
 		s.opts.Logger.Error("starting a run on an idle machine", "error", err)
+		s.holdingBack(err.Error())
+		return err.Error()
 	}
+	s.holdingBack("")
+	return ""
 }
 
 // machineRead records what the machine said, for the reports that say why work
@@ -139,6 +223,22 @@ func (s *Service) machineUnreadable(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.machine = Machine{Detail: idle.Unreadable(err)}
+}
+
+// holdingBack records what refused to start on an idle machine, so that a
+// person asking why nothing is running is told.
+func (s *Service) holdingBack(why string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.holding = why
+}
+
+// Holding is what refused to start work on a machine Owl may work on, empty
+// when nothing has.
+func (s *Service) Holding() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.holding
 }
 
 // MachineState is what the daemon last read about the machine. A daemon that

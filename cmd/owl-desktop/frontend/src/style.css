@@ -340,6 +340,10 @@ td.faint,
 .pill.pinned { color: var(--color-state-done); }
 .pill.tracking { color: var(--color-state-active); border-color: var(--color-state-active); }
 .pill.paused { color: var(--color-state-paused); border-color: var(--color-state-paused); border-style: dashed; }
+/* Whether Owl may work at all: the machine is idle, in use, or unread. */
+.pill.idle { color: var(--color-state-active); border-color: var(--color-state-active); }
+.pill.busy { color: var(--color-state-paused); border-color: var(--color-state-paused); }
+.pill.unknown { color: var(--color-state-cancelled); }
 .pill.pass { color: var(--color-pass); background: var(--color-pass-bg); }
 .pill.fail { color: var(--color-fail); background: var(--color-fail-bg); }
 

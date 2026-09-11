@@ -145,12 +145,14 @@ func heldBy(o client.Overview) string {
 		return ""
 	}
 	switch {
-	case !o.Machine.Read:
-		return orUnsaid(o.Machine.Detail)
-	case !o.Machine.Idle:
+	case !o.Machine.Read, !o.Machine.Idle:
 		return orUnsaid(o.Machine.Detail)
 	case !pending(o):
 		return "nothing is queued"
+	case o.Holding != "":
+		// The machine is one Owl may work on and something is queued, so what
+		// is left is whatever refused the Job at the head of it.
+		return o.Holding
 	}
 	return ""
 }
