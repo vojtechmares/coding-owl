@@ -359,8 +359,10 @@ const maxAttempts = 1<<31 - 1
 // ExtendJob gives a Job add more attempts, and returns a Job that had run out
 // to the queue at the place it kept (ADR-0025). A Job in any other state keeps
 // it: more attempts are not what a blocked Job is waiting for. The Job as it
-// stands afterwards is returned.
-func (s *Store) ExtendJob(ctx context.Context, id int64, add int, exhausted, pending string) (Job, error) {
+// stands afterwards is returned. The two states are taken in the order
+// ReturnJobToQueue takes them, so that no call site has to remember two
+// orders.
+func (s *Store) ExtendJob(ctx context.Context, id int64, add int, pending, exhausted string) (Job, error) {
 	var j Job
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		row := tx.QueryRowContext(ctx,

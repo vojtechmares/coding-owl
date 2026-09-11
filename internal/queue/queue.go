@@ -330,7 +330,7 @@ func (s *Service) Extend(ctx context.Context, id int64, add int) (Job, error) {
 	case add == 0:
 		add = DefaultTTL
 	}
-	j, err := s.store.ExtendJob(ctx, id, add, string(StateExhausted), string(StatePending))
+	j, err := s.store.ExtendJob(ctx, id, add, string(StatePending), string(StateExhausted))
 	if err != nil {
 		return Job{}, err
 	}
