@@ -194,7 +194,12 @@ func (s *Store) affectOneJob(ctx context.Context, id int64, query string, args .
 }
 
 func (s *Store) listJobs(ctx context.Context, query string, args ...any) ([]Job, error) {
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	return scanJobs(s.db.QueryContext(ctx, query, args...))
+}
+
+// scanJobs reads a query's Jobs, taking the query's own error so that a caller
+// can hand it straight through.
+func scanJobs(rows *sql.Rows, err error) ([]Job, error) {
 	if err != nil {
 		return nil, err
 	}

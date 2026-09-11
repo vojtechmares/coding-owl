@@ -306,39 +306,53 @@ func TestS11GCReportsAJobLeftActiveByADeadDaemon(t *testing.T) {
 }
 
 func TestS12StatusListsUnfinishedWork(t *testing.T) {
-	l, _ := gcLayout(t)
-	daemonUp(t, l)
-	_, _, worktree := disposedWithItsWorktreeBack(t, l, "accept")
+	script := []string{agentScript[0], "#wait", agentScript[2]}
+	l, _ := writingLayout(t, map[string]string{"work.txt": "the agent's work\n"}, true, script)
+	globalConfig(t, l, onDemand)
+	p := daemonUp(t, l)
+
+	// A worktree holding changes nobody committed, which is S5's kind.
+	r := project(t, l, "api")
+	addJob(t, l, r.dir, "work", "--no-plan")
+	release(t, l)
+	out, first := finishedJob(t, l)
+	worktree := line(t, out, "worktree")
+	mustOwl(t, l, "jobs", "accept", first)
+	r.git("worktree", "add", worktree, line(t, out, "branch"))
 	if err := os.WriteFile(filepath.Join(worktree, "not-committed.txt"), []byte("unfinished\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// A second Project, because the first one's Job has been disposed of and
-	// what awaits a decision has to be a Job of its own.
-	second := newRepo(t, l, "web")
-	addProject(t, l, second)
-	addJob(t, l, second.dir, "waiting", "--no-plan")
-	out, waiting := finishedJob(t, l)
-	if got := line(t, out, "state"); got != "review" {
-		t.Fatalf("state = %q, want a job awaiting a decision:\n%s", got, out)
+
+	// A Job left active by a daemon that died, which is S11's kind.
+	addJob(t, l, r.dir, "interrupted", "--no-plan")
+	_, abandoned := startRun(t, l)
+	if err := p.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
 	}
+	p.exit(t, 10*time.Second)
+	waitForLog(t, startDaemon(t, l), "daemon listening")
 
 	status := mustOwl(t, l, "status").stdout
 
 	unfinished := section(t, status, "unfinished work:")
-	if !strings.Contains(unfinished, worktree) {
-		t.Errorf("owl status does not list the worktree holding uncommitted changes:\n%s", status)
-	}
-	if !strings.Contains(unfinished, "committed") {
-		t.Errorf("owl status does not say what is unfinished about it:\n%s", status)
+	for _, want := range []string{worktree, "committed", "job " + abandoned, "running"} {
+		if !strings.Contains(unfinished, want) {
+			t.Errorf("owl status does not report %q as unfinished work:\n%s", want, status)
+		}
 	}
 	// What is merely waiting for a person is its own list, and has been since
 	// issue #8; unfinished work is what nothing is going to resolve on its own.
-	awaiting := section(t, status, "awaiting a decision:")
-	if !strings.Contains(awaiting, waiting) {
-		t.Errorf("owl status no longer lists what awaits a decision:\n%s", status)
+	if strings.Contains(section(t, status, "jobs:"), "unfinished") {
+		t.Errorf("owl status counts unfinished work as a job state:\n%s", status)
 	}
-	if strings.Contains(awaiting, worktree) {
-		t.Errorf("owl status lists the stray worktree as awaiting a decision:\n%s", status)
+}
+
+// release lets a stub agent waiting on a `#wait` line continue, and is how a
+// scenario holds a Run open for exactly as long as it needs.
+func release(t *testing.T, l *layout) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(l.root, "agent-release"), []byte("go\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -382,15 +396,23 @@ func TestS15GCRunsAgainOnItsInterval(t *testing.T) {
 func TestS16GCNeverRunsAnAgent(t *testing.T) {
 	l, s := sweepingLayout(t)
 	daemonUp(t, l)
-	r := project(t, l, "api")
-	stray := worktreeDir(l, "999")
-	r.git("worktree", "add", "-b", "owl/stray", stray)
+	// A Job that has run, so the stub has a record and the collections below
+	// have a worktree to reclaim: this is the state S14 and S15 leave behind.
+	r, job, worktree, branch := reviewed(t, l)
+	mustOwl(t, l, "jobs", "accept", job)
+	r.git("worktree", "add", worktree, branch)
+	before := len(s.invocations(t))
 
+	// Several collections, asked for and not.
 	gcReport(t, l)
-	waitForGone(t, stray)
+	waitForGone(t, worktree)
+	gcReport(t, l)
 
-	if _, err := os.Stat(s.argv); err == nil {
-		t.Errorf("garbage collection ran an agent:\n%s", read(t, s.argv))
+	if after := len(s.invocations(t)); after != before {
+		t.Errorf("the agent was invoked %d times, want the %d it was before the collections", after, before)
+	}
+	if before == 0 {
+		t.Error("the stub agent recorded nothing at all, so this proves nothing about garbage collection")
 	}
 }
 

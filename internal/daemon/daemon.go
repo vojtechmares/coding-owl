@@ -182,9 +182,16 @@ func Run(ctx context.Context, opts Options) error {
 	)
 
 	// Garbage collection runs on start and on an interval, so that disk stays
-	// bounded and nothing quietly rots without anybody asking (ADR-0015).
-	collecting := collect(ctx, collector, global.GarbageCollection.Interval, log)
-	defer func() { <-collecting }()
+	// bounded and nothing quietly rots without anybody asking (ADR-0015). It
+	// is stopped on the way out of this function rather than only when the
+	// context is done, so that a daemon returning for any other reason - a
+	// server that stopped serving - does not wait on it forever.
+	collectCtx, stopCollecting := context.WithCancel(ctx)
+	collecting := collect(collectCtx, collector, global.GarbageCollection.Interval, log)
+	defer func() {
+		stopCollecting()
+		<-collecting
+	}()
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()

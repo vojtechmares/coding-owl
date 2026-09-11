@@ -123,6 +123,11 @@ type Options struct {
 type Service struct {
 	opts Options
 	now  func() time.Time
+	// interleave runs between reading the worktree directory and reading the
+	// database. It is the seam the tests use to put a Run's worktree exactly
+	// where a collection must not see it, which is the only way to exercise
+	// the ordering those two reads depend on. It is nil in a real Service.
+	interleave func()
 }
 
 // NewService returns a Service that collects over opts.
@@ -141,15 +146,22 @@ func NewService(opts Options) *Service {
 // worktree is logged and the rest goes on, because a single unreadable
 // repository must not stop the task that keeps the disk bounded.
 func (s *Service) Collect(ctx context.Context) (Report, error) {
+	// The directory is read first, and the Jobs after it. A Job exists before
+	// its worktree does, so anything listed here belongs to a Job the read
+	// below is certain to see - which is what keeps a collection from taking
+	// the worktree of a Run that started while it was thinking.
+	candidates, err := s.candidates()
+	if err != nil {
+		return Report{}, err
+	}
+	if s.interleave != nil {
+		s.interleave()
+	}
 	projects, err := s.opts.Store.ListProjects(ctx)
 	if err != nil {
 		return Report{}, err
 	}
-	jobs, err := s.opts.Store.ListAllJobs(ctx)
-	if err != nil {
-		return Report{}, err
-	}
-	running, err := s.opts.Store.ListRunsInProgress(ctx)
+	jobs, running, err := s.opts.Store.JobsAndRunsInProgress(ctx)
 	if err != nil {
 		return Report{}, err
 	}
@@ -158,7 +170,7 @@ func (s *Service) Collect(ctx context.Context) (Report, error) {
 	// Merged Jobs first: accepting one makes its worktree reclaimable, so the
 	// reconciling below takes it in the same collection rather than the next.
 	jobs = s.accept(ctx, projects, jobs, &report)
-	s.reconcile(ctx, projects, jobs, &report)
+	s.reconcile(ctx, projects, jobs, candidates, &report)
 	s.prune(projects, &report)
 	s.report(jobs, running, &report)
 	return report, nil
@@ -168,25 +180,46 @@ func (s *Service) Collect(ctx context.Context) (Report, error) {
 // collecting anything. owl status asks this so that it answers about now
 // rather than about the last collection (ADR-0015).
 func (s *Service) Unfinished(ctx context.Context) ([]Unfinished, error) {
-	jobs, err := s.opts.Store.ListAllJobs(ctx)
+	candidates, err := s.candidates()
 	if err != nil {
 		return nil, err
 	}
-	running, err := s.opts.Store.ListRunsInProgress(ctx)
+	jobs, running, err := s.opts.Store.JobsAndRunsInProgress(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var report Report
-	s.worktrees(jobs, &report)
+	s.worktrees(jobs, candidates, &report)
 	s.report(jobs, running, &report)
 	return report.Unfinished, nil
+}
+
+// candidates is every directory under the worktree directory, by path. It is
+// read before anything is asked of the database, so that a worktree made while
+// a collection is under way is simply not one of this collection's candidates.
+func (s *Service) candidates() ([]string, error) {
+	entries, err := os.ReadDir(s.opts.WorktreeDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		// No worktree has ever been made, which is not a problem to report.
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading the worktree directory %s: %w", s.opts.WorktreeDir, err)
+	}
+	var paths []string
+	for _, e := range entries {
+		if e.IsDir() {
+			paths = append(paths, filepath.Join(s.opts.WorktreeDir, e.Name()))
+		}
+	}
+	return paths, nil
 }
 
 // worktrees reports the worktrees holding changes nobody has committed,
 // touching nothing. It is the reading half of reconcile, which is why both go
 // through it.
-func (s *Service) worktrees(jobs []store.Job, report *Report) {
-	s.walk(jobs, func(path string, j store.Job, owned bool) {
+func (s *Service) worktrees(jobs []store.Job, candidates []string, report *Report) {
+	s.walk(jobs, candidates, func(path string, j store.Job, owned bool) {
 		clean, err := git.WorktreeIsClean(path)
 		if err != nil {
 			s.opts.Logger.Warn("reading the state of a worktree", "path", path, "error", err)
@@ -205,30 +238,17 @@ func (s *Service) worktrees(jobs []store.Job, report *Report) {
 // belonging to no Job at all. A directory that is not a worktree git can work
 // in is never visited - it is somebody else's, or what a half-finished removal
 // left for pruning.
-func (s *Service) walk(jobs []store.Job, visit func(path string, j store.Job, owned bool)) {
-	entries, err := os.ReadDir(s.opts.WorktreeDir)
-	if errors.Is(err, fs.ErrNotExist) {
-		// No worktree has ever been made, which is not a problem to report.
-		return
-	}
-	if err != nil {
-		s.opts.Logger.Error("reading the worktree directory", "path", s.opts.WorktreeDir, "error", err)
-		return
-	}
+func (s *Service) walk(jobs []store.Job, candidates []string, visit func(path string, j store.Job, owned bool)) {
 	byPath := jobsByWorktree(jobs)
 	byID := jobsByID(jobs)
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		path := filepath.Join(s.opts.WorktreeDir, e.Name())
+	for _, path := range candidates {
 		j, owned := byPath[resolve(path)]
 		if !owned {
 			// A worktree here is named after the Job it belongs to (ADR-0014),
 			// and the Job exists before its worktree does. Reading the name is
 			// what keeps a collection from taking a worktree in the moment
 			// between git making it and the Job recording it.
-			j, owned = byID[jobID(e.Name())]
+			j, owned = byID[jobID(filepath.Base(path))]
 		}
 		if owned && !finishedWith(j) {
 			// The Job still has a use for it.
@@ -294,9 +314,9 @@ func (s *Service) accept(ctx context.Context, projects []store.Project, jobs []s
 // reconcile takes back the worktrees nothing needs any more. A worktree
 // holding uncommitted changes is reported rather than reclaimed, whatever its
 // Job says: reclaiming disk must never destroy work silently (ADR-0015).
-func (s *Service) reconcile(ctx context.Context, projects []store.Project, jobs []store.Job, report *Report) {
+func (s *Service) reconcile(ctx context.Context, projects []store.Project, jobs []store.Job, candidates []string, report *Report) {
 	byName := projectsByName(projects)
-	s.walk(jobs, func(path string, j store.Job, owned bool) {
+	s.walk(jobs, candidates, func(path string, j store.Job, owned bool) {
 		clean, err := git.WorktreeIsClean(path)
 		if err != nil {
 			s.opts.Logger.Warn("reading the state of a worktree", "path", path, "error", err)
