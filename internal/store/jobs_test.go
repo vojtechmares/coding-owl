@@ -287,3 +287,71 @@ func TestRenameProjectCarriesItsJobsAcross(t *testing.T) {
 		}
 	}
 }
+
+func TestExtendJobAddsToWhatIsLeft(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := jobWithAttempts(t, s, "a", 2)
+
+	got, err := s.ExtendJob(ctx, j.ID, 5, "exhausted", "pending")
+
+	if err != nil {
+		t.Fatalf("ExtendJob: %v", err)
+	}
+	if got.TTL != 7 {
+		t.Errorf("the job has %d attempts, want the five added to the two it had", got.TTL)
+	}
+	if got.State != "pending" {
+		t.Errorf("the job is %q, want the state it was already in", got.State)
+	}
+}
+
+func TestExtendJobReturnsAnExhaustedJobToTheQueue(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := jobWithAttempts(t, s, "a", 0)
+	if err := s.SetJobState(ctx, j.ID, "exhausted"); err != nil {
+		t.Fatalf("SetJobState: %v", err)
+	}
+
+	got, err := s.ExtendJob(ctx, j.ID, 10, "exhausted", "pending")
+
+	if err != nil {
+		t.Fatalf("ExtendJob: %v", err)
+	}
+	if got.State != "pending" || got.TTL != 10 {
+		t.Errorf("the extended job is %q with %d attempts, want pending with ten", got.State, got.TTL)
+	}
+	if got.Position != 1 {
+		t.Errorf("the extended job is at position %d, want the place it kept", got.Position)
+	}
+}
+
+func TestExtendJobLeavesAJobThatIsNotExhaustedWhereItIs(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := jobWithAttempts(t, s, "a", 1)
+	if err := s.DequeueJob(ctx, j.ID, "blocked", "the checks refused it"); err != nil {
+		t.Fatalf("DequeueJob: %v", err)
+	}
+
+	got, err := s.ExtendJob(ctx, j.ID, 3, "exhausted", "pending")
+
+	if err != nil {
+		t.Fatalf("ExtendJob: %v", err)
+	}
+	if got.State != "blocked" {
+		t.Errorf("the job is %q, want blocked: more attempts do not fix the work", got.State)
+	}
+	if got.TTL != 4 {
+		t.Errorf("the job has %d attempts, want four", got.TTL)
+	}
+}
+
+func TestExtendJobReportsAJobThatIsNotThere(t *testing.T) {
+	_, err := jobStore(t).ExtendJob(context.Background(), 999, 10, "exhausted", "pending")
+
+	if !errors.Is(err, store.ErrJobNotFound) {
+		t.Errorf("ExtendJob on an unknown job = %v, want ErrJobNotFound", err)
+	}
+}
