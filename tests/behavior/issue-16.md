@@ -97,11 +97,11 @@ When `owl jobs show <job>` runs
 Then it prints a skills section naming the Skill, its ref and the commit that Run used
 
 ### S13 - owl skills update re-resolves a tracking Skill and leaves a pinned one
-Given a Project with `go-review` pinned at `v1.0.0` and `house-style` tracking `main`, and a new commit on each source's `main`
+Given a Project with `go-review` pinned at `v1.0.0` and `house-style` tracking `main`, a new commit on each source's `main`, and the tag `v1.0.0` moved to one of them
 When `owl skills update` runs
 Then the lockfile's commit for `house-style` is the new one
-And the commit for `go-review` is unchanged
-And stdout says which Skill it updated
+And the commit for `go-review` is what it was, though its tag moved
+And stdout says it updated `house-style`, and does not say it updated `go-review`
 
 ### S14 - owl skills update takes a Skill by name, pinned or not
 Given the Project of S13, and the tag `v1.0.0` moved to a later commit of its source
@@ -127,14 +127,15 @@ Given a Project whose base branch carries a committed `.claude/skills/go-review`
 When `owl start` runs
 Then it exits with a non-zero code
 And stderr names the path and says Owl did not create it
-And the committed directory is untouched, and the Job is still pending with no Run
+And the directory in the Job's worktree still holds the Project's own SKILL.md, as does the commit it came from
+And the Job is still pending with no Run
 
 ### S18 - owl skills remove takes the Skill out of the manifest and the lockfile
 Given a Project with two Skills
 When `owl skills remove go-review` runs
 Then it exits 0
 And neither the manifest nor the lockfile mentions `go-review`
-And the other Skill is untouched
+And the manifest still declares the other Skill, and the lockfile still records the commit it was locked at
 And a Run afterwards materialises only the other Skill
 
 ### S19 - owl skills remove refuses a Skill that is not there

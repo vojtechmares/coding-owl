@@ -8,6 +8,7 @@ package behavior_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -137,6 +138,10 @@ func commitSkills(t *testing.T, r *repo) {
 	r.git("commit", "-m", "declare skills")
 }
 
+// digestRE is the digest Owl writes: an algorithm and the hash of what was
+// fetched, rather than a word that could be anything.
+var digestRE = regexp.MustCompile(`digest: sha256:[0-9a-f]{64}`)
+
 // skillRow is one row of owl skills list.
 type skillRow struct{ name, source, ref, commit, pinned string }
 
@@ -255,7 +260,7 @@ func TestS1SkillsAddRecordsTheSourceAndWhatItResolvedTo(t *testing.T) {
 	if !strings.Contains(lock, head) {
 		t.Errorf("the lockfile does not record the resolved commit %s:\n%s", head, lock)
 	}
-	if !strings.Contains(lock, "digest") {
+	if !digestRE.MatchString(lock) {
 		t.Errorf("the lockfile records no digest of what was fetched:\n%s", lock)
 	}
 }
@@ -312,6 +317,14 @@ func TestS3SkillsListTellsPinnedFromTracking(t *testing.T) {
 	}
 	if tracking.pinned != "tracking" {
 		t.Errorf("house-style is reported as %q, want tracking", tracking.pinned)
+	}
+	if tracking.ref != "main" || !strings.HasPrefix(other.commit("main"), tracking.commit) {
+		t.Errorf("house-style is %+v, want it at main and the commit that resolves to", tracking)
+	}
+	for _, row := range rows {
+		if !strings.Contains(row.source, row.name) {
+			t.Errorf("%s is reported with the source %q, which is not where it came from", row.name, row.source)
+		}
 	}
 }
 
@@ -505,7 +518,14 @@ func TestS13SkillsUpdateResolvesTrackingAndLeavesPinned(t *testing.T) {
 	addSkill(t, l, r.dir, other.path(), "--auto-update")
 	pinned := src.commit("v1.0.0")
 	src.write("Be kindest.\n")
+	// The release go-review is pinned at moves too, so leaving a pinned skill
+	// alone is something that can be seen rather than something that follows
+	// from the tag never having moved.
+	src.moveTag()
 	other.write("In our house.\n")
+	if src.commit("v1.0.0") == pinned {
+		t.Fatal("the tag did not move, so leaving go-review alone proves nothing")
+	}
 
 	res := mustOwlIn(t, l, r.dir, "skills", "update")
 
@@ -516,8 +536,12 @@ func TestS13SkillsUpdateResolvesTrackingAndLeavesPinned(t *testing.T) {
 	if !strings.Contains(lock, pinned) {
 		t.Errorf("the lockfile no longer records go-review's pinned commit:\n%s", lock)
 	}
-	if !strings.Contains(res.stdout, "house-style") {
-		t.Errorf("owl skills update does not say what it updated:\n%s", res.stdout)
+	if strings.Contains(lock, src.commit("v1.0.0")) {
+		t.Errorf("a pinned skill followed its tag:\n%s", lock)
+	}
+	updated := section(t, res.stdout, "updated:")
+	if !strings.Contains(updated, "house-style") || strings.Contains(updated, "go-review") {
+		t.Errorf("owl skills update reports updating %q:\n%s", updated, res.stdout)
 	}
 }
 
@@ -572,8 +596,9 @@ func TestS15AnAutoUpdateSkillIsResolvedAtRunStart(t *testing.T) {
 		t.Errorf("the second run did not pick up the new commit:\n%s", got)
 	}
 	shown := mustOwl(t, l, "jobs", "show", job).stdout
-	if !strings.Contains(section(t, shown, "skills:"), src.commit("main")[:12]) {
-		t.Errorf("owl jobs show does not record the new commit:\n%s", shown)
+	if got := runSkillCommit(t, shown, run, "go-review"); !strings.HasPrefix(src.commit("main"), got) {
+		t.Errorf("run %s records %s for go-review, want the new %s:\n%s",
+			run, got, src.commit("main")[:12], shown)
 	}
 }
 
@@ -632,9 +657,15 @@ func TestS17OwlRefusesToOverwriteASkillsEntryItDidNotCreate(t *testing.T) {
 		}
 	}
 	if got := r.git("show", "HEAD:"+filepath.Join(skillsPath, "go-review", "SKILL.md")); !strings.Contains(got, "Ours.") {
-		t.Errorf("the project's own skill was touched:\n%s", got)
+		t.Errorf("the commit the project's own skill came from was touched:\n%s", got)
 	}
 	out := mustOwl(t, l, "jobs", "show", "1").stdout
+	// The refusal happens with the worktree already checked out, so the file
+	// the project carries is there to be taken - and must still be theirs.
+	theirs := filepath.Join(line(t, out, "worktree"), skillsPath, "go-review", "SKILL.md")
+	if got := readFile(t, theirs); !strings.Contains(got, "Ours.") {
+		t.Errorf("the project's own skill in the worktree is now %q", got)
+	}
 	if got := line(t, out, "state"); got != "pending" {
 		t.Errorf("state = %q, want the job left pending", got)
 	}
@@ -648,6 +679,7 @@ func TestS18SkillsRemoveTakesItOutOfBoth(t *testing.T) {
 	other := newSource(t, l, "house-style")
 	addSkill(t, l, r.dir, src.path())
 	addSkill(t, l, r.dir, other.path())
+	locked := other.commit("main")
 
 	mustOwlIn(t, l, r.dir, "skills", "remove", "go-review")
 	commitSkills(t, r)
@@ -660,6 +692,11 @@ func TestS18SkillsRemoveTakesItOutOfBoth(t *testing.T) {
 	}
 	if got := manifest(t, r); !strings.Contains(got, "house-style") {
 		t.Errorf("the other skill went with it:\n%s", got)
+	}
+	// Untouched means in both files: a lockfile that lost house-style would
+	// leave it to be resolved afresh, which is the opposite of pinning.
+	if got := lockfile(t, r); !strings.Contains(got, locked) {
+		t.Errorf("the other skill is no longer locked at %s:\n%s", locked, got)
 	}
 	addJob(t, l, r.dir, "work", "--no-plan")
 	out, _ := finishedJob(t, l)
