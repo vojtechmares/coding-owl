@@ -125,24 +125,33 @@ func TestS2StatusReportsTheDaemon(t *testing.T) {
 	}
 }
 
-// forbiddenImport is a package the desktop app must never reach: the daemon's
-// own state and the wire are the daemon's business (ADR-0009).
-func forbiddenImport(imp string) bool {
+// wireImport is the wire, which only the shared client may speak (ADR-0009).
+func wireImport(imp string) bool {
 	return strings.Contains(imp, "/gen/") ||
 		strings.HasPrefix(imp, "connectrpc.com/") ||
-		strings.HasPrefix(imp, "google.golang.org/protobuf") ||
-		strings.HasSuffix(imp, "/internal/store") ||
+		strings.HasPrefix(imp, "google.golang.org/protobuf")
+}
+
+// stateImport is the daemon's own state, which no client reaches even
+// through a helper: the database, the repositories, the daemon itself.
+func stateImport(imp string) bool {
+	return strings.HasSuffix(imp, "/internal/store") ||
 		strings.HasSuffix(imp, "/internal/git") ||
 		strings.HasSuffix(imp, "/internal/daemon") ||
+		strings.HasSuffix(imp, "/internal/run") ||
 		imp == "database/sql" ||
 		strings.Contains(imp, "sqlite")
 }
 
-// imports lists what a package imports, transitively through Owl's own
-// packages, so a detour through a helper package is caught too.
-func imports(t *testing.T, pkg string) []string {
+// goList runs go list over pkg with the given format and returns its lines.
+func goList(t *testing.T, format, pkg string, deps bool) []string {
 	t.Helper()
-	cmd := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", pkg)
+	args := []string{"list"}
+	if deps {
+		args = append(args, "-deps")
+	}
+	args = append(args, "-f", format, pkg)
+	cmd := exec.Command("go", args...)
 	cmd.Dir = repoDir
 	out, err := cmd.Output()
 	if err != nil {
@@ -157,35 +166,25 @@ func TestS3AppUsesOnlySharedClient(t *testing.T) {
 		pkgs = append(pkgs, "./cmd/owl-desktop")
 	}
 	for _, pkg := range pkgs {
-		hasClient := false
-		for _, imp := range imports(t, pkg) {
-			if imp == "github.com/vojtechmares/coding-owl/internal/client" {
-				hasClient = true
-			}
-			if strings.HasPrefix(imp, "github.com/vojtechmares/coding-owl/internal/client") {
-				// The client is allowed its own wire.
-				continue
-			}
-			if strings.HasPrefix(imp, "github.com/vojtechmares/coding-owl/") && forbiddenImport(imp) {
-				t.Errorf("%s reaches %s; the app is a pure view over the shared client", pkg, imp)
+		for _, imp := range goList(t, `{{join .Imports "\n"}}`, pkg, false) {
+			if wireImport(imp) {
+				t.Errorf("%s imports %s directly; the app speaks to the daemon through the shared client", pkg, imp)
 			}
 		}
-		if !hasClient {
-			t.Errorf("%s does not use the shared client package", pkg)
+		for _, imp := range goList(t, "{{.ImportPath}}", pkg, true) {
+			if stateImport(imp) {
+				t.Errorf("%s reaches %s; the app is a pure view with no database or git access", pkg, imp)
+			}
 		}
 	}
-	// The client's own dependencies are the wire; the app's direct imports
-	// must not be.
-	cmd := exec.Command("go", "list", "-f", `{{join .Imports "\n"}}`, "./internal/desktop")
-	cmd.Dir = repoDir
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("go list: %v", err)
-	}
-	for _, imp := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if forbiddenImport(imp) {
-			t.Errorf("internal/desktop imports %s directly", imp)
+	hasClient := false
+	for _, imp := range goList(t, `{{join .Imports "\n"}}`, "./internal/desktop", false) {
+		if imp == "github.com/vojtechmares/coding-owl/internal/client" {
+			hasClient = true
 		}
+	}
+	if !hasClient {
+		t.Errorf("internal/desktop does not use the shared client package")
 	}
 }
 
