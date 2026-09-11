@@ -204,3 +204,90 @@ func TestPlaceWithNoSkillsLeavesACleanWorktree(t *testing.T) {
 		t.Errorf("the worktree is not clean:\n%s", got)
 	}
 }
+
+func TestPlaceIgnoresAMarkerNamingSomethingItCouldNotHavePlaced(t *testing.T) {
+	p := newPlacement(t)
+	src := newSource(t, "go-review")
+	p.place(t, p.fetch(t, src, "main"))
+	// The marker decides what gets deleted, so a name that is not one Owl
+	// could have written is a marker nobody should act on.
+	outside := filepath.Join(t.TempDir(), "theirs")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(filepath.Join(p.worktree, ".claude", "skills"), outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.owned, "skills-placed"), []byte(rel+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = skill.Place(p.repo, p.worktree, ".claude/skills", p.owned, nil)
+
+	if err == nil {
+		t.Error("Place with a marker naming a path outside = nil, want it refused")
+	}
+	if _, statErr := os.Stat(outside); statErr != nil {
+		t.Errorf("a directory outside the worktree was removed: %v", statErr)
+	}
+}
+
+func TestPlaceRefusesASkillsDirectoryThatLeadsOutOfTheWorktree(t *testing.T) {
+	p := newPlacement(t)
+	src := newSource(t, "go-review")
+	outside := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "theirs.txt"), []byte("theirs\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(p.worktree, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A symlink the base branch could carry, or one an earlier Agent left.
+	if err := os.Symlink(outside, filepath.Join(p.worktree, ".claude", "skills")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := skill.Place(p.repo, p.worktree, ".claude/skills", p.owned,
+		[]skill.Resolved{p.fetch(t, src, "main")})
+
+	var refused *skill.InvalidError
+	if !errors.As(err, &refused) {
+		t.Fatalf("Place through a symlink out of the worktree = %v, want it refused", err)
+	}
+	entries, readErr := os.ReadDir(outside)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 1 {
+		t.Errorf("the directory outside the worktree holds %d entries, want only what was there", len(entries))
+	}
+}
+
+func TestPlaceWritesNothingWhenItIsGoingToRefuse(t *testing.T) {
+	p := newPlacement(t)
+	src := newSource(t, "go-review")
+	theirs := filepath.Join(p.worktree, ".claude", "skills", "go-review")
+	if err := os.MkdirAll(theirs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(theirs, "SKILL.md"), []byte("ours\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := skill.Place(p.repo, p.worktree, ".claude/skills", p.owned,
+		[]skill.Resolved{p.fetch(t, src, "main")})
+
+	if err == nil {
+		t.Fatal("Place over an entry Owl did not create = nil, want it refused")
+	}
+	// The repository is not reconfigured on the way to refusing: a Run that
+	// does not happen leaves nothing behind. git exits non-zero for a setting
+	// nobody has made, so the whole list is what says it is absent.
+	if got := gitIn(t, p.repo, "config", "--list", "--local"); strings.Contains(got, "worktreeconfig") {
+		t.Errorf("the repository was reconfigured by a placement that refused:\n%s", got)
+	}
+}

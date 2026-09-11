@@ -334,3 +334,153 @@ func TestCheckSkillAcceptsTheEcosystemsShape(t *testing.T) {
 		t.Errorf("CheckSkill of an ordinary skill = %v", err)
 	}
 }
+
+func TestParseSourceReadsTheEcosystemsShorthands(t *testing.T) {
+	for _, c := range []struct {
+		in    string
+		url   string
+		local bool
+	}{
+		{in: "x/go-review", url: "https://github.com/x/go-review.git"},
+		{in: "https://github.com/x/go-review.git", url: "https://github.com/x/go-review.git"},
+		{in: "ssh://git@github.com/x/go-review.git", url: "ssh://git@github.com/x/go-review.git"},
+		{in: "git@github.com:x/go-review.git", url: "git@github.com:x/go-review.git"},
+		{in: "/repos/skills/house-style", url: "/repos/skills/house-style", local: true},
+	} {
+		got, err := skill.ParseSource(c.in)
+
+		if err != nil {
+			t.Errorf("ParseSource(%q): %v", c.in, err)
+			continue
+		}
+		if got.URL != c.url {
+			t.Errorf("ParseSource(%q).URL = %q, want %q", c.in, got.URL, c.url)
+		}
+		if got.Local != c.local {
+			t.Errorf("ParseSource(%q).Local = %v, want %v", c.in, got.Local, c.local)
+		}
+		if got.Name() != "go-review" && got.Name() != "house-style" {
+			t.Errorf("ParseSource(%q).Name() = %q", c.in, got.Name())
+		}
+	}
+}
+
+func TestParseSourceRefusesWhatGitWouldRunAProgramFor(t *testing.T) {
+	// `ext::` makes git run a command the URL names. A source is written in a
+	// configuration file, which an Agent could have written (ADR-0024).
+	for _, source := range []string{
+		"ext::sh -c 'touch /tmp/pwned'",
+		"",
+		"   ",
+		"./relative/path",
+		"relative/path/deeper",
+	} {
+		_, err := skill.ParseSource(source)
+
+		if err == nil {
+			t.Errorf("ParseSource(%q) = nil, want it refused", source)
+		}
+	}
+}
+
+func TestFetchFromARemoteSourceMirrorsIt(t *testing.T) {
+	// A source that is not a local path is cloned into the cache and read from
+	// there. A file:// URL is a remote as far as git is concerned, which is
+	// what makes this exercise the path a github.com source takes.
+	src := newSource(t, "go-review")
+	c := skill.NewCache(filepath.Join(t.TempDir(), "skills"))
+	remote := "file://" + src.dir
+
+	commit, err := c.Resolve(remote, "main")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	got, err := c.Fetch("go-review", remote, "main", commit, "")
+
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if got.Commit != src.commit("main") {
+		t.Errorf("the fetch is at %s, want what the remote's main points at", got.Commit)
+	}
+	body, err := os.ReadFile(filepath.Join(got.Path, "SKILL.md"))
+	if err != nil {
+		t.Fatalf("reading the cached skill: %v", err)
+	}
+	if !strings.Contains(string(body), "Be kinder.") {
+		t.Errorf("the cached skill is %q, want the content at that commit", body)
+	}
+}
+
+func TestResolveFromARemoteSourceSeesItMove(t *testing.T) {
+	src := newSource(t, "go-review")
+	c := skill.NewCache(filepath.Join(t.TempDir(), "skills"))
+	remote := "file://" + src.dir
+	was, err := c.Resolve(remote, "main")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	src.write("Be newest.\n")
+	now, err := c.Resolve(remote, "main")
+
+	if err != nil {
+		t.Fatalf("Resolve again: %v", err)
+	}
+	// The mirror is brought up to date every time: what a ref points at is the
+	// source's to say, and the answer has to be today's.
+	if now == was {
+		t.Error("a mirrored source that moved still resolves to what it was")
+	}
+	if now != src.commit("main") {
+		t.Errorf("Resolve = %s, want what the source's main points at now", now)
+	}
+}
+
+func TestDefaultBranchOfARemoteSourceIsWhatItsHeadPointsAt(t *testing.T) {
+	src := newSource(t, "go-review")
+	c := skill.NewCache(filepath.Join(t.TempDir(), "skills"))
+
+	got, err := c.DefaultBranch("file://" + src.dir)
+
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if got != "main" {
+		t.Errorf("DefaultBranch = %q, want main", got)
+	}
+}
+
+func TestFetchReplacesACacheEntrySomethingChanged(t *testing.T) {
+	src := newSource(t, "go-review")
+	c := skill.NewCache(filepath.Join(t.TempDir(), "skills"))
+	commit, err := c.Resolve(src.dir, "main")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	first, err := c.Fetch("go-review", src.dir, "main", commit, "")
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	// An Agent reaches the cache through the link in its worktree and runs as
+	// the same user, so the cache is checked rather than trusted.
+	if err := os.WriteFile(filepath.Join(first.Path, "SKILL.md"), []byte("tampered\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := c.Fetch("go-review", src.dir, "main", commit, first.Digest)
+
+	if err != nil {
+		t.Fatalf("Fetch again: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(again.Path, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "tampered") {
+		t.Errorf("the cache still holds what something changed it to:\n%s", body)
+	}
+	if again.Digest != first.Digest {
+		t.Errorf("the digest changed from %s to %s", first.Digest, again.Digest)
+	}
+}

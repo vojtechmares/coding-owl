@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -236,6 +237,60 @@ func runRoot(dir string) ([]byte, string, int, error) {
 	return run(dir, "rev-parse", "--git-dir")
 }
 
+// Mirror keeps a bare copy of a remote repository at path, making it the first
+// time and bringing it up to date afterwards. It is how Owl fetches a Skill
+// source itself rather than shelling out to somebody else's CLI (ADR-0033).
+//
+// The protocols git may use are restricted to the ones Owl fetches over: a
+// source is named in a configuration file, which an Agent could have written,
+// and `ext::` in particular makes git run a command of the URL's choosing.
+func Mirror(path, url string) error {
+	if strings.HasPrefix(url, "-") {
+		return fmt.Errorf("a skill source may not start with a dash: %q", url)
+	}
+	args := append(protocolLimits(), "clone", "--mirror", "--quiet", "--end-of-options", url, path)
+	if _, err := os.Stat(filepath.Join(path, "HEAD")); err == nil {
+		// Already mirrored: fetch into it rather than cloning again. --prune
+		// so that a ref the source deleted stops resolving here.
+		args = append(protocolLimits(), "fetch", "--quiet", "--prune", "--tags", "origin")
+		_, stderr, code, err := run(path, args...)
+		if err != nil {
+			return err
+		}
+		if code != 0 {
+			return fmt.Errorf("fetching %s: %s", url, message(stderr))
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	// The clone runs in the directory above, since the one it makes is not
+	// there yet.
+	_, stderr, code, err := run(filepath.Dir(path), args...)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		// A clone that failed leaves a half-made directory, which would be
+		// taken for a mirror next time.
+		_ = os.RemoveAll(path)
+		return fmt.Errorf("cloning %s: %s", url, message(stderr))
+	}
+	return nil
+}
+
+// protocolLimits are the `-c` settings every fetch of somebody else's
+// repository carries: no transport that runs a program, and no prompting for
+// credentials in a daemon nobody is watching.
+func protocolLimits() []string {
+	return []string{
+		"-c", "protocol.ext.allow=never",
+		"-c", "protocol.file.allow=always",
+		"-c", "credential.interactive=never",
+	}
+}
+
 // DefaultBranch is the branch a repository's HEAD points at, which is what a
 // Skill added with no ref follows. It is read rather than assumed: a source's
 // default branch is its own to choose, and writing `main` into a manifest that
@@ -268,23 +323,33 @@ func ExportCommit(dir, commit, into string) error {
 	if err := os.MkdirAll(into, 0o700); err != nil {
 		return fmt.Errorf("creating %s: %w", into, err)
 	}
-	// --format=tar into a pipe rather than a file, so nothing large lands
-	// twice; git writes the tree and tar unpacks it as it arrives.
-	_, stderr, code, err := run(dir, "archive", "--format=tar", "-o", filepath.Join(into, archiveName),
-		"--end-of-options", commit)
+	// The archive is read as git writes it, so a tree nobody has vetted never
+	// lands on disk whole: what it may hold is bounded as it arrives.
+	cmd := exec.Command("git", "archive", "--format=tar", "--end-of-options", commit)
+	cmd.Dir = dir
+	cmd.Env = gitEnv()
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
 	}
-	if code != 0 {
-		return fmt.Errorf("reading %s out of %s: %s", commit, dir, message(stderr))
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("reading %s out of %s: %w", commit, dir, err)
 	}
-	defer func() { _ = os.Remove(filepath.Join(into, archiveName)) }()
-	return untar(filepath.Join(into, archiveName), into)
+	unpackErr := untar(out, into)
+	// The reader is drained either way, so that git is never left writing into
+	// a pipe nobody is reading.
+	_, _ = io.Copy(io.Discard, out)
+	waitErr := cmd.Wait()
+	if unpackErr != nil {
+		return unpackErr
+	}
+	if waitErr != nil {
+		return fmt.Errorf("reading %s out of %s: %s", commit, dir, message(stderr.String()))
+	}
+	return nil
 }
-
-// archiveName is the tar a commit is written to on its way out of git, inside
-// the directory it is being written into: it goes as soon as it is unpacked.
-const archiveName = ".owl-export.tar"
 
 // BranchIsIn reports whether branch is contained in base: every commit on it
 // is already on the base branch. That is what Owl reads as the user having
@@ -369,6 +434,39 @@ func resolve(path string) string {
 // (ADR-0033). It writes to the configuration of a repository Owl does not own,
 // which is benign - it only enables the mechanism - and is done idempotently.
 func EnableWorktreeConfig(dir string) error {
+	on, err := worktreeConfigOn(dir)
+	if err != nil {
+		return err
+	}
+	if on {
+		return nil
+	}
+	// Turning this on changes what three settings mean: git stops sharing
+	// core.bare, core.worktree and core.sparseCheckout between worktrees, and
+	// says they must be moved by hand. Only a value that does something is
+	// worth stopping for - `git init` writes core.bare=false into every
+	// ordinary repository, and that is the default either way.
+	for _, setting := range []struct{ name, matters string }{
+		{"core.bare", "true"},
+		{"core.worktree", ""},
+		{"core.sparseCheckout", "true"},
+	} {
+		out, _, code, err := run(dir, "config", "--get", setting.name)
+		if err != nil {
+			return err
+		}
+		if code != 0 {
+			continue
+		}
+		value := strings.TrimSpace(string(out))
+		if setting.matters != "" && value != setting.matters {
+			continue
+		}
+		return fmt.Errorf(
+			"%s sets %s to %s, which changes meaning once configuration is kept per worktree; "+
+				"move it into the main worktree's own configuration and Owl will carry on",
+			dir, setting.name, value)
+	}
 	_, stderr, code, err := run(dir, "config", "extensions.worktreeConfig", "true")
 	if err != nil {
 		return err
@@ -377,6 +475,16 @@ func EnableWorktreeConfig(dir string) error {
 		return fmt.Errorf("enabling per-worktree configuration in %s: %s", dir, message(stderr))
 	}
 	return nil
+}
+
+// worktreeConfigOn reports whether a repository already keeps configuration per
+// worktree, so that Owl writes to it once rather than on every Run.
+func worktreeConfigOn(dir string) (bool, error) {
+	out, _, code, err := run(dir, "config", "--get", "extensions.worktreeConfig")
+	if err != nil {
+		return false, err
+	}
+	return code == 0 && strings.TrimSpace(string(out)) == "true", nil
 }
 
 // SetWorktreeExcludes points one worktree at an exclude file of its own. It
@@ -394,20 +502,47 @@ func SetWorktreeExcludes(worktree, excludes string) error {
 	return nil
 }
 
-// GlobalExcludes is the exclude file a repository was already told to use, and
-// is empty when it was told none. It is what an Owl exclude file has to carry
-// forward, or a user's global ignores silently stop applying (ADR-0033).
+// GlobalExcludes is the exclude file git would read for a repository, and is
+// empty when there is none to read. It is what an Owl exclude file has to
+// carry forward, or a user's global ignores silently stop applying (ADR-0033).
+//
+// It is the effective file, not only the configured one: git falls back to
+// `$XDG_CONFIG_HOME/git/ignore`, and `git config --get` never reports that.
+// A configured value may also begin with `~`, which git expands and a caller
+// reading the file would not.
 func GlobalExcludes(dir string) (string, error) {
-	out, _, code, err := run(dir, "config", "--get", "core.excludesFile")
+	// --type=path is what expands a leading `~`, which git does for this
+	// setting and a caller reading the file would not.
+	out, _, code, err := run(dir, "config", "--type=path", "--get", "core.excludesFile")
 	if err != nil {
 		return "", err
 	}
-	if code != 0 {
-		// git exits 1 for a setting nobody has made, which is an answer rather
-		// than a failure.
-		return "", nil
+	if code == 0 {
+		if path := strings.TrimSpace(string(out)); path != "" {
+			return path, nil
+		}
 	}
-	return strings.TrimSpace(string(out)), nil
+	// Nothing configured, so git reads its own default - which applies until
+	// the moment something sets core.excludesFile, as Owl is about to.
+	return defaultExcludes(), nil
+}
+
+// defaultExcludes is the file git reads when core.excludesFile is unset, and is
+// empty when there is none.
+func defaultExcludes() string {
+	var path string
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(xdg) {
+		path = filepath.Join(xdg, "git", "ignore")
+	} else if home, err := os.UserHomeDir(); err == nil {
+		path = filepath.Join(home, ".config", "git", "ignore")
+	}
+	if path == "" {
+		return ""
+	}
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
 }
 
 // PruneWorktrees forgets the administrative files of worktrees whose
@@ -496,8 +631,7 @@ func run(dir string, args ...string) (stdout []byte, stderr string, code int, er
 	// pathspecs settle the rest of that family at once - a candidate path is
 	// a path, never a glob and never case-insensitive, so a tree cannot match
 	// one of them twice.
-	cmd.Env = append(withoutGitRedirection(os.Environ()),
-		"LC_ALL=C", "LANG=C", "GIT_LITERAL_PATHSPECS=1")
+	cmd.Env = gitEnv()
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
@@ -531,6 +665,15 @@ var gitRedirection = []string{
 	"GIT_GLOB_PATHSPECS",
 	"GIT_NOGLOB_PATHSPECS",
 	"GIT_LITERAL_PATHSPECS",
+}
+
+// gitEnv is the environment every git Owl runs gets.
+func gitEnv() []string {
+	return append(withoutGitRedirection(os.Environ()),
+		"LC_ALL=C", "LANG=C", "GIT_LITERAL_PATHSPECS=1",
+		// Nobody is watching a daemon, so git asks nothing: a fetch that needs
+		// a password fails rather than waiting for one that never comes.
+		"GIT_TERMINAL_PROMPT=0")
 }
 
 // withoutGitRedirection returns env with those variables removed.

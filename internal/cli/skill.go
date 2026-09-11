@@ -128,8 +128,8 @@ func newSkillsRemoveCmd(env Env) *cobra.Command {
 		Long: `Stop giving this Project's Agents a Skill.
 
 It goes from the configuration and from the lockfile. What was fetched
-stays in the cache, where garbage collection deals with it; the next Run
-simply stops placing it.`,
+stays in the cache, which nothing reclaims yet; the next Run simply stops
+placing it.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
