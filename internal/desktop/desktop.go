@@ -33,8 +33,9 @@ type LogLine struct {
 	Line  string `json:"line"`
 }
 
-// LogEnd says a Run's log stopped: because the Run ended, because it was
-// stopped from the frontend, or because of an error, which is then named.
+// LogEnd says a followed Run's log ended: because the Run ended, or because
+// the stream broke, and then Error names why. A follow the frontend stopped
+// or replaced ends silently: nobody is listening.
 type LogEnd struct {
 	RunID int64  `json:"runId"`
 	Error string `json:"error"`
