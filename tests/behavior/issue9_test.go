@@ -433,6 +433,64 @@ func TestS9StartAcceptAndDropAreReflectedInOwlStatus(t *testing.T) {
 	}
 }
 
+func TestS12BrokenLogStreamIsAnnounced(t *testing.T) {
+	script := []string{agentScript[0], "#wait", agentScript[2]}
+	l, s := agentLayout(t, script, 0)
+	p := daemonUp(t, l)
+	app, ev := desktopApp(t, l)
+	runnableJob(t, l, "work")
+	run, _ := startRun(t, l)
+
+	if err := app.FollowLog(id(t, run)); err != nil {
+		t.Fatal(err)
+	}
+	if first := ev.next(t); first.name != desktop.EventLogLine {
+		t.Fatalf("first event = %q, want %q", first.name, desktop.EventLogLine)
+	}
+
+	// The daemon goes away under the stream, with the Agent still waiting.
+	if err := p.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	<-p.done
+	t.Cleanup(func() { s.let(t) })
+
+	end := ev.next(t)
+	if end.name != desktop.EventLogEnd {
+		t.Fatalf("event after the daemon died = %q, want %q", end.name, desktop.EventLogEnd)
+	}
+	if e := end.data.(desktop.LogEnd); e.RunID != id(t, run) || e.Error == "" {
+		t.Errorf("end event = %+v, want run %s with the error named", e, run)
+	}
+	ev.none(t)
+}
+
+func TestS13FollowingAgainReplacesTheEarlierFollow(t *testing.T) {
+	script := []string{agentScript[0], "#wait", agentScript[2]}
+	l, s := agentLayout(t, script, 0)
+	daemonUp(t, l)
+	app, ev := desktopApp(t, l)
+	runnableJob(t, l, "work")
+	run, job := startRun(t, l)
+
+	// Followed twice, as a frontend that mounts its log view twice does.
+	for i := 0; i < 2; i++ {
+		if err := app.FollowLog(id(t, run)); err != nil {
+			t.Fatal(err)
+		}
+		if first := ev.next(t); first.name != desktop.EventLogLine {
+			t.Fatalf("follow %d: first event = %q, want %q", i, first.name, desktop.EventLogLine)
+		}
+	}
+	ev.none(t)
+	app.StopLog(id(t, run))
+	app.StopLog(999999)
+
+	s.let(t)
+	finished(t, l, job)
+	ev.none(t)
+}
+
 var (
 	hexColour  = regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`)
 	funcColour = regexp.MustCompile(`\b(rgba?|hsla?)\(`)

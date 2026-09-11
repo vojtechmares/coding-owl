@@ -90,3 +90,15 @@ Given the Wails CLI, Node and npm, and `OWL_DESKTOP_BUILD=1`
 When `make desktop` runs
 Then it exits 0 and leaves an app bundle under `cmd/owl-desktop/build/bin`
 And without `OWL_DESKTOP_BUILD` the scenario is skipped, not failed
+
+### S12 - a log stream that breaks is announced, not left hanging
+Given a running daemon, a Run in progress, and the app following its log with at least one line delivered
+When the daemon stops
+Then the app emits that the stream ended, naming the error
+And the app does not emit that end twice
+
+### S13 - following a Run again replaces the earlier follow
+Given the app following a Run's log
+When the app is asked to follow the same Run again and then to stop following it
+Then no further line of that Run reaches the frontend, however many times it was followed
+And stopping a Run nobody follows is not an error
