@@ -5,8 +5,10 @@ import { useState } from "react";
 import { api, errorText, orNone, usePoll } from "../lib/api";
 import { Banner, Button, Empty, Panel } from "../components/ui";
 
-// short is a commit as a listing shows it, the way the CLI shortens it.
+// short is a commit as a listing shows it, the way the CLI shortens it, and
+// "(none)" for one nothing has resolved yet.
 function short(commit: string): string {
+  if (!commit) return orNone(commit);
   return commit.length > 12 ? commit.slice(0, 12) : commit;
 }
 
@@ -25,11 +27,13 @@ export function Skills() {
     try {
       const r = await api.updateSkills(project, name ? [name] : []);
       const moved = r.updated ?? [];
+      // A Project configured in its own repository is told what to commit
+      // whether or not anything moved: a run reads the base branch (ADR-0014).
+      const commit = r.files?.InRepo ? ` Commit ${r.files.Manifest} and ${r.files.Lock}.` : "";
       setNote(
-        moved.length === 0
-          ? "Nothing moved: every skill is already at what its ref resolves to"
-          : `Updated ${moved.map((s) => `${s.Name} to ${short(s.Commit)}`).join(", ")}` +
-              (r.files?.InRepo ? `. Commit ${r.files.Manifest} and ${r.files.Lock}.` : ""),
+        (moved.length === 0
+          ? "Nothing moved: every skill is already at what its ref resolves to."
+          : `Updated ${moved.map((s) => `${s.Name} to ${short(s.Commit)}`).join(", ")}.`) + commit,
       );
     } catch (err) {
       setNote(errorText(err));
