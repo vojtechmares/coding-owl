@@ -1,14 +1,53 @@
-import React from "react";
+import React, { type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./theme/tokens.css";
 import "./style.css";
 
+// Boundary shows what went wrong instead of an empty window: a desktop app
+// has no console a user would open.
+class Boundary extends React.Component<{ children: ReactNode }, { error?: string }> {
+  state = { error: undefined as string | undefined };
+  static getDerivedStateFromError(err: unknown) {
+    return { error: err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err) };
+  }
+  componentDidCatch(err: unknown, info: ErrorInfo) {
+    console.error(err, info.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="content">
+          <div className="banner">
+            The app hit an error it could not recover from.
+            <pre className="code">{this.state.error}</pre>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function showFatal(msg: string) {
+  const container = document.getElementById("root");
+  if (!container) return;
+  const pre = document.createElement("pre");
+  pre.className = "code";
+  pre.textContent = msg;
+  container.replaceChildren(pre);
+}
+
+window.addEventListener("error", (e) => showFatal(`${e.message}\n${e.error?.stack ?? ""}`));
+window.addEventListener("unhandledrejection", (e) => showFatal(`unhandled rejection: ${String(e.reason)}`));
+
 const container = document.getElementById("root");
 if (container) {
   createRoot(container).render(
     <React.StrictMode>
-      <App />
+      <Boundary>
+        <App />
+      </Boundary>
     </React.StrictMode>,
   );
 }
