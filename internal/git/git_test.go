@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1378,33 +1379,44 @@ func TestFetchBaseRunsNoCommandARemoteUrlNames(t *testing.T) {
 
 func TestRebasePutsAWorktreeBackWhenTheAbortItselfRefuses(t *testing.T) {
 	dir := newRepo(t)
-	commit(t, dir, ".gitattributes", "marked.txt filter=owlstop\n")
+	commit(t, dir, ".gitattributes", "*.owl filter=owlstop\n")
 	worktree := filepath.Join(t.TempDir(), "job")
 	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
 		t.Fatalf("AddWorktree: %v", err)
 	}
-	// One commit adding a plain file and a refused one together, and a later
-	// commit taking both away. Replaying the first writes the plain file and
-	// then stops, so the worktree holds a file the index before the rebase
-	// knows nothing about - which is what makes the abort's own reset refuse.
-	if err := os.WriteFile(filepath.Join(worktree, "alongside.txt"), []byte("written before the refusal\n"), 0o644); err != nil {
+	// Three commits on the branch: one adding a filtered file, one taking it
+	// away, and one adding another filtered file that stays. Replaying the
+	// first runs the filter and stops there; aborting puts the branch's head
+	// back, which runs the filter again over the file that stays.
+	if err := os.WriteFile(filepath.Join(worktree, "first.owl"), []byte("replayed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(worktree, "marked.txt"), []byte("refuse-me\n"), 0o644); err != nil {
+	run(t, worktree, "add", "--", "first.owl")
+	run(t, worktree, "commit", "-m", "a commit the filter is run over while replaying")
+	run(t, worktree, "rm", "-q", "--", "first.owl")
+	run(t, worktree, "commit", "-m", "and take it away again")
+	if err := os.WriteFile(filepath.Join(worktree, "kept.owl"), []byte("kept\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run(t, worktree, "add", "--", "alongside.txt", "marked.txt")
-	run(t, worktree, "commit", "-m", "a commit the filter will refuse to replay")
-	run(t, worktree, "rm", "-q", "--", "alongside.txt", "marked.txt")
-	run(t, worktree, "commit", "-m", "and take them away again")
+	run(t, worktree, "add", "--", "kept.owl")
+	run(t, worktree, "commit", "-m", "a filtered file that stays")
 	before := strings.TrimSpace(run(t, worktree, "rev-parse", "HEAD"))
 	commit(t, dir, "from-base.txt", "moved on\n")
-	refusing(t, dir)
+	// The filter refuses the first two times git runs it - the replay, and
+	// then the abort's own checkout - and passes everything after. So the
+	// abort refuses, deterministically, and only what comes after it can
+	// put the worktree back.
+	refusing(t, dir, 2)
 
 	conflict, err := git.Rebase(context.Background(), worktree, "main")
 
 	if err == nil {
 		t.Fatalf("Rebase = %+v and no error, want the failure reported", conflict)
+	}
+	// Reported as what it was: an abort that refused, and a branch put back
+	// by force, rather than a rebase that merely would not go through.
+	if !strings.Contains(err.Error(), "put back by force") {
+		t.Errorf("the error does not say the branch was put back by force: %v", err)
 	}
 	// However the abort went, the worktree is usable again: nothing is
 	// mid-rebase and the branch is back.
@@ -1419,18 +1431,24 @@ func TestRebasePutsAWorktreeBackWhenTheAbortItselfRefuses(t *testing.T) {
 	}
 }
 
-// refusing makes a repository require a filter that refuses one particular
-// content and passes everything else through.
-func refusing(t *testing.T, dir string) {
+// refusing makes a repository require a smudge filter that refuses the first
+// n times git runs it and passes everything through after that. Only the
+// smudge side counts: the clean side is run whenever git compares a worktree
+// with its index, which would make the count depend on what git felt like
+// checking.
+func refusing(t *testing.T, dir string, n int) {
 	t.Helper()
+	count := filepath.Join(t.TempDir(), "count")
 	path := filepath.Join(t.TempDir(), "filter.sh")
-	script := "#!/bin/sh\nt=$(mktemp)\ncat > \"$t\"\n" +
-		"if grep -q refuse-me \"$t\"; then rm -f \"$t\"; exit 1; fi\n" +
-		"cat \"$t\"\nrm -f \"$t\"\n"
+	script := "#!/bin/sh\n" +
+		"n=$(cat " + count + " 2>/dev/null || echo 0)\n" +
+		"n=$((n+1)); echo $n > " + count + "\n" +
+		"if [ $n -le " + strconv.Itoa(n) + " ]; then cat > /dev/null; exit 1; fi\n" +
+		"cat\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	run(t, dir, "config", "filter.owlstop.clean", path)
+	run(t, dir, "config", "filter.owlstop.clean", "cat")
 	run(t, dir, "config", "filter.owlstop.smudge", path)
 	run(t, dir, "config", "filter.owlstop.required", "true")
 }
