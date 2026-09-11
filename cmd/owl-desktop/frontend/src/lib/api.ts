@@ -15,6 +15,10 @@ export type Overview = client.Overview;
 export type Status = desktop.Status;
 export type StartResult = desktop.StartResult;
 export type Skill = client.Skill;
+export type ChatModel = client.ChatModel;
+export type Conversation = client.Conversation;
+export type ChatMessage = client.ChatMessage;
+export type ConversationDetails = client.ConversationDetails;
 export type SkillUpdate = desktop.SkillUpdate;
 
 // Go marshals a nil slice as null, so every list that crosses the bindings
@@ -60,6 +64,15 @@ export const api = {
       u.all = list(u.all);
       return u;
     }),
+  models: (): Promise<ChatModel[]> => App.Models().then(list),
+  conversations: (): Promise<Conversation[]> => App.Conversations().then(list),
+  conversation: (id: number): Promise<ConversationDetails> =>
+    App.Conversation(id).then((d) => {
+      d.Messages = list(d.Messages);
+      return d;
+    }),
+  send: (conversation: number, model: string, text: string): Promise<number> =>
+    App.Send(conversation, model, text),
   followLog: (runId: number): Promise<void> => App.FollowLog(runId),
   stopLog: (runId: number): Promise<void> => App.StopLog(runId),
 };
@@ -67,6 +80,18 @@ export const api = {
 // Events the Go side emits, named as internal/desktop names them.
 export const EVENT_LOG_LINE = "run:log";
 export const EVENT_LOG_END = "run:log:end";
+export const EVENT_CHAT_DELTA = "chat:delta";
+export const EVENT_CHAT_END = "chat:end";
+
+export interface ChatDelta {
+  conversationId: number;
+  text: string;
+}
+
+export interface ChatEnd {
+  conversationId: number;
+  error: string;
+}
 
 export interface LogLine {
   runId: number;

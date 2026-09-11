@@ -62,6 +62,7 @@ type Client struct {
 	accounts codingowlv1connect.AccountServiceClient
 	gc       codingowlv1connect.GarbageCollectionServiceClient
 	skills   codingowlv1connect.SkillServiceClient
+	chat     codingowlv1connect.ChatServiceClient
 }
 
 // New returns a client for the daemon listening on socketPath. It does not
@@ -84,6 +85,7 @@ func New(socketPath string) *Client {
 		accounts: codingowlv1connect.NewAccountServiceClient(httpClient, "http://owl"),
 		gc:       codingowlv1connect.NewGarbageCollectionServiceClient(httpClient, "http://owl"),
 		skills:   codingowlv1connect.NewSkillServiceClient(httpClient, "http://owl"),
+		chat:     codingowlv1connect.NewChatServiceClient(httpClient, "http://owl"),
 	}
 }
 

@@ -107,3 +107,9 @@ Given a configured provider
 When the app is asked for the models it can use, for its conversations, and for one conversation
 Then nothing it is given carries the key
 And the daemon refuses a message for a provider that is not configured, saying so
+
+### S16 - the app's window offers the chat, with a model picker
+Given the frontend sources under `cmd/owl-desktop/frontend/src`
+When they are scanned
+Then a chat view sends through the app's bindings, listens for what it emits, and offers the models the daemon reports
+And the window's navigation offers that view

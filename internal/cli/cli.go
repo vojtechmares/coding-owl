@@ -112,6 +112,7 @@ func newRoot(env Env) *cobra.Command {
 		newJobsCmd(env),
 		newStatusCmd(env),
 		newAccountCmd(env),
+		newProvidersCmd(env),
 		newGCCmd(env),
 		newSkillsCmd(env),
 		newPauseCmd(env),

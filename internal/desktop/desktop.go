@@ -105,6 +105,15 @@ func (a *App) call() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(a.ctx, callTimeout)
 }
 
+// chatTimeout bounds one exchange with a model, which is a request through the
+// daemon to somebody else rather than a request to the daemon.
+const chatTimeout = 10 * time.Minute
+
+// refusalWindow is how long Send waits to see whether the daemon refused the
+// message outright, so that a refusal is an error where the user typed it
+// rather than an event about a conversation that never started.
+const refusalWindow = 2 * time.Second
+
 // fetchTimeout bounds a request that fetches somebody else's repository, which
 // is not a request to the daemon so much as one through it (ADR-0033).
 const fetchTimeout = 5 * time.Minute
@@ -225,6 +234,112 @@ func (a *App) Resume() (client.Run, error) {
 	ctx, cancel := a.call()
 	defer cancel()
 	return a.client.ResumeRun(ctx)
+}
+
+// Events the chat emits, and what each carries.
+const (
+	// EventChatDelta carries a ChatDelta, one piece of an answer.
+	EventChatDelta = "chat:delta"
+	// EventChatEnd carries a ChatEnd, when an answer has ended.
+	EventChatEnd = "chat:end"
+)
+
+// ChatDelta is one piece of an answer as it arrives.
+type ChatDelta struct {
+	ConversationID int64  `json:"conversationId"`
+	Text           string `json:"text"`
+}
+
+// ChatEnd says an answer has ended: because the model finished, or because it
+// failed, and then Error names why. What arrived before a failure is what the
+// user saw, and is kept.
+type ChatEnd struct {
+	ConversationID int64  `json:"conversationId"`
+	Error          string `json:"error"`
+}
+
+// Models is every model the configured providers offer. A key is never among
+// them: the daemon holds those (ADR-0022).
+func (a *App) Models() ([]client.ChatModel, error) {
+	ctx, cancel := a.call()
+	defer cancel()
+	return a.client.ListModels(ctx)
+}
+
+// Conversations lists them, the most recently spoken to first.
+func (a *App) Conversations() ([]client.Conversation, error) {
+	ctx, cancel := a.call()
+	defer cancel()
+	return a.client.ListConversations(ctx)
+}
+
+// Conversation is one conversation with what was said in it.
+func (a *App) Conversation(id int64) (client.ConversationDetails, error) {
+	ctx, cancel := a.call()
+	defer cancel()
+	return a.client.GetConversation(ctx, id)
+}
+
+// Send says something in a conversation and streams the answer to the frontend
+// as EventChatDelta events, then EventChatEnd. It returns the conversation the
+// answer belongs to, which is the one the daemon started when none was given,
+// so the frontend knows where the pieces are going before they arrive.
+//
+// The answer is streamed rather than returned because it arrives over time;
+// what it ends up saying is in the conversation either way.
+func (a *App) Send(conversation int64, model, text string) (int64, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, chatTimeout)
+	// The daemon starts the conversation, so the id is not known until the
+	// first message comes back. It is read once, under the lock, and used for
+	// every event of this answer.
+	id := conversation
+	var mu sync.Mutex
+	started := make(chan struct{})
+	var once sync.Once
+	var sendErr error
+
+	go func() {
+		defer cancel()
+		got, err := a.client.SendMessage(ctx, conversation, model, text, func(delta string) error {
+			mu.Lock()
+			if id == 0 {
+				id = conversation
+			}
+			at := id
+			mu.Unlock()
+			a.emit.Emit(EventChatDelta, ChatDelta{ConversationID: at, Text: delta})
+			return nil
+		})
+		mu.Lock()
+		if got != 0 {
+			id = got
+		}
+		at := id
+		mu.Unlock()
+		if err != nil {
+			sendErr = err
+		}
+		once.Do(func() { close(started) })
+		message := ""
+		if err != nil {
+			message = err.Error()
+		}
+		a.emit.Emit(EventChatEnd, ChatEnd{ConversationID: at, Error: message})
+	}()
+
+	// A message the daemon refuses - a model nobody configured, an empty
+	// conversation - is refused here rather than reported as an event, so the
+	// frontend can say so where the user typed it.
+	select {
+	case <-started:
+		if sendErr != nil && id == conversation {
+			return id, sendErr
+		}
+	case <-time.After(refusalWindow):
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	return id, nil
 }
 
 // follow is one log being followed: how to stop it, and whether the

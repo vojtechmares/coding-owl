@@ -1,5 +1,54 @@
 export namespace client {
 	
+	export class ChatMessage {
+	    Role: string;
+	    Text: string;
+	    // Go type: time
+	    Created: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatMessage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Role = source["Role"];
+	        this.Text = source["Text"];
+	        this.Created = this.convertValues(source["Created"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ChatModel {
+	    Provider: string;
+	    ID: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatModel(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Provider = source["Provider"];
+	        this.ID = source["ID"];
+	    }
+	}
 	export class CheckResult {
 	    Name: string;
 	    Command: string;
@@ -23,6 +72,78 @@ export namespace client {
 	        this.Reason = source["Reason"];
 	        this.Verifier = source["Verifier"];
 	    }
+	}
+	export class Conversation {
+	    ID: number;
+	    Title: string;
+	    Model: string;
+	    // Go type: time
+	    Created: any;
+	    // Go type: time
+	    Updated: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Conversation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ID = source["ID"];
+	        this.Title = source["Title"];
+	        this.Model = source["Model"];
+	        this.Created = this.convertValues(source["Created"], null);
+	        this.Updated = this.convertValues(source["Updated"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ConversationDetails {
+	    Conversation: Conversation;
+	    Messages: ChatMessage[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversationDetails(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Conversation = this.convertValues(source["Conversation"], Conversation);
+	        this.Messages = this.convertValues(source["Messages"], ChatMessage);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class DiffFile {
 	    Path: string;

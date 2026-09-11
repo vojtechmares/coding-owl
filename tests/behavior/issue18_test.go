@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -290,8 +291,16 @@ func TestS4ChatTheCLIHasNoChat(t *testing.T) {
 
 	help := mustOwl(t, l, "--help").stdout
 
-	if strings.Contains(strings.ToLower(help), "chat") {
-		t.Errorf("owl --help offers a chat:\n%s", help)
+	// The commands Owl has, which is what the help lists under that heading.
+	_, commands, ok := strings.Cut(help, "Available Commands:")
+	if !ok {
+		t.Fatalf("owl --help lists no commands:\n%s", help)
+	}
+	commands, _, _ = strings.Cut(commands, "\nFlags:")
+	for _, ln := range strings.Split(commands, "\n") {
+		if name, _, _ := strings.Cut(strings.TrimSpace(ln), " "); name == "chat" {
+			t.Errorf("owl --help offers a chat command:\n%s", commands)
+		}
 	}
 	res := runOwl(t, l, "chat")
 	if res.code == 0 {
@@ -611,4 +620,26 @@ func anthropicModel(t *testing.T, app *desktop.App) string {
 	}
 	t.Fatalf("no anthropic model is configured: %+v", models)
 	return ""
+}
+
+func TestS16ChatTheAppsWindowOffersTheChat(t *testing.T) {
+	// The app cannot be driven without a display, so what the frontend is made
+	// of is checked on disk, as issue #9 checks its theme.
+	src := filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src")
+	for path, wants := range map[string][]string{
+		filepath.Join("views", "Chat.tsx"): {"api.send(", "api.models(", "api.conversations(", "EVENT_CHAT_DELTA"},
+		filepath.Join("lib", "api.ts"):     {"App.Send(", "App.Models(", "App.Conversations(", "App.Conversation("},
+		"App.tsx":                          {"views/Chat", "<Chat", "label: \"Chat\""},
+	} {
+		body := readFile(t, filepath.Join(src, path))
+		if body == "" {
+			t.Errorf("%s is not there", path)
+			continue
+		}
+		for _, want := range wants {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s does not carry %q", path, want)
+			}
+		}
+	}
 }
