@@ -2,10 +2,15 @@ package chat_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/vojtechmares/coding-owl/internal/chat"
 	"github.com/vojtechmares/coding-owl/internal/credential"
@@ -182,5 +187,156 @@ func TestSendRefusesAMessageWithNothingInIt(t *testing.T) {
 	var invalid *chat.InvalidError
 	if !errors.As(err, &invalid) {
 		t.Fatalf("Send with nothing to say = %v, want it refused", err)
+	}
+}
+
+// answering is a provider that says that, in the shape the Anthropic API
+// streams it, and where to reach it.
+func answering(t *testing.T, text string) string {
+	t.Helper()
+	piece, err := json.Marshal(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\"}\n\n"+
+			"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,"+
+			"\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n")
+		_, _ = fmt.Fprintf(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\","+
+			"\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":%s}}\n\n", piece)
+		_, _ = fmt.Fprint(w, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func TestAConversationsTitleIsCutAtAWholeCharacter(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.chat.AddProvider(ctx, "anthropic", "sk-ant-secret",
+		answering(t, "understood"), []string{"claude-opus-5"}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	// Said in a script where a character is three bytes, and longer than a
+	// title is, so the cut happens.
+	said := strings.Repeat("設定を説明して", 30)
+
+	if _, err := f.chat.Send(ctx, chat.SendRequest{Model: "claude-opus-5", Text: said}, nil); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	all, err := f.chat.Conversations(ctx)
+	if err != nil || len(all) != 1 {
+		t.Fatalf("Conversations = %+v, %v; want the one", all, err)
+	}
+	title := all[0].Title
+	if !utf8.ValidString(title) || strings.ContainsRune(title, utf8.RuneError) {
+		t.Errorf("the title %q is cut in the middle of a character", title)
+	}
+	// Shown in characters, not in bytes: a third of a title is not a title.
+	if n := utf8.RuneCountInString(strings.TrimSuffix(title, "...")); n < 60 {
+		t.Errorf("the title carries %d characters (%q), want what a list can show", n, title)
+	}
+}
+
+// breakingStore is a store whose provider row cannot be written, which is what
+// a rotation has to survive.
+type breakingStore struct {
+	chat.Store
+	broken bool
+}
+
+func (s *breakingStore) AddChatProvider(ctx context.Context, p store.ChatProvider) error {
+	if s.broken {
+		return errors.New("the database is not having it")
+	}
+	return s.Store.AddChatProvider(ctx, p)
+}
+
+func TestAFailedRotationLeavesTheConfiguredProviderItsKey(t *testing.T) {
+	f := newFixture(t)
+	broken := &breakingStore{Store: f.store}
+	service := chat.NewService(broken, f.creds, chat.NewTools(f.view))
+	if _, err := service.AddProvider(ctx, "anthropic", "sk-ant-first", "", nil); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+
+	broken.broken = true
+	if _, err := service.AddProvider(ctx, "anthropic", "sk-ant-second", "", nil); err == nil {
+		t.Fatal("the rotation was reported as done though the row could not be written")
+	}
+
+	// The provider is still configured, so the key it reaches models with must
+	// still be there - whichever of the two it now is.
+	if _, err := f.creds.Get(ctx, "chat/anthropic"); err != nil {
+		t.Errorf("the configured provider has no key left: %v", err)
+	}
+}
+
+func TestAFailedFirstConfigurationKeepsNoKey(t *testing.T) {
+	f := newFixture(t)
+	broken := &breakingStore{Store: f.store, broken: true}
+	service := chat.NewService(broken, f.creds, chat.NewTools(f.view))
+
+	if _, err := service.AddProvider(ctx, "anthropic", "sk-ant-orphan", "", nil); err == nil {
+		t.Fatal("the provider was reported as configured though the row could not be written")
+	}
+
+	// Nothing is configured, so the key nothing can reach is taken back.
+	if _, err := f.creds.Get(ctx, "chat/anthropic"); !errors.Is(err, credential.ErrNotFound) {
+		t.Errorf("a key nothing reaches was left behind: %v", err)
+	}
+}
+
+func TestWhatArrivedIsKeptWhenTheCallerGoesAway(t *testing.T) {
+	f := newFixture(t)
+	// A provider that says one piece and then says nothing more, so the only
+	// thing that ends the answer is the caller going away.
+	held := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\"}\n\n"+
+			"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,"+
+			"\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"+
+			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,"+
+			"\"delta\":{\"type\":\"text_delta\",\"text\":\"half an ans\"}}\n\n")
+		w.(http.Flusher).Flush()
+		<-held
+	}))
+	t.Cleanup(func() {
+		close(held)
+		srv.Close()
+	})
+	if _, err := f.chat.AddProvider(ctx, "anthropic", "sk-ant-secret",
+		srv.URL, []string{"claude-opus-5"}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	going, gone := context.WithCancel(ctx)
+	defer gone()
+
+	id, err := f.chat.Send(going, chat.SendRequest{Model: "claude-opus-5", Text: "are you there"},
+		func(d chat.Delta) error {
+			if d.Text != "" {
+				// The window closes while the answer is arriving.
+				gone()
+			}
+			return nil
+		})
+
+	if err == nil {
+		t.Fatal("Send reported an answer though the caller went away mid-stream")
+	}
+	_, said, err := f.chat.Conversation(ctx, id)
+	if err != nil {
+		t.Fatalf("the conversation could not be read back: %v", err)
+	}
+	var found bool
+	for _, m := range said {
+		if m.Role == "assistant" && strings.Contains(m.Text, "half an ans") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("what the user watched arrive was not kept: %+v", said)
 	}
 }

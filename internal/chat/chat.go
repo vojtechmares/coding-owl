@@ -53,7 +53,9 @@ var DefaultModels = map[string][]string{
 // comes back in a listing, so it is kept to what both read the same way.
 var modelRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9./:_-]*$`)
 
-// maxTitle is how much of the first thing said becomes a conversation's title.
+// maxTitle is how many characters of the first thing said become a
+// conversation's title. It is counted in characters rather than bytes, so a
+// title in a script that is not ASCII is not a third of the length.
 const maxTitle = 80
 
 // Config is a configured provider as the user sees it. The key is never here.
@@ -321,14 +323,16 @@ func asConversation(c store.Conversation) Conversation {
 }
 
 // titleOf is what a conversation is called: the first thing said in it, cut to
-// something a list can show.
+// something a list can show. The text is the user's, so it is cut at a
+// character and not in the middle of one.
 func titleOf(text string) string {
-	title := strings.TrimSpace(strings.ReplaceAll(text, "\n", " "))
-	if len(title) <= maxTitle {
+	title := strings.ToValidUTF8(strings.TrimSpace(strings.ReplaceAll(text, "\n", " ")), "")
+	runes := []rune(title)
+	if len(runes) <= maxTitle {
 		return title
 	}
-	cut := strings.ToValidUTF8(title[:maxTitle], "")
-	if at := strings.LastIndexByte(cut, ' '); at > maxTitle/2 {
+	cut := string(runes[:maxTitle])
+	if at := strings.LastIndexByte(cut, ' '); at > len(cut)/2 {
 		cut = cut[:at]
 	}
 	return cut + "..."

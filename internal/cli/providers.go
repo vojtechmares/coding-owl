@@ -15,7 +15,7 @@ import (
 )
 
 // noProviders is what owl providers list prints when none is configured.
-const noProviders = "no model providers yet; owl providers add <name> --key <key> configures one"
+const noProviders = "no model providers yet; owl providers add <name> --key-stdin configures one"
 
 func newProvidersCmd(env Env) *cobra.Command {
 	cmd := &cobra.Command{

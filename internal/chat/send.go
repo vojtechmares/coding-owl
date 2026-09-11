@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/store"
 )
@@ -24,9 +25,14 @@ const maxAnswer = 256 << 10
 // request that carried all of it would grow with it.
 const maxHistory = 128 << 10
 
+// keepTimeout bounds writing down what arrived after the caller has gone. The
+// write outlives the request, so it needs an end of its own.
+const keepTimeout = 5 * time.Second
+
 // systemPrompt is what the model is told it is. It says what the tools are for
-// and, plainly, that it cannot act: the chat proposes nothing and runs nothing
-// in the MVP (ADR-0022).
+// and, plainly, that it cannot act: every tool this chat is given only reads.
+// ADR-0022 keeps a shell out of the chat; what it may one day be allowed to
+// propose is not this work.
 const systemPrompt = `You are the assistant inside Coding Owl, a tool that runs coding agents unattended.
 
 The user is asking about work Owl has done: Projects it knows, Jobs it queued, Runs it carried out, what Verification said, and what a Job's branch changed. Answer from what the tools tell you rather than from what you assume, and say plainly when the tools do not say.
@@ -69,6 +75,11 @@ func (s *Service) Send(ctx context.Context, req SendRequest, emit func(Delta) er
 	if text == "" {
 		return 0, invalid("a message needs something to say")
 	}
+	// A caller that wants the answer only in the conversation passes none, and
+	// the pieces still have to go somewhere.
+	if emit == nil {
+		emit = func(Delta) error { return nil }
+	}
 	provider, client, err := s.clientFor(ctx, req.Model, req.Provider)
 	if err != nil {
 		return 0, err
@@ -79,19 +90,23 @@ func (s *Service) Send(ctx context.Context, req SendRequest, emit func(Delta) er
 	}
 	// Which conversation the answer belongs to is said before any of it
 	// arrives, so a caller that started one knows where the pieces are going.
-	if emit != nil {
-		if err := emit(Delta{Conversation: conversation}); err != nil {
-			return conversation, err
-		}
+	if err := emit(Delta{Conversation: conversation}); err != nil {
+		return conversation, err
 	}
 
 	answer, err := s.converse(ctx, client, provider, req.Model, history, conversation, emit)
 	// Whatever arrived is what the user saw, so it is written down before the
 	// failure is reported.
 	if strings.TrimSpace(answer) != "" {
-		if _, addErr := s.store.AddChatMessage(ctx, store.ChatMessage{
+		// The user watched this arrive, so it is kept even when what stopped
+		// the answer was the caller going away: a closed window must not take
+		// half a conversation with it.
+		keep, done := context.WithTimeout(context.WithoutCancel(ctx), keepTimeout)
+		_, addErr := s.store.AddChatMessage(keep, store.ChatMessage{
 			ConversationID: conversation, Role: RoleAssistant, Text: answer, Created: s.now().UTC(),
-		}); addErr != nil {
+		})
+		done()
+		if addErr != nil {
 			return conversation, addErr
 		}
 	}
