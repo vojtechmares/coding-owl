@@ -36,9 +36,9 @@ And its invocation carries no flag that resumes or continues an earlier session
 ### S3 - the reviewer is given the plan and the diff
 Given a Project asking for a review, and a planned Job whose Agent writes a handoff and commits a file
 When the Job's execution Run finishes
-Then the reviewer's prompt carries what the planning Run recorded as the plan
-And the name of the file the Agent committed, and the line it added
-And it says where to write its verdict
+Then the reviewer's prompt quotes what the planning Run recorded as the plan, as the plan and set apart from the diff
+And quotes the diff, with the name of the file the Agent committed and the line it added
+And says, outside everything it quotes, where to write its verdict
 
 ### S4 - a review that passes leaves the Job in review
 Given a Project asking for a review, whose reviewer writes a passing verdict and a note

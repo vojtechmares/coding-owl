@@ -129,6 +129,20 @@ func TestParseRefusesAReviewTimeoutItCannotRead(t *testing.T) {
 	}
 }
 
+func TestParseRefusesACheckCalledWhatAReviewIsCalled(t *testing.T) {
+	// Verification reports a review beside the Project's own checks, and a
+	// reader tells them apart by name (ADR-0013).
+	_, err := config.Parse("main:.coding-owl.yaml",
+		[]byte("apiVersion: codingowl.dev/v1\nchecks:\n  - name: "+config.ReviewName+"\n    run: \"true\"\n"))
+
+	if err == nil {
+		t.Fatal("Parse accepted a check called what a review is called")
+	}
+	if !strings.Contains(err.Error(), config.ReviewName) {
+		t.Errorf("the error %q does not name it", err)
+	}
+}
+
 func TestParseReadsPhases(t *testing.T) {
 	cfg, err := config.Parse("main:.coding-owl.yaml", []byte(
 		"apiVersion: codingowl.dev/v1\nphases:\n  plan:\n    model: haiku\n  execute:\n    effort: medium\n"))

@@ -144,11 +144,47 @@ func TestS3ReviewIsGivenThePlanAndTheDiff(t *testing.T) {
 	waitRun(t, l, job, run)
 
 	prompt := lastArg(t, reviewInvocation(t, s))
-	for _, want := range []string{"Add the file and stop.", "work.txt", "a line the agent added", reviewPath} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("the reviewer's prompt does not carry %q:\n%s", want, prompt)
+	// The plan is quoted as the plan: the handoff it came from is also on the
+	// branch, so a prompt that carries the sentence anywhere carries it twice
+	// over and says nothing about what the reviewer was told it was.
+	if planned := quoted(t, prompt, planFence); !strings.Contains(planned, "Add the file and stop.") {
+		t.Errorf("the reviewer was not given the plan:\n%s", planned)
+	}
+	diff := quoted(t, prompt, diffFence)
+	for _, want := range []string{"work.txt", "a line the agent added"} {
+		if !strings.Contains(diff, want) {
+			t.Errorf("the diff the reviewer was given does not carry %q:\n%s", want, diff)
 		}
 	}
+	// Where to write the verdict is Owl's own instruction, so it is outside
+	// everything the prompt quotes.
+	asked, _, _ := strings.Cut(prompt, planFence)
+	rest := prompt[strings.LastIndex(prompt, diffFence)+len(diffFence):]
+	if strings.Contains(asked, reviewPath) || !strings.Contains(rest, reviewPath) {
+		t.Errorf("the prompt does not say where to write the verdict outside what it quotes:\n%s", prompt)
+	}
+}
+
+// planFence and diffFence are the lines the reviewer's prompt sets quoted
+// material apart with, so a scenario can ask what the reviewer was told a
+// piece of text was.
+const (
+	planFence = "----- plan -----"
+	diffFence = "----- diff -----"
+)
+
+// quoted is what a prompt set inside one fence.
+func quoted(t *testing.T, prompt, fence string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(prompt, fence)
+	if !ok {
+		t.Fatalf("the prompt quotes nothing inside %q:\n%s", fence, prompt)
+	}
+	body, _, ok := strings.Cut(rest, fence)
+	if !ok {
+		t.Fatalf("the prompt never closes %q:\n%s", fence, prompt)
+	}
+	return body
 }
 
 func TestS4ReviewThatPassesLeavesTheJobInReview(t *testing.T) {

@@ -967,6 +967,25 @@ func TestAJobRunsOnTheAccountItRecordedRatherThanTheProjectsCurrentOne(t *testin
 	}
 }
 
+func TestARunIsBlockedWhenTheProjectAsksForAReviewNobodyCanGive(t *testing.T) {
+	// A Job must not reach review because nobody was asked (ADR-0013): a
+	// daemon built without a reviewer refuses rather than letting the work
+	// through unreviewed.
+	ctx := context.Background()
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{},
+		"apiVersion: codingowl.dev/v1\nreview:\n  agent: true\n")
+	j := queueJob(t, st, "work")
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	done := awaitState(t, st, j.ID, queue.StateBlocked)
+
+	if !strings.Contains(done.Reason, "reviewer") {
+		t.Errorf("reason = %q, want it to say the daemon has no reviewer", done.Reason)
+	}
+}
+
 func TestARunPlacesTheSkillsTheProjectDeclares(t *testing.T) {
 	ctx := context.Background()
 	src := skillSource(t)

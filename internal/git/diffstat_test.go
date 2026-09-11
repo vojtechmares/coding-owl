@@ -144,4 +144,7 @@ func TestDiffPatchIsWhatTheBranchChangedAndIsBounded(t *testing.T) {
 	if len(cut) > 40 {
 		t.Errorf("the patch is %d bytes, want no more than the 40 it was given", len(cut))
 	}
+	if cut != "" && !strings.HasSuffix(cut, "\n") {
+		t.Errorf("the patch was cut mid-line:\n%s", cut)
+	}
 }

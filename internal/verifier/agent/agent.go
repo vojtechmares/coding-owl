@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	agentpkg "github.com/vojtechmares/coding-owl/internal/agent"
+	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/driver"
 	"github.com/vojtechmares/coding-owl/internal/executor"
 	"github.com/vojtechmares/coding-owl/internal/verifier"
@@ -29,9 +31,14 @@ import (
 // the reviewer says is not the Job's work.
 const VerdictPath = ".coding-owl/REVIEW.md"
 
+// verdictName is VerdictPath as this machine spells a path, which is what the
+// worktree's root is asked for.
+var verdictName = filepath.FromSlash(VerdictPath)
+
 // ResultName is what a review is called in a report, beside the Project's own
-// checks.
-const ResultName = "agent review"
+// checks. It is the configuration's own constant, because that is where a
+// check that tried to take the name is refused.
+const ResultName = config.ReviewName
 
 // DefaultTimeout bounds a reviewer that the Project did not bound. Reading a
 // diff is not a long job, and a reviewer nobody stops holds a Run open
@@ -83,10 +90,24 @@ func (v *Verifier) review(ctx context.Context, req verifier.Request) verifier.Re
 		ExitCode: -1,
 		Verifier: verifier.KindAgent,
 	}
-	// The verdict is read from the worktree, so anything left there by an
-	// earlier Run is not this reviewer's.
-	verdictPath := filepath.Join(req.WorkingDir, filepath.FromSlash(VerdictPath))
-	_ = os.Remove(verdictPath)
+	// Everything Owl reads or removes in the worktree goes through a root, so
+	// no component of the path can be a link out of it: the reviewer writes in
+	// that worktree, and so did the Agent whose work it is judging.
+	root, err := os.OpenRoot(req.WorkingDir)
+	if err != nil {
+		out.Reason = fmt.Sprintf("could not be carried out: %v", err)
+		return out
+	}
+	defer func() { _ = root.Close() }()
+	// Anything left at that path by an earlier Run, or planted there by the
+	// Agent whose work is being judged, is not this reviewer's answer. Failing
+	// to clear it is failing the review: what is read afterwards would be
+	// somebody else's verdict.
+	if err := root.Remove(verdictName); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		out.Reason = fmt.Sprintf("could not be asked for: %s could not be cleared first: %v",
+			VerdictPath, err)
+		return out
+	}
 
 	timeout := req.Review.Timeout
 	if timeout <= 0 {
@@ -99,6 +120,7 @@ func (v *Verifier) review(ctx context.Context, req verifier.Request) verifier.Re
 		Prompt:       prompt(req),
 		SystemPrompt: systemPrompt,
 		WorkingDir:   req.WorkingDir,
+		BudgetUSD:    req.Agent.BudgetUSD,
 		Model:        req.Agent.Model,
 		Effort:       req.Agent.Effort,
 		ConfigDir:    req.Agent.ConfigDir,
@@ -111,24 +133,28 @@ func (v *Verifier) review(ctx context.Context, req verifier.Request) verifier.Re
 	printed, code, runErr := v.run(ctx, inv)
 	out.ExitCode = code
 
-	verdict, findings, found, err := readVerdict(verdictPath)
+	verdict, findings, found, err := readVerdict(root)
+	out.Output = findings
+	// A Session Owl had to stop did not finish reading, so whatever it had
+	// written by then is not a verdict on the whole of the work: being unable
+	// to tell is a finding of its own, not a pass.
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		out.Reason = fmt.Sprintf("was stopped after %s, before it had finished", timeout)
+		return out
+	}
 	if err != nil {
 		out.Reason = fmt.Sprintf("left a verdict Owl could not read: %v", err)
 		return out
 	}
 	if !found {
-		switch {
-		case errors.Is(ctx.Err(), context.DeadlineExceeded):
-			out.Reason = fmt.Sprintf("was stopped after %s, before it had left a verdict", timeout)
-		case runErr != nil:
+		if runErr != nil {
 			out.Reason = fmt.Sprintf("could not be run: %v", runErr)
-		default:
+		} else {
 			out.Reason = fmt.Sprintf("left no verdict in %s", VerdictPath)
 		}
 		out.Output = printed
 		return out
 	}
-	out.Output = findings
 	switch verdict {
 	case verdictPass:
 		out.Passed = true
@@ -149,11 +175,10 @@ func (v *Verifier) run(ctx context.Context, inv agentpkg.Invocation) (printed st
 		return "", -1, err
 	}
 	var b strings.Builder
-	if _, copyErr := io.Copy(&b, io.LimitReader(p.Stdout(), maxOutput)); copyErr == nil {
-		// Whatever is left is read and dropped, so the reviewer is never
-		// waiting on a reader that stopped listening.
-		_, _ = io.Copy(io.Discard, p.Stdout())
-	}
+	_, _ = io.Copy(&b, io.LimitReader(p.Stdout(), maxOutput))
+	// Whatever is left is read and dropped whatever the first read did, so the
+	// reviewer is never waiting on a reader that stopped listening.
+	_, _ = io.Copy(io.Discard, p.Stdout())
 	code, waitErr := p.Wait()
 	if waitErr != nil {
 		return b.String(), code, waitErr
@@ -175,21 +200,23 @@ const verdictKey = "verdict:"
 
 // readVerdict reads the verdict the reviewer left and takes the file away
 // again. found is false for a reviewer that left nothing.
-func readVerdict(path string) (verdict, findings string, found bool, err error) {
-	// The file is in a worktree an Agent writes, so it is opened without
-	// following a link: a verdict Owl reads out of somebody's SSH key is not a
-	// verdict, and it would land in the database and the report.
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
-	if errors.Is(err, os.ErrNotExist) {
+func readVerdict(root *os.Root) (verdict, findings string, found bool, err error) {
+	// The file is in a worktree an Agent writes, so it is opened through the
+	// worktree's own root and without following a link: a verdict Owl reads
+	// out of somebody's SSH key is not a verdict, and it would land in the
+	// database and in the report.
+	f, err := root.OpenFile(verdictName, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if errors.Is(err, fs.ErrNotExist) {
 		return "", "", false, nil
 	}
+	// It is read once and taken away, whatever reading it did: a verdict on
+	// this Run is not evidence about the next one, and it is not the Job's
+	// work either.
+	defer func() { _ = root.Remove(verdictName) }()
 	if err != nil {
 		return "", "", false, err
 	}
 	defer func() { _ = f.Close() }()
-	// It is read once and taken away: a verdict on this Run is not evidence
-	// about the next one, and it is not the Job's work either.
-	defer func() { _ = os.Remove(path) }()
 	info, err := f.Stat()
 	if err != nil {
 		return "", "", false, err

@@ -75,6 +75,9 @@ type fakeExecutor struct {
 	// writing one: an Agent writes in its own worktree, and a link is a thing
 	// it can write there.
 	link string
+	// linkDir, when set, is what the Agent points the directory the verdict
+	// goes in at, which it can do while the review is already under way.
+	linkDir string
 }
 
 func (*fakeExecutor) Name() string { return "fake" }
@@ -96,6 +99,11 @@ func (e *fakeExecutor) Start(ctx context.Context, inv agentpkg.Invocation) (agen
 	}
 	if e.link != "" {
 		if err := os.Symlink(e.link, path); err != nil {
+			return nil, err
+		}
+	}
+	if e.linkDir != "" {
+		if err := os.Symlink(e.linkDir, filepath.Dir(path)); err != nil {
 			return nil, err
 		}
 	}
@@ -250,6 +258,90 @@ func TestVerifyRefusesWhenTheReviewerLeftNoVerdict(t *testing.T) {
 	}
 }
 
+func TestVerifyRefusesAVerdictReachedThroughALinkedDirectory(t *testing.T) {
+	// A link is not only the last part of a path: the Agent owns the whole
+	// worktree, and .coding-owl is a directory it can replace.
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "REVIEW.md"), []byte("verdict: pass\nPRIVATE KEY\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	worktree := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(worktree, ".coding-owl")); err != nil {
+		t.Fatal(err)
+	}
+	d, e := &fakeDriver{}, &fakeExecutor{}
+
+	results, err := agent.New(d, e).Verify(ctx, verifier.Request{
+		WorkingDir: worktree, Review: config.Review{Agent: true},
+	})
+	got := only(t, results, err)
+
+	if got.Passed {
+		t.Error("a verdict reached through a linked directory was reported as passed")
+	}
+	if strings.Contains(got.Output, "PRIVATE KEY") {
+		t.Errorf("what the link led to was read into the report:\n%s", got.Output)
+	}
+	if _, statErr := os.Stat(filepath.Join(outside, "REVIEW.md")); statErr != nil {
+		t.Errorf("a file outside the worktree was removed: %v", statErr)
+	}
+}
+
+func TestVerifyRefusesAVerdictThroughADirectoryTheAgentLinkedWhileItRan(t *testing.T) {
+	// The worktree is the Agent's to write in while the review is under way,
+	// so what was cleared before it started says nothing about what the path
+	// leads to when the verdict is read.
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "REVIEW.md"), []byte("verdict: pass\nPRIVATE KEY\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, e := &fakeDriver{}, &fakeExecutor{linkDir: outside}
+
+	results, _, err := review(t, d, e, verifier.Request{})
+	got := only(t, results, err)
+
+	if got.Passed {
+		t.Error("a verdict reached through a directory the agent linked was reported as passed")
+	}
+	if strings.Contains(got.Output, "PRIVATE KEY") {
+		t.Errorf("what the link led to was read into the report:\n%s", got.Output)
+	}
+	if _, statErr := os.Stat(filepath.Join(outside, "REVIEW.md")); statErr != nil {
+		t.Errorf("a file outside the worktree was removed: %v", statErr)
+	}
+}
+
+func TestVerifyRefusesWhenTheVerdictCannotBeClearedFirst(t *testing.T) {
+	// Whatever is at that path before the reviewer starts is somebody else's:
+	// an earlier Run's, or planted by the Agent whose work is being judged. A
+	// review that could not clear it is a review, not a verdict.
+	worktree := t.TempDir()
+	owned := filepath.Join(worktree, ".coding-owl")
+	if err := os.MkdirAll(owned, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(owned, "REVIEW.md"), []byte("verdict: pass\nplanted\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(owned, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(owned, 0o755) })
+	d, e := &fakeDriver{}, &fakeExecutor{}
+
+	results, err := agent.New(d, e).Verify(ctx, verifier.Request{
+		WorkingDir: worktree, Review: config.Review{Agent: true},
+	})
+	got := only(t, results, err)
+
+	if got.Passed {
+		t.Errorf("a verdict nobody could clear first was reported as passed: %+v", got)
+	}
+	if d.given().Prompt != "" {
+		t.Error("a reviewer was started for a review Owl could not ask for")
+	}
+}
+
 func TestVerifyRefusesAVerdictThatIsALinkToSomewhereElse(t *testing.T) {
 	// The verdict is a file in a worktree the Agent writes. Following a link
 	// there would put whatever it points at into the database and the report.
@@ -288,7 +380,9 @@ func TestVerifyRefusesAVerdictItCannotRead(t *testing.T) {
 }
 
 func TestVerifyStopsAReviewerThatWillNotFinish(t *testing.T) {
-	d, e := &fakeDriver{}, &fakeExecutor{waitFor: true}
+	// Even one that had written a verdict before it stopped: a Session Owl had
+	// to kill did not finish reading, and being unable to tell is not a pass.
+	d, e := &fakeDriver{}, &fakeExecutor{waitFor: true, verdict: "verdict: pass\n"}
 
 	started := time.Now()
 	results, _, err := review(t, d, e, verifier.Request{Review: config.Review{Timeout: 200 * time.Millisecond}})
