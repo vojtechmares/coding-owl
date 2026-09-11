@@ -335,9 +335,15 @@ func TestS12StatusListsUnfinishedWork(t *testing.T) {
 		t.Fatalf("state = %q, want a job awaiting a decision:\n%s", got, waitingOut)
 	}
 
-	// A Job left active by a daemon that died, which is S11's kind.
+	// A Job left active by a daemon that died, which is S11's kind. The stub
+	// is held first, so the Run is certainly still in progress when the daemon
+	// is killed rather than being a race against it finishing.
+	hold(t, l)
 	addJob(t, l, r.dir, "interrupted", "--no-plan")
 	_, abandoned := startRun(t, l)
+	if got := jobState(t, l, abandoned); got != "active" {
+		t.Fatalf("state = %q, want a run still in progress to kill the daemon under", got)
+	}
 	if err := p.cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
@@ -366,11 +372,19 @@ func TestS12StatusListsUnfinishedWork(t *testing.T) {
 	}
 }
 
-// release lets a stub agent waiting on a `#wait` line continue, and is how a
-// scenario holds a Run open for exactly as long as it needs.
+// release lets a stub agent waiting on a `#wait` line continue, and hold takes
+// that permission back, so a scenario can hold exactly the Run it means to.
+// The stub waits for the file to exist, so its absence is what holds a Run.
 func release(t *testing.T, l *layout) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(l.root, "agent-release"), []byte("go\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func hold(t *testing.T, l *layout) {
+	t.Helper()
+	if err := os.Remove(filepath.Join(l.root, "agent-release")); err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
 }
@@ -414,18 +428,20 @@ func TestS15GCRunsAgainOnItsInterval(t *testing.T) {
 
 func TestS16GCNeverRunsAnAgent(t *testing.T) {
 	l, s := unaskedLayout(t)
-	daemonUp(t, l)
+	d := daemonUp(t, l)
 	// A Job that has run, so the stub has a record and the collections below
 	// have a worktree to reclaim: this is the state S14 and S15 leave behind.
 	r, job, worktree, branch := reviewed(t, l)
 	mustOwl(t, l, "jobs", "accept", job)
-	r.git("worktree", "add", worktree, branch)
 	before := len(s.invocations(t))
 
-	// Several collections, asked for and not.
-	gcReport(t, l)
+	// The collection a daemon makes when it starts, and the one it makes on
+	// its interval, both inside the window this counts across: the worktree is
+	// put back after the restart, so only an unasked collection can take it.
+	stopDaemon(t, d)
+	waitForLog(t, startDaemon(t, l), "daemon listening")
+	r.git("worktree", "add", worktree, branch)
 	waitForGone(t, worktree)
-	gcReport(t, l)
 
 	if after := len(s.invocations(t)); after != before {
 		t.Errorf("the agent was invoked %d times, want the %d it was before the collections", after, before)
