@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -52,6 +53,29 @@ func TestAcceptFinishesAJobWhoseWorktreeIsAlreadyGone(t *testing.T) {
 	}
 	if list := gitOut(t, repo, "worktree", "list"); strings.Contains(list, j.Worktree) {
 		t.Errorf("git still reports the worktree that is not there:\n%s", list)
+	}
+}
+
+func TestAcceptTakesAwayWhatWasKeptBesideTheWorktree(t *testing.T) {
+	// Owl keeps the exclude file that hides a Job's Skills outside the
+	// worktree, one directory per Job (ADR-0033). Accepting the Job reclaims
+	// the worktree, and what was hiding its Skills has nothing left to hide.
+	svc, st, repo, root := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{})
+	j := reviewing(t, st, repo)
+	owned := filepath.Join(root, "worktree-config", strconv.FormatInt(j.ID, 10))
+	if err := os.MkdirAll(owned, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(owned, "excludes"), []byte("/.claude/skills/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.Accept(context.Background(), j.ID, false); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+
+	if _, err := os.Stat(owned); err == nil {
+		t.Errorf("%s is still there after the worktree it belonged to went", owned)
 	}
 }
 

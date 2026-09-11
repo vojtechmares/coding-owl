@@ -113,6 +113,10 @@ type Options struct {
 	// WorktreeDir holds one worktree per Job (ADR-0014). Every directory in it
 	// is a candidate; nothing outside it is ever touched.
 	WorktreeDir string
+	// WorktreeConfigDir holds what Owl keeps beside each Job's worktree: the
+	// exclude file that hides the Skills it placed (ADR-0033). It goes when
+	// the worktree it belongs to goes. A Service without one leaves it.
+	WorktreeConfigDir string
 	// ReviewAfter is how long a Job may wait for a decision before it is
 	// reported. Zero is DefaultReviewAfter.
 	ReviewAfter time.Duration
@@ -391,9 +395,26 @@ func (s *Service) reconcile(ctx context.Context, projects []store.Project, jobs 
 				s.opts.Logger.Error("recording that a job's worktree went", "job", j.ID, "error", err)
 			}
 		}
+		if owned {
+			s.forgetWorktreeConfig(j.ID)
+		}
 		s.opts.Logger.Info("worktree reclaimed", "path", path, "job", j.ID, "why", why)
 		report.Reclaimed = append(report.Reclaimed, Reclaimed{Job: j.ID, Path: path, Why: why})
 	})
+}
+
+// forgetWorktreeConfig takes away what Owl kept beside a worktree that is
+// gone. Nothing reads it once the worktree it hid Skills in has been
+// reclaimed, and one directory per Job would otherwise stay for the life of
+// the installation.
+func (s *Service) forgetWorktreeConfig(job int64) {
+	if s.opts.WorktreeConfigDir == "" {
+		return
+	}
+	dir := filepath.Join(s.opts.WorktreeConfigDir, strconv.FormatInt(job, 10))
+	if err := os.RemoveAll(dir); err != nil {
+		s.opts.Logger.Warn("reclaiming what was kept beside a worktree", "path", dir, "error", err)
+	}
 }
 
 // remove takes a worktree back through the repository that owns it, so that

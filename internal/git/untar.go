@@ -17,6 +17,12 @@ const maxEntry = 64 << 20
 // nobody vetted cannot fill a disk with empty files.
 const maxEntries = 10_000
 
+// maxTotal bounds the whole archive. Without it the per-file and per-count
+// bounds multiply, and a source nobody vetted can still ask for a disk. It is
+// a variable so that a test can lower it: what is worth testing is that the
+// entries are added up, not that a hundred megabytes are written.
+var maxTotal int64 = 128 << 20
+
 // untar unpacks an archive as it arrives into a directory, refusing anything
 // that would land outside it. The archive comes from `git archive`, which writes only the tree
 // of one commit, but what is in that tree is somebody else's to decide: a
@@ -28,6 +34,7 @@ func untar(archive io.Reader, into string) error {
 		return err
 	}
 	r := tar.NewReader(archive)
+	var total int64
 	for n := 0; ; n++ {
 		header, err := r.Next()
 		if err == io.EOF {
@@ -56,6 +63,10 @@ func untar(archive io.Reader, into string) error {
 			if header.Size > maxEntry {
 				return fmt.Errorf("%s is %d bytes, which is larger than a skill's file may be",
 					header.Name, header.Size)
+			}
+			total += header.Size
+			if total > maxTotal {
+				return fmt.Errorf("the archive holds more than %d bytes, which is not a skill", maxTotal)
 			}
 			if err := writeEntry(path, r, header.Size); err != nil {
 				return err

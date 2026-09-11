@@ -63,6 +63,14 @@ func ParseLock(source string, data []byte) (Lock, error) {
 				return Lock{}, fmt.Errorf("%s: skill %q records no %s", source, name, field.what)
 			}
 		}
+		for _, field := range []struct{ what, value string }{
+			{"source", e.Source},
+			{"ref", e.Ref},
+		} {
+			if err := CheckText(field.what, field.value); err != nil {
+				return Lock{}, fmt.Errorf("%s: %w", source, err)
+			}
+		}
 		if _, _, ok := splitDigest(e.Digest); !ok {
 			return Lock{}, fmt.Errorf("%s: skill %q records the digest %q, which Owl did not write",
 				source, name, e.Digest)

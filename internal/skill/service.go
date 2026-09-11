@@ -109,6 +109,9 @@ func (s *Service) Add(ctx context.Context, source, ref string, autoUpdate bool) 
 	if strings.HasPrefix(d.Ref, "-") {
 		return Resolved{}, Declared{}, invalid("the ref %q may not start with a dash", d.Ref)
 	}
+	if err := CheckText("ref", d.Ref); err != nil {
+		return Resolved{}, Declared{}, err
+	}
 	if err := CheckName(parsed.Name()); err != nil {
 		return Resolved{}, Declared{}, err
 	}

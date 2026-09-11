@@ -59,10 +59,21 @@ func (p placement) fetch(t *testing.T, src *sourceRepo, ref string) skill.Resolv
 	return got
 }
 
+// site is where this placement happens.
+func (p placement) site() skill.Site {
+	return skill.Site{
+		Repo:      p.repo,
+		Worktree:  p.worktree,
+		SkillsDir: ".claude/skills",
+		OwnedDir:  p.owned,
+		Cache:     p.cache.Dir(),
+	}
+}
+
 // place puts skills in the worktree and fails the test if it could not.
 func (p placement) place(t *testing.T, skills ...skill.Resolved) skill.Placement {
 	t.Helper()
-	got, err := skill.Place(p.repo, p.worktree, ".claude/skills", p.owned, skills)
+	got, err := skill.Place(p.site(), skills)
 	if err != nil {
 		t.Fatalf("Place: %v", err)
 	}
@@ -148,8 +159,7 @@ func TestPlaceRefusesAnEntryItDidNotCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := skill.Place(p.repo, p.worktree, ".claude/skills", p.owned,
-		[]skill.Resolved{p.fetch(t, src, "main")})
+	_, err := skill.Place(p.site(), []skill.Resolved{p.fetch(t, src, "main")})
 
 	var refused *skill.InvalidError
 	if !errors.As(err, &refused) {
@@ -205,31 +215,64 @@ func TestPlaceWithNoSkillsLeavesACleanWorktree(t *testing.T) {
 	}
 }
 
-func TestPlaceIgnoresAMarkerNamingSomethingItCouldNotHavePlaced(t *testing.T) {
+func TestPlaceLeavesAnEntryThatTookTheNameOfOneItPlaced(t *testing.T) {
 	p := newPlacement(t)
 	src := newSource(t, "go-review")
 	p.place(t, p.fetch(t, src, "main"))
-	// The marker decides what gets deleted, so a name that is not one Owl
-	// could have written is a marker nobody should act on.
-	outside := filepath.Join(t.TempDir(), "theirs")
-	if err := os.MkdirAll(outside, 0o755); err != nil {
+	// A name Owl used once is no evidence that what is there now is Owl's: a
+	// base branch that has since committed a skill of its own, or an Agent
+	// that wrote in its place, both arrive this way.
+	link := filepath.Join(p.worktree, ".claude", "skills", "go-review")
+	if err := os.Remove(link); err != nil {
 		t.Fatal(err)
 	}
-	rel, err := filepath.Rel(filepath.Join(p.worktree, ".claude", "skills"), outside)
-	if err != nil {
+	if err := os.MkdirAll(link, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(p.owned, "skills-placed"), []byte(rel+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(link, "SKILL.md"), []byte("ours\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = skill.Place(p.repo, p.worktree, ".claude/skills", p.owned, nil)
+	_, err := skill.Place(p.site(), []skill.Resolved{p.fetch(t, src, "main")})
 
-	if err == nil {
-		t.Error("Place with a marker naming a path outside = nil, want it refused")
+	var refused *skill.InvalidError
+	if !errors.As(err, &refused) {
+		t.Fatalf("Place over an entry that replaced one of Owl's = %v, want it refused", err)
 	}
-	if _, statErr := os.Stat(outside); statErr != nil {
-		t.Errorf("a directory outside the worktree was removed: %v", statErr)
+	body, readErr := os.ReadFile(filepath.Join(link, "SKILL.md"))
+	if readErr != nil || string(body) != "ours\n" {
+		t.Errorf("what took the name of a placed skill was touched: %q %v", body, readErr)
+	}
+}
+
+func TestPlaceTakesAwayOnlyWhatItPlaced(t *testing.T) {
+	p := newPlacement(t)
+	first, second := newSource(t, "go-review"), newSource(t, "house-style")
+	p.place(t, p.fetch(t, first, "main"), p.fetch(t, second, "main"))
+	// An Agent's own work under a name nothing declares is the Agent's, and a
+	// placement that no longer declares go-review is not a licence to delete
+	// what replaced it.
+	skills := filepath.Join(p.worktree, ".claude", "skills")
+	theirs := filepath.Join(skills, "notes")
+	if err := os.MkdirAll(theirs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(theirs, "work.txt"), []byte("mine\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(skills, "go-review")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(skills, "go-review", "deep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p.place(t, p.fetch(t, second, "main"))
+
+	for _, kept := range []string{theirs, filepath.Join(skills, "go-review", "deep")} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Errorf("%s was removed by a placement that did not put it there: %v", kept, err)
+		}
 	}
 }
 
@@ -251,8 +294,7 @@ func TestPlaceRefusesASkillsDirectoryThatLeadsOutOfTheWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := skill.Place(p.repo, p.worktree, ".claude/skills", p.owned,
-		[]skill.Resolved{p.fetch(t, src, "main")})
+	_, err := skill.Place(p.site(), []skill.Resolved{p.fetch(t, src, "main")})
 
 	var refused *skill.InvalidError
 	if !errors.As(err, &refused) {
@@ -267,6 +309,34 @@ func TestPlaceRefusesASkillsDirectoryThatLeadsOutOfTheWorktree(t *testing.T) {
 	}
 }
 
+func TestPlaceCreatesNothingThroughASymlinkOutOfTheWorktree(t *testing.T) {
+	p := newPlacement(t)
+	src := newSource(t, "go-review")
+	outside := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The driver's directory itself leads out, so making the skills directory
+	// is already a write through it - the check has to come first.
+	if err := os.Symlink(outside, filepath.Join(p.worktree, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := skill.Place(p.site(), []skill.Resolved{p.fetch(t, src, "main")})
+
+	var refused *skill.InvalidError
+	if !errors.As(err, &refused) {
+		t.Fatalf("Place through a symlink out of the worktree = %v, want it refused", err)
+	}
+	entries, readErr := os.ReadDir(outside)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Errorf("a placement that refused created %v outside the worktree", entries)
+	}
+}
+
 func TestPlaceWritesNothingWhenItIsGoingToRefuse(t *testing.T) {
 	p := newPlacement(t)
 	src := newSource(t, "go-review")
@@ -278,8 +348,7 @@ func TestPlaceWritesNothingWhenItIsGoingToRefuse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := skill.Place(p.repo, p.worktree, ".claude/skills", p.owned,
-		[]skill.Resolved{p.fetch(t, src, "main")})
+	_, err := skill.Place(p.site(), []skill.Resolved{p.fetch(t, src, "main")})
 
 	if err == nil {
 		t.Fatal("Place over an entry Owl did not create = nil, want it refused")

@@ -159,10 +159,10 @@ type Options struct {
 	Verifier verifier.Verifier
 	// Skills fetches and places what a Project declares (ADR-0024).
 	Skills *skill.Service
-	// SkillsDir holds the exclude file Owl owns for each Job's worktree, one
-	// directory per Job, outside the worktree so that an Agent cannot edit
-	// what hides its own Skills (ADR-0033).
-	SkillsDir string
+	// WorktreeConfigDir holds the exclude file Owl owns for each Job's
+	// worktree, one directory per Job, outside the worktree so that an Agent
+	// cannot edit what hides its own Skills (ADR-0033).
+	WorktreeConfigDir string
 	// Collector answers what garbage collection would report as unfinished, so
 	// that owl status can say it (ADR-0015). A Service without one reports no
 	// unfinished work.
@@ -785,6 +785,19 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 	}
 }
 
+// forgetWorktreeConfig takes away what Owl kept beside a worktree that has
+// been reclaimed. Nothing reads it once the worktree is gone, and one
+// directory per Job would otherwise stay for the life of the installation.
+func (s *Service) forgetWorktreeConfig(job int64) {
+	if s.opts.WorktreeConfigDir == "" {
+		return
+	}
+	dir := filepath.Join(s.opts.WorktreeConfigDir, strconv.FormatInt(job, 10))
+	if err := os.RemoveAll(dir); err != nil {
+		s.opts.Logger.Warn("reclaiming what was kept beside a worktree", "path", dir, "error", err)
+	}
+}
+
 // placeSkills fetches what a Project declares and puts it in the Driver's own
 // skills directory inside the Job's worktree, hidden from git (ADR-0033). It
 // returns what was placed and what to record against the Run.
@@ -808,8 +821,14 @@ func (s *Service) placeSkills(ctx context.Context, j store.Job, details project.
 	if err != nil {
 		return skill.Placement{}, nil, &RefusedError{Err: err}
 	}
-	owned := filepath.Join(s.opts.SkillsDir, strconv.FormatInt(j.ID, 10))
-	placed, err := skill.Place(details.Path, j.Worktree, s.opts.Driver.SkillsDir(), owned, resolved)
+	owned := filepath.Join(s.opts.WorktreeConfigDir, strconv.FormatInt(j.ID, 10))
+	placed, err := skill.Place(skill.Site{
+		Repo:      details.Path,
+		Worktree:  j.Worktree,
+		SkillsDir: s.opts.Driver.SkillsDir(),
+		OwnedDir:  owned,
+		Cache:     s.opts.Skills.Cache().Dir(),
+	}, resolved)
 	if err != nil {
 		return skill.Placement{}, nil, &RefusedError{Err: err}
 	}

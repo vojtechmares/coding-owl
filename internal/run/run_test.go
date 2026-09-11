@@ -178,16 +178,16 @@ func newVerifiedFixture(t *testing.T, d driver.Driver, e *fakeExecutor, v verifi
 		t.Fatalf("adding the account to run on: %v", err)
 	}
 	svc := run.NewService(run.Options{
-		Store:       st,
-		Projects:    projects,
-		Accounts:    accounts,
-		Skills:      skill.NewService(skill.NewCache(filepath.Join(root, "skills"))),
-		SkillsDir:   filepath.Join(root, "worktree-config"),
-		Driver:      d,
-		Executor:    e,
-		Verifier:    v,
-		WorktreeDir: filepath.Join(root, "worktrees"),
-		LogDir:      filepath.Join(root, "logs"),
+		Store:             st,
+		Projects:          projects,
+		Accounts:          accounts,
+		Skills:            skill.NewService(skill.NewCache(filepath.Join(root, "skills"))),
+		WorktreeConfigDir: filepath.Join(root, "worktree-config"),
+		Driver:            d,
+		Executor:          e,
+		Verifier:          v,
+		WorktreeDir:       filepath.Join(root, "worktrees"),
+		LogDir:            filepath.Join(root, "logs"),
 	})
 	t.Cleanup(func() { _ = svc.Close() })
 	return svc, st, repo, root

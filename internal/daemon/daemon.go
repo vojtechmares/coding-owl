@@ -129,25 +129,26 @@ func Run(ctx context.Context, opts Options) error {
 	skills := skill.NewService(skill.NewCache(filepath.Join(opts.Paths.DataDir, skillsDir)))
 	worktrees := filepath.Join(opts.Paths.DataDir, worktreesDir)
 	collector := gc.NewService(gc.Options{
-		Store:       db,
-		WorktreeDir: worktrees,
-		ReviewAfter: global.GarbageCollection.ReviewAfter,
-		Logger:      log,
+		Store:             db,
+		WorktreeDir:       worktrees,
+		WorktreeConfigDir: filepath.Join(opts.Paths.DataDir, ownedDir),
+		ReviewAfter:       global.GarbageCollection.ReviewAfter,
+		Logger:            log,
 	})
 	runs := run.NewService(run.Options{
-		Store:       db,
-		Projects:    projects,
-		Accounts:    accounts,
-		Collector:   collector,
-		Skills:      skills,
-		SkillsDir:   filepath.Join(opts.Paths.DataDir, ownedDir),
-		Driver:      claudecode.New(),
-		Executor:    host.New(),
-		Verifier:    command.New(),
-		WorktreeDir: worktrees,
-		LogDir:      filepath.Join(opts.Paths.StateDir, logsDir),
-		ConfigPath:  configPath,
-		Logger:      log,
+		Store:             db,
+		Projects:          projects,
+		Accounts:          accounts,
+		Collector:         collector,
+		Skills:            skills,
+		WorktreeConfigDir: filepath.Join(opts.Paths.DataDir, ownedDir),
+		Driver:            claudecode.New(),
+		Executor:          host.New(),
+		Verifier:          command.New(),
+		WorktreeDir:       worktrees,
+		LogDir:            filepath.Join(opts.Paths.StateDir, logsDir),
+		ConfigPath:        configPath,
+		Logger:            log,
 	})
 	// Agents outlive the request that started them, so they are stopped when
 	// the daemon stops rather than when a caller hangs up.

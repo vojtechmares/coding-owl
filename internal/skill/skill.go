@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // FileName is the file a Skill must carry, with `name` and `description` in
@@ -40,6 +41,20 @@ const dirMode fs.FileMode = 0o700
 // worktree, so it is kept to what every filesystem and every git reads the
 // same way.
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// CheckText refuses a value that would print as something other than itself.
+// A source and a ref come out of files a Project carries, which a merged pull
+// request can change, and both are printed back to a terminal by `owl skills
+// list` and `owl jobs show`.
+func CheckText(what, value string) error {
+	for _, r := range value {
+		if r == '\t' || (unicode.IsPrint(r) && r != '\uFFFD') {
+			continue
+		}
+		return invalid("the %s %q holds a character Owl will not print", what, value)
+	}
+	return nil
+}
 
 // InvalidError marks a failure the user can fix by asking for something
 // different: a source that is not a repository, a ref it does not carry, a

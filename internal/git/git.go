@@ -286,7 +286,6 @@ func Mirror(path, url string) error {
 func protocolLimits() []string {
 	return []string{
 		"-c", "protocol.ext.allow=never",
-		"-c", "protocol.file.allow=always",
 		"-c", "credential.interactive=never",
 	}
 }
@@ -525,6 +524,44 @@ func GlobalExcludes(dir string) (string, error) {
 	// Nothing configured, so git reads its own default - which applies until
 	// the moment something sets core.excludesFile, as Owl is about to.
 	return defaultExcludes(), nil
+}
+
+// maxExcludes is as much of an exclude file as Owl will carry forward. A
+// repository says which file that is, and a repository is not always the
+// user's own: without a bound, a `core.excludesFile` of `/dev/zero` is the
+// daemon's memory.
+const maxExcludes = 1 << 20
+
+// ReadExcludes is what an exclude file holds, and is empty for one that is not
+// there. Anything but an ordinary file is refused, and no more than
+// maxExcludes bytes are read.
+func ReadExcludes(path string) (string, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading the exclude file this repository was told to use: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf(
+			"the exclude file this repository was told to use, %s, is not an ordinary file", path)
+	}
+	if info.Size() > maxExcludes {
+		return "", fmt.Errorf(
+			"the exclude file this repository was told to use, %s, is %d bytes, and Owl carries forward at most %d",
+			path, info.Size(), maxExcludes)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("reading the exclude file this repository was told to use: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxExcludes))
+	if err != nil {
+		return "", fmt.Errorf("reading the exclude file this repository was told to use: %w", err)
+	}
+	return string(data), nil
 }
 
 // defaultExcludes is the file git reads when core.excludesFile is unset, and is

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/vojtechmares/coding-owl/internal/project"
+	"github.com/vojtechmares/coding-owl/internal/skill"
 	"github.com/vojtechmares/coding-owl/internal/store"
 )
 
@@ -283,6 +284,66 @@ func TestShowReadsTheBaseBranchNotTheWorktree(t *testing.T) {
 	}
 	if d.Config.BranchPrefix != "committed/" {
 		t.Errorf("BranchPrefix = %q, want committed/", d.Config.BranchPrefix)
+	}
+}
+
+func TestShowReadsTheLockBesideTheConfigurationItChose(t *testing.T) {
+	// A repository can carry more than one of the places a lockfile is looked
+	// for. `owl skills` writes the one beside the configuration, so that is
+	// the one a Run has to read: reading the other silently unpins everything.
+	f := newFixture(t)
+	dir := f.repo(t, "api")
+	f.commit(t, dir, filepath.Join(".config", "coding-owl.yaml"), owlConfig("owl/"))
+	f.commit(t, dir, filepath.Join(".config", ".coding-owl.lock.yaml"), lockOf("beside"))
+	f.commit(t, dir, ".coding-owl.lock.yaml", lockOf("elsewhere"))
+	if _, err := f.svc.Add(ctx, project.AddRequest{Path: dir}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	d, err := f.svc.Show(ctx, "api")
+
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	if _, ok := d.Lock.Skills["beside"]; !ok {
+		t.Errorf("Lock records %v, want the lockfile beside the configuration", d.Lock.Names())
+	}
+}
+
+// lockOf is a lockfile recording one skill of that name.
+func lockOf(name string) string {
+	return "apiVersion: codingowl.dev/v1\nskills:\n  " + name + ":\n" +
+		"    source: x/" + name + "\n    ref: main\n    commit: 0123456789abcdef\n" +
+		"    digest: sha256:ab1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd\n"
+}
+
+func TestSkillsAddRefusesWhenTheManifestIsNotInTheCheckout(t *testing.T) {
+	// The Project is configured in its own repository, and the file is not in
+	// the working tree: another branch, a rebase in flight, a deletion. Owl
+	// writing one here would carry the skills and none of the checks, setup or
+	// account the base branch's file has.
+	f := newFixture(t)
+	dir := f.repo(t, "api")
+	f.commit(t, dir, ".coding-owl.yaml", owlConfig("owl/"))
+	if _, err := f.svc.Add(ctx, project.AddRequest{Path: dir}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := os.Remove(filepath.Join(dir, ".coding-owl.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	skills := project.NewSkillService(f.svc, skill.NewService(skill.NewCache(filepath.Join(f.root, "skills"))))
+
+	_, _, err := skills.Add(ctx, project.SkillRequest{Project: "api"}, "x/go-review", "", false)
+
+	var invalid *project.InvalidError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Add with no manifest in the checkout = %v, want it refused", err)
+	}
+	if !strings.Contains(err.Error(), ".coding-owl.yaml") {
+		t.Errorf("the error %q does not name the file", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, ".coding-owl.yaml")); statErr == nil {
+		t.Error("a manifest was written over a project configured on its base branch")
 	}
 }
 
