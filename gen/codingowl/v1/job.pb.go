@@ -402,7 +402,7 @@ type CheckResult struct {
 	// Reason says why it failed, empty for a check that passed.
 	Reason string `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
 	// Verifier is which Verifier said it: `command` for a Project's own check,
-	// `agent` for the review it asked for (ADR-0013).
+	// `agent` for the Agent it asked to judge the work (ADR-0013).
 	Verifier      string `protobuf:"bytes,7,opt,name=verifier,proto3" json:"verifier,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

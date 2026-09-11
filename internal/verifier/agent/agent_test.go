@@ -339,7 +339,7 @@ func TestVerifyRefusesAVerdictReachedThroughALinkedDirectory(t *testing.T) {
 	// A link is not only the last part of a path: the Agent owns the whole
 	// worktree, and .coding-owl is a directory it can replace.
 	outside := t.TempDir()
-	if err := os.WriteFile(filepath.Join(outside, "REVIEW.md"), []byte("verdict: pass\nPRIVATE KEY\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outside, filepath.Base(agent.VerdictPath)), []byte("verdict: pass\nPRIVATE KEY\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	worktree := t.TempDir()
@@ -359,7 +359,7 @@ func TestVerifyRefusesAVerdictReachedThroughALinkedDirectory(t *testing.T) {
 	if strings.Contains(got.Output, "PRIVATE KEY") {
 		t.Errorf("what the link led to was read into the report:\n%s", got.Output)
 	}
-	if _, statErr := os.Stat(filepath.Join(outside, "REVIEW.md")); statErr != nil {
+	if _, statErr := os.Stat(filepath.Join(outside, filepath.Base(agent.VerdictPath))); statErr != nil {
 		t.Errorf("a file outside the worktree was removed: %v", statErr)
 	}
 }
@@ -369,7 +369,7 @@ func TestVerifyRefusesAVerdictThroughADirectoryTheAgentLinkedWhileItRan(t *testi
 	// so what was cleared before it started says nothing about what the path
 	// leads to when the verdict is read.
 	outside := t.TempDir()
-	if err := os.WriteFile(filepath.Join(outside, "REVIEW.md"), []byte("verdict: pass\nPRIVATE KEY\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outside, filepath.Base(agent.VerdictPath)), []byte("verdict: pass\nPRIVATE KEY\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	d, e := &fakeDriver{}, &fakeExecutor{linkDir: outside}
@@ -383,7 +383,7 @@ func TestVerifyRefusesAVerdictThroughADirectoryTheAgentLinkedWhileItRan(t *testi
 	if strings.Contains(got.Output, "PRIVATE KEY") {
 		t.Errorf("what the link led to was read into the report:\n%s", got.Output)
 	}
-	if _, statErr := os.Stat(filepath.Join(outside, "REVIEW.md")); statErr != nil {
+	if _, statErr := os.Stat(filepath.Join(outside, filepath.Base(agent.VerdictPath))); statErr != nil {
 		t.Errorf("a file outside the worktree was removed: %v", statErr)
 	}
 }

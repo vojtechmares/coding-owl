@@ -50,8 +50,8 @@ const maxLine = 8 << 20
 // database and the next Agent's prompt.
 const maxHandoff = 256 << 10
 
-// maxDiff is how much of what a Run changed is carried into a reviewer's
-// prompt. A reviewer given more than this is told to read the rest itself,
+// maxDiff is how much of what a Run changed is carried into the prompt of the
+// Agent that judges it. One given more than this is told to read the rest,
 // which it can: it works in the worktree (ADR-0013). The whole prompt is one
 // argument to the tool, and Linux takes at most 128 KiB in one of those, so
 // this leaves room for the plan and for what Owl says around both.
@@ -1094,8 +1094,8 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64, details 
 		}
 		results = append(results, got...)
 	}
-	// The review comes after the Project's own checks: it is the expensive
-	// opinion, and it reads the same work (ADR-0013). It runs whatever the
+	// The agent Verifier comes after the Project's own checks: it is the
+	// expensive opinion, and it reads the same work (ADR-0013). It runs whatever the
 	// checks said, so a blocked Job reports everything that is wrong at once
 	// rather than one thing a morning (ADR-0030).
 	if cfg.Verification.Agent {
@@ -1113,7 +1113,7 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64, details 
 		if err != nil {
 			// A review that could not be carried out is a failure of its own,
 			// recorded beside the checks that did run: what a Project's own
-			// checks said is worth keeping whatever became of the review.
+			// checks said is worth keeping whatever became of the verifier.
 			got = []verifier.Result{{
 				Name: config.AgentVerifierName, Verifier: verifier.KindAgent, ExitCode: store.NoExitCode,
 				Reason: fmt.Sprintf("could not be carried out: %v", err),
@@ -1190,9 +1190,9 @@ func (s *Service) agentRequest(j store.Job, details project.Details, req driver.
 	}
 	patch, complete, err := git.DiffPatch(details.Path, details.BaseBranch, j.Branch, maxDiff)
 	if err != nil {
-		// A diff Owl cannot read is not a reason to skip the review: the
-		// reviewer works in the worktree and can read it for itself.
-		s.opts.Logger.Warn("reading what a run changed, for the review",
+		// A diff Owl cannot read is not a reason to skip verifying: the Agent
+		// works in the worktree and can read it for itself.
+		s.opts.Logger.Warn("reading what a run changed, for the agent verifier",
 			"job", j.ID, "branch", j.Branch, "error", err)
 		return out
 	}

@@ -133,7 +133,7 @@ message CheckResult {
   // Reason says why it failed, empty for a check that passed.
   string reason = 6;
   // Verifier is which Verifier said it: `command` for a Project's own check,
-  // `agent` for the review it asked for (ADR-0013).
+  // `agent` for the Agent it asked to judge the work (ADR-0013).
   string verifier = 7;
 }
 

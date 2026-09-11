@@ -157,7 +157,8 @@ func verdictInstruction() string {
 
 Write your verdict to %s in this directory, and change nothing else.
 
-Its first line must be exactly one of:
+It must carry, on a line of its own and before any other line like it, exactly
+one of:
 
     verdict: %s
     verdict: %s
