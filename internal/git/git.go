@@ -10,6 +10,7 @@ package git
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Root returns the root of the repository containing dir, with symlinks
@@ -253,7 +255,7 @@ func Mirror(path, url string) error {
 		// Already mirrored: fetch into it rather than cloning again. --prune
 		// so that a ref the source deleted stops resolving here.
 		args = append(protocolLimits(), "fetch", "--quiet", "--prune", "--tags", "origin")
-		_, stderr, code, err := run(path, args...)
+		_, stderr, code, err := fetching(path, args...)
 		if err != nil {
 			return err
 		}
@@ -267,8 +269,11 @@ func Mirror(path, url string) error {
 	}
 	// The clone runs in the directory above, since the one it makes is not
 	// there yet.
-	_, stderr, code, err := run(filepath.Dir(path), args...)
+	_, stderr, code, err := fetching(filepath.Dir(path), args...)
 	if err != nil {
+		// A clone that ran out of time leaves a half-made directory behind,
+		// which would be taken for a mirror next time.
+		_ = os.RemoveAll(path)
 		return err
 	}
 	if code != 0 {
@@ -658,7 +663,19 @@ func CommitPath(dir, path, msg string) (committed bool, err error) {
 // when git could not be run at all - a missing directory, a missing binary -
 // which is a different thing from git running and saying no.
 func run(dir string, args ...string) (stdout []byte, stderr string, code int, err error) {
-	cmd := exec.Command("git", args...)
+	return runWithin(context.Background(), dir, args...)
+}
+
+// FetchTimeout bounds a git command that talks to somebody else's server. The
+// daemon runs Jobs one at a time and nobody is watching it, so a source that
+// accepts a connection and then says nothing must end as a failure rather than
+// as a queue that never moves again. It is a variable so that a test can lower
+// it: what is worth testing is that there is a deadline at all.
+var FetchTimeout = 10 * time.Minute
+
+// runWithin is run under a deadline of the caller's choosing.
+func runWithin(ctx context.Context, dir string, args ...string) (stdout []byte, stderr string, code int, err error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	// A C locale keeps git's diagnostics in one language. Nothing below parses
 	// them, but they end up in messages users read. The redirection variables
@@ -680,8 +697,19 @@ func run(dir string, args ...string) (stdout []byte, stderr string, code int, er
 	case errors.As(err, &exitErr):
 		return out.Bytes(), errb.String(), exitErr.ExitCode(), nil
 	default:
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, errb.String(), -1, fmt.Errorf("running git %s in %s: %w", strings.Join(args, " "), dir, ctxErr)
+		}
 		return nil, errb.String(), -1, fmt.Errorf("running git %s in %s: %w", strings.Join(args, " "), dir, err)
 	}
+}
+
+// fetching runs a git command that talks to somebody else's server, under the
+// deadline such a command needs.
+func fetching(dir string, args ...string) (stdout []byte, stderr string, code int, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
+	defer cancel()
+	return runWithin(ctx, dir, args...)
 }
 
 // gitRedirection are the environment variables that move git away from the

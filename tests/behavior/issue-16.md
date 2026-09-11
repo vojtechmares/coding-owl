@@ -149,3 +149,9 @@ Given a temporary XDG layout with no daemon running
 When `owl skills list` runs
 Then it exits with a non-zero code
 And stderr says the daemon is not running and names the socket path
+
+### S21 - a Skill the Project has withdrawn is gone from the next Run
+Given a Project with one Skill, whose Job has run once
+When the Skill is removed, the removal is committed, and the Job runs again
+Then the Skill is no longer in the Job's worktree
+And `owl jobs show <job>` records no skills for the second Run

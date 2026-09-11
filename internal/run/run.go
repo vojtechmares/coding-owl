@@ -789,13 +789,32 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 // been reclaimed. Nothing reads it once the worktree is gone, and one
 // directory per Job would otherwise stay for the life of the installation.
 func (s *Service) forgetWorktreeConfig(job int64) {
-	if s.opts.WorktreeConfigDir == "" {
+	dir := s.worktreeConfigFor(job)
+	if dir == "" {
 		return
 	}
-	dir := filepath.Join(s.opts.WorktreeConfigDir, strconv.FormatInt(job, 10))
 	if err := os.RemoveAll(dir); err != nil {
 		s.opts.Logger.Warn("reclaiming what was kept beside a worktree", "path", dir, "error", err)
 	}
+}
+
+// worktreeConfigFor is where Owl keeps what belongs beside one Job's worktree,
+// and is empty for a Service that was given nowhere to keep it.
+func (s *Service) worktreeConfigFor(job int64) string {
+	if s.opts.WorktreeConfigDir == "" {
+		return ""
+	}
+	return filepath.Join(s.opts.WorktreeConfigDir, strconv.FormatInt(job, 10))
+}
+
+// placedBefore reports whether Owl has already placed Skills for a Job: what
+// it keeps beside that worktree is made by placement and by nothing else.
+func placedBefore(owned string) bool {
+	if owned == "" {
+		return false
+	}
+	_, err := os.Stat(owned)
+	return err == nil
 }
 
 // placeSkills fetches what a Project declares and puts it in the Driver's own
@@ -808,20 +827,27 @@ func (s *Service) forgetWorktreeConfig(job int64) {
 // version by editing the lock in its worktree (ADR-0014).
 func (s *Service) placeSkills(ctx context.Context, j store.Job, details project.Details) (skill.Placement, []store.RunSkill, error) {
 	declared := skill.Declare(details.Config)
-	if len(declared) == 0 {
-		// Nothing declared, so nothing is fetched, nothing is placed, and the
-		// Project's own repository is not reconfigured. A Project that wants no
-		// Skills should not be able to tell that Skills exist.
+	owned := s.worktreeConfigFor(j.ID)
+	if len(declared) == 0 && !placedBefore(owned) {
+		// Nothing declared and nothing placed before, so nothing is fetched,
+		// nothing is placed, and the Project's own repository is not
+		// reconfigured. A Project that wants no Skills should not be able to
+		// tell that Skills exist.
 		return skill.Placement{}, nil, nil
 	}
 	if s.opts.Skills == nil {
 		return skill.Placement{}, nil, refused("project %s declares skills, but this daemon cannot fetch them", details.Name)
 	}
+	if owned == "" {
+		return skill.Placement{}, nil, fmt.Errorf(
+			"this daemon has nowhere to keep what hides a worktree's skills")
+	}
+	// A Project that has withdrawn its last Skill still has one to take away,
+	// so placement runs with nothing to place rather than being skipped.
 	resolved, used, err := s.opts.Skills.Prepare(ctx, declared, details.Lock)
 	if err != nil {
 		return skill.Placement{}, nil, &RefusedError{Err: err}
 	}
-	owned := filepath.Join(s.opts.WorktreeConfigDir, strconv.FormatInt(j.ID, 10))
 	placed, err := skill.Place(skill.Site{
 		Repo:      details.Path,
 		Worktree:  j.Worktree,

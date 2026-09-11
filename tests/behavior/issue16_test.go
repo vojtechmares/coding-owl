@@ -651,7 +651,11 @@ func TestS17OwlRefusesToOverwriteASkillsEntryItDidNotCreate(t *testing.T) {
 	if res.code == 0 {
 		t.Fatalf("owl start over a skills entry Owl did not create exited 0\nstdout:\n%s", res.stdout)
 	}
-	for _, want := range []string{"go-review", "did not create"} {
+	out := mustOwl(t, l, "jobs", "show", "1").stdout
+	worktree := line(t, out, "worktree")
+	// The path, not only the name: what a user has to look at to fix this is
+	// the entry in their worktree.
+	for _, want := range []string{filepath.Join(worktree, skillsPath, "go-review"), "did not create"} {
 		if !strings.Contains(res.stderr, want) {
 			t.Errorf("stderr does not say %q:\n%s", want, res.stderr)
 		}
@@ -659,10 +663,9 @@ func TestS17OwlRefusesToOverwriteASkillsEntryItDidNotCreate(t *testing.T) {
 	if got := r.git("show", "HEAD:"+filepath.Join(skillsPath, "go-review", "SKILL.md")); !strings.Contains(got, "Ours.") {
 		t.Errorf("the commit the project's own skill came from was touched:\n%s", got)
 	}
-	out := mustOwl(t, l, "jobs", "show", "1").stdout
 	// The refusal happens with the worktree already checked out, so the file
 	// the project carries is there to be taken - and must still be theirs.
-	theirs := filepath.Join(line(t, out, "worktree"), skillsPath, "go-review", "SKILL.md")
+	theirs := filepath.Join(worktree, skillsPath, "go-review", "SKILL.md")
 	if got := readFile(t, theirs); !strings.Contains(got, "Ours.") {
 		t.Errorf("the project's own skill in the worktree is now %q", got)
 	}
@@ -718,6 +721,29 @@ func TestS19SkillsRemoveRefusesASkillThatIsNotThere(t *testing.T) {
 	}
 	if !strings.Contains(res.stderr, "nothing") {
 		t.Errorf("stderr does not name the skill:\n%s", res.stderr)
+	}
+}
+
+func TestS21AWithdrawnSkillIsGoneFromTheNextRun(t *testing.T) {
+	l, r, src := twoRunLayout(t)
+	addSkill(t, l, r.dir, src.path())
+	commitSkills(t, r)
+	addJob(t, l, r.dir, "work")
+	out, job := finishedJob(t, l)
+	worktree := line(t, out, "worktree")
+	materialised(t, worktree, "go-review")
+
+	mustOwlIn(t, l, r.dir, "skills", "remove", "go-review")
+	commitSkills(t, r)
+	run, _ := startRun(t, l)
+	waitRun(t, l, job, run)
+
+	if _, err := os.Lstat(filepath.Join(worktree, skillsPath, "go-review")); err == nil {
+		t.Error("a skill the project withdrew is still in the worktree")
+	}
+	shown := mustOwl(t, l, "jobs", "show", job).stdout
+	if got := section(t, shown, "skills:"); strings.Contains(got, "RUN "+run) {
+		t.Errorf("run %s is recorded as having read skills:\n%s", run, got)
 	}
 }
 

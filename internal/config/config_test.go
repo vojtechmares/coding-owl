@@ -310,3 +310,20 @@ func TestParseRefusesASkillRefThatWouldBeAnOption(t *testing.T) {
 		t.Fatal("Parse of a dash-leading ref = nil, want it refused")
 	}
 }
+
+func TestParseRefusesASkillThatWouldRewriteTheTerminal(t *testing.T) {
+	// A manifest reaches the daemon from a base branch, which a merged pull
+	// request writes, and both of these are printed back by owl skills list
+	// and owl jobs show.
+	for what, entry := range map[string]string{
+		"source": "  - git: \"github.com/x/go-review\\u001b]0;pwned\\a\"\n",
+		"ref":    "  - git: github.com/x/go-review\n    ref: \"main\\u001b]0;pwned\\a\"\n",
+	} {
+		_, err := config.Parse("main:.coding-owl.yaml",
+			[]byte("apiVersion: codingowl.dev/v1\nskills:\n"+entry))
+
+		if err == nil {
+			t.Errorf("Parse of a %s holding an escape = nil, want it refused", what)
+		}
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 )
@@ -227,6 +228,20 @@ func Parse(source string, data []byte) (Config, error) {
 	return cfg, nil
 }
 
+// CheckText refuses a value that would print as something other than itself.
+// A Skill's source and ref come out of a file a Project carries, which a
+// merged pull request can change, and both are printed back to a terminal by
+// `owl skills list` and `owl jobs show`.
+func CheckText(what, value string) error {
+	for _, r := range value {
+		if r == '\t' || (unicode.IsPrint(r) && r != '\uFFFD') {
+			continue
+		}
+		return fmt.Errorf("the %s %q holds a character Owl will not print", what, value)
+	}
+	return nil
+}
+
 // parseSkills reads the skills, refusing one Owl could not fetch or place
 // rather than discovering it when a Run starts.
 func parseSkills(source string, skills []skillEntry) ([]Skill, error) {
@@ -241,6 +256,9 @@ func parseSkills(source string, skills []skillEntry) ([]Skill, error) {
 		if src == "" {
 			return nil, fmt.Errorf("%s: %s names no git source", source, where)
 		}
+		if err := CheckText("source", src); err != nil {
+			return nil, fmt.Errorf("%s: %s: %w", source, where, err)
+		}
 		// A Skill becomes a directory named after its source, and two of one
 		// name would be one directory.
 		name := skillName(src)
@@ -251,6 +269,9 @@ func parseSkills(source string, skills []skillEntry) ([]Skill, error) {
 		ref := strings.TrimSpace(s.Ref)
 		if strings.HasPrefix(ref, "-") {
 			return nil, fmt.Errorf("%s: %s has the ref %q, which may not start with a dash", source, where, ref)
+		}
+		if err := CheckText("ref", ref); err != nil {
+			return nil, fmt.Errorf("%s: %s: %w", source, where, err)
 		}
 		out = append(out, Skill{Source: src, Ref: ref, AutoUpdate: s.AutoUpdate})
 	}

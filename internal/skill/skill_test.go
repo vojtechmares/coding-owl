@@ -390,6 +390,69 @@ func TestParseSourceRefusesWhatGitWouldRunAProgramFor(t *testing.T) {
 	}
 }
 
+func TestWriteManifestLeavesTheRestOfTheFileAsItWas(t *testing.T) {
+	// The file is the user's, and they have to commit what Owl edits: a diff
+	// over lines nobody touched is a diff nobody can review.
+	const before = `apiVersion: codingowl.dev/v1
+
+# how we branch
+branchPrefix: owl/
+
+checks:
+  - name: test
+    run: go test ./...
+
+account: work
+`
+	path := filepath.Join(t.TempDir(), ".coding-owl.yaml")
+	if err := os.WriteFile(path, []byte(before), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := skill.WriteManifest(path, []skill.Declared{{Source: "x/go-review", Ref: "main"}}); err != nil {
+		t.Fatalf("WriteManifest: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := before + `skills:
+  - git: x/go-review
+    ref: main
+`
+	if string(got) != want {
+		t.Errorf("the file is now:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestWriteRefusesToGoThroughASymlink(t *testing.T) {
+	// Both files are found by discovery inside a repository an Agent works in.
+	// A link left at either name would put Owl's write wherever it says.
+	root := t.TempDir()
+	outside := filepath.Join(root, "outside")
+	if err := os.WriteFile(outside, []byte("theirs\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, lock := filepath.Join(root, ".coding-owl.yaml"), filepath.Join(root, skill.LockName)
+	for _, link := range []string{manifest, lock} {
+		if err := os.Symlink(outside, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	manifestErr := skill.WriteManifest(manifest, []skill.Declared{{Source: "x/go-review", Ref: "main"}})
+	lockErr := skill.WriteLock(lock, skill.Lock{})
+
+	if manifestErr == nil || lockErr == nil {
+		t.Fatalf("writing through a symlink = %v, %v, want both refused", manifestErr, lockErr)
+	}
+	body, err := os.ReadFile(outside)
+	if err != nil || string(body) != "theirs\n" {
+		t.Errorf("what the link pointed at is now %q (%v)", body, err)
+	}
+}
+
 func TestParseLockRefusesWhatOwlWouldNotHaveWritten(t *testing.T) {
 	// A lockfile reaches the daemon from a base branch, which a merged pull
 	// request writes. What it records is passed to git and printed back.

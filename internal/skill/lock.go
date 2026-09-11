@@ -102,11 +102,17 @@ func (l Lock) Render() ([]byte, error) {
 	}
 	var out strings.Builder
 	out.WriteString("# Written by owl skills. The manifest carries intent; this carries identity.\n")
-	data, err := yaml.Marshal(f)
-	if err != nil {
+	// The same indentation as the manifest beside it: the two files are read
+	// together, and one of them being written four spaces deep reads as two
+	// files by two hands.
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(f); err != nil {
 		return nil, err
 	}
-	out.Write(data)
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
 	return []byte(out.String()), nil
 }
 

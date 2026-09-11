@@ -22,7 +22,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"unicode"
+
+	"github.com/vojtechmares/coding-owl/internal/config"
 )
 
 // FileName is the file a Skill must carry, with `name` and `description` in
@@ -47,11 +48,11 @@ var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // request can change, and both are printed back to a terminal by `owl skills
 // list` and `owl jobs show`.
 func CheckText(what, value string) error {
-	for _, r := range value {
-		if r == '\t' || (unicode.IsPrint(r) && r != '\uFFFD') {
-			continue
-		}
-		return invalid("the %s %q holds a character Owl will not print", what, value)
+	// The rule lives in internal/config, which reads the manifest these values
+	// come from: this package reads that one's output, so the check goes there
+	// and is borrowed here rather than written twice.
+	if err := config.CheckText(what, value); err != nil {
+		return &InvalidError{Err: err}
 	}
 	return nil
 }
