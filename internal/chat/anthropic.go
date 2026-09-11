@@ -82,7 +82,7 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, emit func(str
 		if err := json.Unmarshal(data, &ev); err != nil {
 			// A stream Owl cannot read is a failure of the exchange, not
 			// something to answer from.
-			return invalid("the provider sent an event Owl could not read: %v", err)
+			return fmt.Errorf("the provider sent an event Owl could not read: %v", err)
 		}
 		switch ev.Type {
 		case "content_block_start":

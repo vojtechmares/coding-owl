@@ -21,3 +21,34 @@ func TestReachedAtSaysWhereWithoutSayingWhat(t *testing.T) {
 		t.Errorf("reachedAt of something unreadable = %q, want something a person can read", got)
 	}
 }
+
+// openAIMessages carries a turn that says something as well as answering a
+// tool call: shaped merges two turns of one role into one, and what the user
+// said is not a tool result to be dropped beside one.
+func TestOpenAIMessagesCarriesWhatATurnSaidBesideItsResults(t *testing.T) {
+	got := openAIMessages("", []Turn{
+		{Role: RoleUser, Text: "a question"},
+		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "call-1", Name: "list_jobs"}}},
+		{Role: RoleUser, Text: "and what did it print", ToolResults: []ToolResult{
+			{CallID: "call-1", Text: "two jobs"},
+		}},
+	})
+
+	var said, results int
+	for _, m := range got {
+		switch m["role"] {
+		case "tool":
+			results++
+		case RoleUser:
+			if m["content"] == "and what did it print" {
+				said++
+			}
+		}
+	}
+	if results != 1 {
+		t.Errorf("the request carries %d tool results, want the one that was answered: %+v", results, got)
+	}
+	if said != 1 {
+		t.Errorf("what the user said beside the result is not carried: %+v", got)
+	}
+}

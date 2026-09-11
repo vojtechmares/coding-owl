@@ -45,6 +45,34 @@ func TestShapedMakesAConversationAProviderWillTake(t *testing.T) {
 			},
 			want: []Turn{{Role: RoleUser, Text: "a question"}},
 		},
+		"a turn merged with one carrying a result": {
+			in: []Turn{
+				{Role: RoleUser, Text: "a question"},
+				{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "call-1", Name: "list_jobs"}}},
+				{Role: RoleUser, Text: "an aside"},
+				{Role: RoleUser, ToolResults: []ToolResult{{CallID: "call-1", Text: "two jobs"}}},
+			},
+			want: []Turn{
+				{Role: RoleUser, Text: "a question"},
+				{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "call-1", Name: "list_jobs"}}},
+				{Role: RoleUser, Text: "an aside", ToolResults: []ToolResult{
+					{CallID: "call-1", Text: "two jobs"},
+				}},
+			},
+		},
+		"a result kept while another's call was dropped": {
+			in: []Turn{
+				{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "gone", Name: "list_jobs"}}},
+				{Role: RoleUser, Text: "a question", ToolResults: []ToolResult{{CallID: "gone", Text: "two jobs"}}},
+				{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "call-2", Name: "list_projects"}}},
+				{Role: RoleUser, ToolResults: []ToolResult{{CallID: "call-2", Text: "one project"}}},
+			},
+			want: []Turn{
+				{Role: RoleUser, Text: "a question", ToolResults: []ToolResult{}},
+				{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "call-2", Name: "list_projects"}}},
+				{Role: RoleUser, ToolResults: []ToolResult{{CallID: "call-2", Text: "one project"}}},
+			},
+		},
 		"a result whose call is still there": {
 			in: []Turn{
 				{Role: RoleAssistant, Text: "an answer to something older"},

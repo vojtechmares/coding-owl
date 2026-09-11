@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -150,6 +151,32 @@ data: {"type":"error","error":{"type":"overloaded_error","message":"the model is
 	}
 	if !strings.Contains(err.Error(), "overloaded") {
 		t.Errorf("the error %q does not say what the provider said", err)
+	}
+	// A model that is overloaded is not a user who asked for something wrong,
+	// and what the app is told apart from the message is the difference.
+	var invalid *chat.InvalidError
+	if errors.As(err, &invalid) {
+		t.Errorf("a provider's own trouble is reported as the user asking for something wrong: %v", err)
+	}
+}
+
+func TestAStreamOwlCannotReadIsNotTheUsersDoing(t *testing.T) {
+	for what, stream := range map[string]string{
+		"anthropic":  "event: message_start\ndata: {not json at all}\n\n",
+		"openrouter": "data: {not json at all}\n\n",
+	} {
+		p := newProvider(t, stream)
+
+		_, _, err := collect(t, p.client(t, what, "k"), chat.Request{Model: "a-model"})
+
+		if err == nil {
+			t.Fatalf("%s: a stream Owl could not read was taken as an answer", what)
+		}
+		var invalid *chat.InvalidError
+		if errors.As(err, &invalid) {
+			t.Errorf("%s: a garbled stream is reported as the user asking for something wrong: %v",
+				what, err)
+		}
 	}
 }
 

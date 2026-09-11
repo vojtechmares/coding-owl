@@ -176,7 +176,10 @@ func (s *Service) AddProvider(ctx context.Context, name, key, baseURL string, mo
 		case !rotating:
 			_ = s.creds.Delete(ctx, ref)
 		case had != "":
-			_ = s.creds.Set(ctx, ref, had)
+			if putBack := s.creds.Set(ctx, ref, had); putBack != nil {
+				return Config{}, fmt.Errorf("%w; %s is configured as it was but now "+
+					"reaches models with the new key: %w", err, name, putBack)
+			}
 		default:
 			// The key it had could not be read, so there is nothing to put
 			// back. That leaves it reaching models with the new one, which the
