@@ -722,3 +722,36 @@ func TestS20AWorktreeOfAnotherRepositoryIsNotRebased(t *testing.T) {
 	rb.stub.let(t)
 }
 
+func TestS21DesktopShowsTheConflictAsTheBlockReason(t *testing.T) {
+	rb := conflicting(t, "work.txt")
+	runOwl(t, rb.l, "start")
+	app, _ := desktopApp(t, rb.l)
+
+	details, err := app.Job(id(t, rb.job))
+	if err != nil {
+		t.Fatal(err)
+	}
+	overview, err := app.Overview()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if details.Job.State != "blocked" {
+		t.Errorf("the app reports the job as %q, want blocked", details.Job.State)
+	}
+	if !strings.Contains(details.Job.Reason, "work.txt") {
+		t.Errorf("the app's reason does not name the conflicting file: %q", details.Job.Reason)
+	}
+	var listed bool
+	for _, j := range overview.Blocked {
+		if j.ID == details.Job.ID {
+			listed = true
+			if !strings.Contains(j.Reason, "work.txt") {
+				t.Errorf("the overview's reason does not name the conflicting file: %q", j.Reason)
+			}
+		}
+	}
+	if !listed {
+		t.Errorf("the overview does not list job %s as blocked: %+v", rb.job, overview.Blocked)
+	}
+}
