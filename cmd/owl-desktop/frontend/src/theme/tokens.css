@@ -1,0 +1,107 @@
+/*
+ * The theme, in one file. Every colour, blur, radius and spacing the app uses
+ * is a custom property declared here and consumed as var(--…) elsewhere, so a
+ * design review changes this file and nothing else (issue #9, #36).
+ *
+ * Direction (ADR-0009): liquid glass over a night sky, in navy blues. Colours
+ * are written as hsl() with hues between 200 and 260 so the palette stays in
+ * that family; greys are the same hues at low saturation.
+ */
+
+:root {
+  /* The sky: the gradient behind everything. */
+  --color-sky-top: hsl(228 55% 7%);
+  --color-sky-mid: hsl(226 50% 12%);
+  --color-sky-bottom: hsl(222 48% 18%);
+  --color-sky-glow: hsl(212 80% 45% / 0.28);
+  --color-sky-glow-2: hsl(250 70% 50% / 0.18);
+
+  /* Glass: translucent panels lit from above. */
+  --color-glass: hsl(222 40% 55% / 0.1);
+  --color-glass-strong: hsl(222 40% 60% / 0.16);
+  --color-glass-edge: hsl(215 60% 85% / 0.18);
+  --color-glass-edge-strong: hsl(215 70% 88% / 0.32);
+  --color-glass-highlight: hsl(210 80% 92% / 0.12);
+  --color-glass-shadow: hsl(230 60% 3% / 0.45);
+
+  /* Text. */
+  --color-text: hsl(215 40% 94%);
+  --color-text-dim: hsl(215 25% 72%);
+  --color-text-faint: hsl(216 20% 55%);
+  --color-text-on-accent: hsl(220 60% 8%);
+
+  /* The accent: the one bright blue. */
+  --color-accent: hsl(208 92% 66%);
+  --color-accent-strong: hsl(206 95% 58%);
+  --color-accent-soft: hsl(208 90% 66% / 0.18);
+  --color-accent-ring: hsl(208 90% 66% / 0.45);
+
+  /* Job states, kept inside the family: a cool blue for good, a deep indigo
+     for bad, a pale grey-blue for waiting. */
+  --color-state-pending: hsl(216 30% 65%);
+  --color-state-active: hsl(200 95% 62%);
+  --color-state-review: hsl(212 90% 70%);
+  --color-state-done: hsl(204 60% 55%);
+  --color-state-blocked: hsl(252 70% 72%);
+  --color-state-cancelled: hsl(220 15% 50%);
+  --color-state-exhausted: hsl(258 60% 68%);
+  --color-state-bg: hsl(216 40% 60% / 0.12);
+
+  /* Verdicts. */
+  --color-pass: hsl(200 90% 66%);
+  --color-fail: hsl(256 80% 74%);
+  --color-fail-bg: hsl(256 70% 70% / 0.14);
+  --color-pass-bg: hsl(200 80% 60% / 0.14);
+
+  /* Errors and the daemon-down banner. */
+  --color-warn: hsl(250 85% 78%);
+  --color-warn-bg: hsl(250 70% 60% / 0.16);
+  --color-warn-edge: hsl(250 80% 75% / 0.4);
+
+  /* Code and logs. */
+  --color-code-bg: hsl(228 50% 6% / 0.55);
+  --color-code-edge: hsl(220 40% 70% / 0.12);
+  --color-diff-add: hsl(200 90% 66%);
+  --color-diff-del: hsl(256 80% 74%);
+
+  /* Rows and controls. */
+  --color-row-hover: hsl(215 60% 80% / 0.07);
+  --color-row-selected: hsl(208 90% 66% / 0.14);
+  --color-button: hsl(215 50% 70% / 0.14);
+  --color-button-hover: hsl(215 55% 75% / 0.24);
+  --color-button-edge: hsl(215 60% 85% / 0.22);
+  --color-danger-button: hsl(256 60% 65% / 0.2);
+  --color-danger-edge: hsl(256 70% 75% / 0.35);
+  --color-scrollbar: hsl(215 30% 70% / 0.25);
+
+  /* Blur, the glass itself. */
+  --blur-panel: 22px;
+  --blur-bar: 30px;
+  --blur-glow: 90px;
+
+  /* Radii. */
+  --radius-panel: 18px;
+  --radius-control: 10px;
+  --radius-pill: 999px;
+
+  /* Spacing. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Type. */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-base: 13.5px;
+  --text-lg: 16px;
+  --text-xl: 22px;
+
+  /* Layout. */
+  --sidebar-width: 220px;
+  --titlebar-height: 38px;
+}

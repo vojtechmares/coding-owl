@@ -50,3 +50,27 @@ jobs:
           else
             echo "main has no buf.yaml yet; nothing to compare against"
           fi
+
+  desktop:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: cmd/owl-desktop/frontend/package-lock.json
+
+      - name: Install the Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+
+      - name: Build the desktop app
+        run: make desktop
+
+      - name: The app is a pure view and its theme is one file
+        run: go test ./tests/behavior -run 'TestS3AppUsesOnlySharedClient|TestS10ThemeIsOneTokensFile'
