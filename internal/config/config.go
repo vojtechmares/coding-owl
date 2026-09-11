@@ -76,12 +76,24 @@ type Config struct {
 	Setup []string
 	// Checks are what Verification runs after an execution Run (ADR-0013).
 	Checks []Check
+	// Review is the second pair of eyes a Project can ask for after its own
+	// checks: a fresh Agent Session that reviews the work (ADR-0013).
+	Review Review
 	// Account names the Account every Job in this Project runs on (ADR-0023).
 	// Empty is a Project that names none, which cannot run until it does.
 	Account string
 	// Skills are the Skills every Job in this Project gets, by source and ref
 	// (ADR-0024). The manifest carries intent; the lockfile carries identity.
 	Skills []Skill
+}
+
+// Review is what a Project asks of the reviewer. It costs a second Agent
+// invocation per Run, so it is opt-in rather than the default (ADR-0013).
+type Review struct {
+	// Agent is whether a fresh Agent Session reviews the work.
+	Agent bool
+	// Timeout bounds the reviewer. Zero means the default.
+	Timeout time.Duration
 }
 
 // Skill is one entry under `skills`: where it comes from, which ref it
@@ -146,11 +158,18 @@ type file struct {
 	Phases            map[string]phase `yaml:"phases"`
 	Setup             []string         `yaml:"setup"`
 	Checks            []check          `yaml:"checks"`
+	Review            *review          `yaml:"review"`
 	Skills            []skillEntry     `yaml:"skills"`
 	Account           string           `yaml:"account"`
 	CredentialStore   string           `yaml:"credentialStore"`
 	GarbageCollection *garbage         `yaml:"garbageCollection"`
 	GraceWindow       string           `yaml:"graceWindow"`
+}
+
+// review is the on-disk shape of the `review` block.
+type review struct {
+	Agent   bool   `yaml:"agent"`
+	Timeout string `yaml:"timeout"`
 }
 
 // garbage is the on-disk shape of the `garbageCollection` block.
@@ -215,6 +234,11 @@ func Parse(source string, data []byte) (Config, error) {
 		return Config{}, err
 	}
 	cfg.Checks = checks
+	rev, err := parseReview(source, f.Review)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Review = rev
 	for i, cmd := range f.Setup {
 		if strings.TrimSpace(cmd) == "" {
 			return Config{}, fmt.Errorf("%s: setup command %d is empty", source, i+1)
@@ -293,6 +317,27 @@ func skillName(source string) string {
 		s = s[i+1:]
 	}
 	return s
+}
+
+// parseReview reads the `review` block. A Project that does not mention it
+// asks for no review, which is what a Project that says nothing gets.
+func parseReview(source string, r *review) (Review, error) {
+	if r == nil {
+		return Review{}, nil
+	}
+	out := Review{Agent: r.Agent}
+	if r.Timeout == "" {
+		return out, nil
+	}
+	d, err := time.ParseDuration(r.Timeout)
+	if err != nil {
+		return Review{}, fmt.Errorf("%s: review has an unreadable timeout %q: %w", source, r.Timeout, err)
+	}
+	if d <= 0 {
+		return Review{}, fmt.Errorf("%s: review has a timeout of %s; a reviewer needs time to read", source, d)
+	}
+	out.Timeout = d
+	return out, nil
 }
 
 // parseChecks reads the checks, refusing one Owl could not run or judge rather

@@ -400,7 +400,10 @@ type CheckResult struct {
 	// Output is what it printed, standard error included.
 	Output string `protobuf:"bytes,5,opt,name=output,proto3" json:"output,omitempty"`
 	// Reason says why it failed, empty for a check that passed.
-	Reason        string `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
+	Reason string `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Verifier is which Verifier said it: `command` for a Project's own check,
+	// `agent` for the review it asked for (ADR-0013).
+	Verifier      string `protobuf:"bytes,7,opt,name=verifier,proto3" json:"verifier,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -473,6 +476,13 @@ func (x *CheckResult) GetOutput() string {
 func (x *CheckResult) GetReason() string {
 	if x != nil {
 		return x.Reason
+	}
+	return ""
+}
+
+func (x *CheckResult) GetVerifier() string {
+	if x != nil {
+		return x.Verifier
 	}
 	return ""
 }
@@ -2311,14 +2321,15 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\x04plan\x18\f \x01(\tR\x04plan\x12\x16\n" +
 	"\x06reason\x18\r \x01(\tR\x06reason\x12\x10\n" +
 	"\x03ttl\x18\x0e \x01(\x05R\x03ttl\x12\x18\n" +
-	"\aaccount\x18\x0f \x01(\tR\aaccount\"\xa0\x01\n" +
+	"\aaccount\x18\x0f \x01(\tR\aaccount\"\xbc\x01\n" +
 	"\vCheckResult\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acommand\x18\x02 \x01(\tR\acommand\x12\x16\n" +
 	"\x06passed\x18\x03 \x01(\bR\x06passed\x12\x1b\n" +
 	"\texit_code\x18\x04 \x01(\x05R\bexitCode\x12\x16\n" +
 	"\x06output\x18\x05 \x01(\tR\x06output\x12\x16\n" +
-	"\x06reason\x18\x06 \x01(\tR\x06reason\"\x93\x01\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason\x12\x1a\n" +
+	"\bverifier\x18\a \x01(\tR\bverifier\"\x93\x01\n" +
 	"\rPhaseSettings\x12\x14\n" +
 	"\x05phase\x18\x01 \x01(\tR\x05phase\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x1d\n" +

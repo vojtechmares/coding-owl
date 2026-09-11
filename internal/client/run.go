@@ -57,6 +57,9 @@ type CheckResult struct {
 	Output string
 	// Reason says why it failed, empty for a check that passed.
 	Reason string
+	// Verifier is which Verifier said it: `command` for a Project's own
+	// check, `agent` for the review it asked for (ADR-0013).
+	Verifier string
 }
 
 // PhaseSettings is what one phase of a Job runs at, and where each setting
@@ -151,6 +154,7 @@ func (c *Client) GetJob(ctx context.Context, id int64) (JobDetails, error) {
 			ExitCode: int(c.GetExitCode()),
 			Output:   c.GetOutput(),
 			Reason:   c.GetReason(),
+			Verifier: c.GetVerifier(),
 		})
 	}
 	for _, p := range res.Msg.GetPhases() {

@@ -107,8 +107,14 @@ func TestS2ReviewIsASecondSeparateSession(t *testing.T) {
 		t.Fatalf("the agent was invoked %d times, want twice: once to work and once to review", got)
 	}
 	worked, reviewed := s.invocations(t)[0], reviewInvocation(t, s)
-	if reviewed.Dir != line(t, out, "worktree") {
-		t.Errorf("the reviewer ran in %s, want the job's worktree %s", reviewed.Dir, line(t, out, "worktree"))
+	// The stub records the directory it was started in with its symlinks
+	// resolved, which is what /var is on a mac.
+	worktree, err := filepath.EvalSymlinks(line(t, out, "worktree"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reviewed.Dir != worktree {
+		t.Errorf("the reviewer ran in %s, want the job's worktree %s", reviewed.Dir, worktree)
 	}
 	if reviewed.Env["CLAUDE_CONFIG_DIR"] != worked.Env["CLAUDE_CONFIG_DIR"] {
 		t.Errorf("the reviewer ran as %q, want the account the job runs on %q",

@@ -31,6 +31,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/run"
 	"github.com/vojtechmares/coding-owl/internal/skill"
 	"github.com/vojtechmares/coding-owl/internal/store"
+	agentverifier "github.com/vojtechmares/coding-owl/internal/verifier/agent"
 	"github.com/vojtechmares/coding-owl/internal/verifier/command"
 	"github.com/vojtechmares/coding-owl/internal/xdg"
 )
@@ -145,6 +146,7 @@ func Run(ctx context.Context, opts Options) error {
 		Driver:            claudecode.New(),
 		Executor:          host.New(),
 		Verifier:          command.New(),
+		Reviewer:          agentverifier.New(claudecode.New(), host.New()),
 		WorktreeDir:       worktrees,
 		LogDir:            filepath.Join(opts.Paths.StateDir, logsDir),
 		ConfigPath:        configPath,

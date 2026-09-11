@@ -7,6 +7,7 @@ export namespace client {
 	    ExitCode: number;
 	    Output: string;
 	    Reason: string;
+	    Verifier: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CheckResult(source);
@@ -20,6 +21,7 @@ export namespace client {
 	        this.ExitCode = source["ExitCode"];
 	        this.Output = source["Output"];
 	        this.Reason = source["Reason"];
+	        this.Verifier = source["Verifier"];
 	    }
 	}
 	export class DiffFile {
