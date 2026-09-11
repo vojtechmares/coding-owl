@@ -308,10 +308,10 @@ func printJob(env Env, d client.JobDetails) {
 		{"created", d.Job.Created.UTC().Format(time.RFC3339)},
 		{"diff", diffLine(d.Diff)},
 	} {
-		_, _ = fmt.Fprintf(env.Stdout, "%s: %s\n", kv[0], kv[1])
+		_, _ = fmt.Fprintf(env.Stdout, "%s: %s\n", kv[0], terminalSafe(kv[1]))
 	}
 	if reason := whyHere(d); reason != "" {
-		_, _ = fmt.Fprintf(env.Stdout, "reason: %s\n", reason)
+		_, _ = fmt.Fprintf(env.Stdout, "reason: %s\n", terminalSafe(reason))
 	}
 	if len(d.Runs) == 0 {
 		// "none" rather than the placeholder used for a missing value: there

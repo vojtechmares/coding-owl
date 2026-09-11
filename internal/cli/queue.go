@@ -215,7 +215,7 @@ func plural(n int, noun string) string {
 // promptCell renders a prompt as one short line, since a prompt is free text
 // and the listing is a table.
 func promptCell(prompt string) string {
-	line := strings.Join(strings.Fields(prompt), " ")
+	line := terminalSafe(strings.Join(strings.Fields(prompt), " "))
 	runes := []rune(line)
 	if len(runes) <= promptWidth {
 		return line
