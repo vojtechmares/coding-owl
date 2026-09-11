@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	agentpkg "github.com/vojtechmares/coding-owl/internal/agent"
@@ -175,18 +176,30 @@ const verdictKey = "verdict:"
 // readVerdict reads the verdict the reviewer left and takes the file away
 // again. found is false for a reviewer that left nothing.
 func readVerdict(path string) (verdict, findings string, found bool, err error) {
-	data, err := os.ReadFile(path)
+	// The file is in a worktree an Agent writes, so it is opened without
+	// following a link: a verdict Owl reads out of somebody's SSH key is not a
+	// verdict, and it would land in the database and the report.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", "", false, nil
 	}
 	if err != nil {
 		return "", "", false, err
 	}
+	defer func() { _ = f.Close() }()
 	// It is read once and taken away: a verdict on this Run is not evidence
 	// about the next one, and it is not the Job's work either.
 	defer func() { _ = os.Remove(path) }()
-	if len(data) > maxVerdict {
-		data = data[:maxVerdict]
+	info, err := f.Stat()
+	if err != nil {
+		return "", "", false, err
+	}
+	if !info.Mode().IsRegular() {
+		return "", "", false, fmt.Errorf("%s is not an ordinary file", VerdictPath)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxVerdict))
+	if err != nil {
+		return "", "", false, err
 	}
 	body := string(data)
 	for _, ln := range strings.Split(body, "\n") {

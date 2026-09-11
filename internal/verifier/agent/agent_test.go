@@ -71,6 +71,10 @@ type fakeExecutor struct {
 	startErr error
 	// stdout is what it prints.
 	stdout string
+	// link, when set, is what the Agent points the verdict at instead of
+	// writing one: an Agent writes in its own worktree, and a link is a thing
+	// it can write there.
+	link string
 }
 
 func (*fakeExecutor) Name() string { return "fake" }
@@ -79,12 +83,19 @@ func (e *fakeExecutor) Start(ctx context.Context, inv agentpkg.Invocation) (agen
 	if e.startErr != nil {
 		return nil, e.startErr
 	}
-	if e.verdict != "" {
-		path := filepath.Join(inv.Dir, agent.VerdictPath)
+	path := filepath.Join(inv.Dir, agent.VerdictPath)
+	if e.verdict != "" || e.link != "" {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return nil, err
 		}
+	}
+	if e.verdict != "" {
 		if err := os.WriteFile(path, []byte(e.verdict), 0o644); err != nil {
+			return nil, err
+		}
+	}
+	if e.link != "" {
+		if err := os.Symlink(e.link, path); err != nil {
 			return nil, err
 		}
 	}
@@ -236,6 +247,29 @@ func TestVerifyRefusesWhenTheReviewerLeftNoVerdict(t *testing.T) {
 	}
 	if !strings.Contains(got.Reason, "verdict") {
 		t.Errorf("Reason = %q, want it to say no verdict was left", got.Reason)
+	}
+}
+
+func TestVerifyRefusesAVerdictThatIsALinkToSomewhereElse(t *testing.T) {
+	// The verdict is a file in a worktree the Agent writes. Following a link
+	// there would put whatever it points at into the database and the report.
+	secret := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(secret, []byte("verdict: pass\nPRIVATE KEY\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, e := &fakeDriver{}, &fakeExecutor{link: secret}
+
+	results, _, err := review(t, d, e, verifier.Request{})
+	got := only(t, results, err)
+
+	if got.Passed {
+		t.Error("a verdict read through a link was reported as passed")
+	}
+	if strings.Contains(got.Output, "PRIVATE KEY") {
+		t.Errorf("what the link pointed at was read into the report:\n%s", got.Output)
+	}
+	if _, statErr := os.Stat(secret); statErr != nil {
+		t.Errorf("what the link pointed at was removed: %v", statErr)
 	}
 }
 
