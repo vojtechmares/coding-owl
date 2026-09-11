@@ -81,6 +81,9 @@ func (s *Service) Pause(ctx context.Context) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
+	if l.expired {
+		return Run{}, ending(runID)
+	}
 	if l.paused {
 		return Run{}, refused("run %d is already paused; owl resume continues it", runID)
 	}
@@ -106,6 +109,9 @@ func (s *Service) Resume(ctx context.Context) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
+	if l.expired {
+		return Run{}, ending(runID)
+	}
 	if !l.paused {
 		return Run{}, refused("run %d is not paused", runID)
 	}
@@ -117,6 +123,14 @@ func (s *Service) Resume(ctx context.Context) (Run, error) {
 	l.release()
 	s.opts.Logger.Info("run resumed", "run", runID, "job", l.jobID)
 	return s.runOf(ctx, runID)
+}
+
+// ending is the refusal for a Run the grace window has already ended: its
+// Agent has been asked to stop and will be killed if it does not (ADR-0034).
+// Freezing it again would arm a fresh window around a Run that is over, and
+// continuing it would report as running what is being ended.
+func ending(runID int64) error {
+	return refused("run %d is being ended: the grace window passed, and its job will be queued again", runID)
 }
 
 // release forgets that a Run was frozen, and stops the window that was going

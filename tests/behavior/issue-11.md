@@ -146,3 +146,10 @@ And the Run is `interrupted` and its Job `pending`
 Given a running daemon and a frozen Run
 When `owl pause` and `owl resume` have run
 Then `owl daemon status` still answers throughout
+
+### S21 - a Run the window has ended cannot be frozen again
+Given a running daemon whose `graceWindow` is a second, and a frozen Run whose Agent ignores being asked to stop
+When the window has passed and, before the Agent is killed, `owl pause` runs
+Then it exits non-zero and says the run is being ended
+And `owl resume` is refused the same way
+And the Run still ends `interrupted` a few seconds later, with its Job `pending`
