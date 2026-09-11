@@ -880,3 +880,26 @@ func TestSetupStoppedByTheDaemonLeavesTheJobWhereItWas(t *testing.T) {
 		t.Errorf("job = %+v, want it pending with nothing held against it", after)
 	}
 }
+
+func TestStartPassesOverAJobWithNoAttemptsLeft(t *testing.T) {
+	ctx := context.Background()
+	svc, st, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{})
+	out := queueJobWithAttempts(t, st, "out of attempts", 0)
+	next := queueJob(t, st, "work")
+
+	job, _, started, err := svc.Start(ctx)
+
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !started || job.ID != next.ID {
+		t.Errorf("started %v for job %d, want a run for the job behind the one with nothing left", started, job.ID)
+	}
+	after, err := st.GetJob(ctx, out.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if queue.State(after.State) != queue.StateExhausted {
+		t.Errorf("the job with no attempts left is %q, want exhausted", after.State)
+	}
+}
