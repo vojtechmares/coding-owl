@@ -526,7 +526,10 @@ func TestS11ChatARunsLogIsAnsweredBounded(t *testing.T) {
 	if strings.Contains(second, "line 0000 of what it printed") {
 		t.Errorf("the tool result carries the whole log rather than the end of it (%d bytes)", len(second))
 	}
-	if len(second) > 32<<10 {
+	// What the daemon carries of a log is bounded at 16 KiB, and the request
+	// is that plus the shape around it: a bound above what an unbounded log
+	// would come to is not a bound.
+	if len(second) > 20<<10 {
 		t.Errorf("the tool result is %d bytes, want no more than the daemon will carry", len(second))
 	}
 }

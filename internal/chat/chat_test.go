@@ -9,7 +9,9 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/vojtechmares/coding-owl/internal/chat"
@@ -181,6 +183,12 @@ func TestSendRefusesAModelNobodyConfigured(t *testing.T) {
 
 func TestSendRefusesAMessageWithNothingInIt(t *testing.T) {
 	f := newFixture(t)
+	// A provider that would answer, so what is refused is the message and not
+	// the model it was for.
+	if _, err := f.chat.AddProvider(ctx, "anthropic", "sk-ant-secret",
+		answering(t, "hello"), []string{"claude-opus-5"}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
 
 	_, err := f.chat.Send(ctx, chat.SendRequest{Model: "claude-opus-5", Text: "   "}, nil)
 
@@ -266,10 +274,15 @@ func TestAFailedRotationLeavesTheConfiguredProviderItsKey(t *testing.T) {
 		t.Fatal("the rotation was reported as done though the row could not be written")
 	}
 
-	// The provider is still configured, so the key it reaches models with must
-	// still be there - whichever of the two it now is.
-	if _, err := f.creds.Get(ctx, "chat/anthropic"); err != nil {
-		t.Errorf("the configured provider has no key left: %v", err)
+	// The provider is still configured with what it was configured with, so
+	// the key it reaches models with is the one it was reaching them with: a
+	// rotation that did not happen has not half happened either.
+	key, err := f.creds.Get(ctx, "chat/anthropic")
+	if err != nil {
+		t.Fatalf("the configured provider has no key left: %v", err)
+	}
+	if key != "sk-ant-first" {
+		t.Errorf("the configured provider now reaches models with %q, want the key it had", key)
 	}
 }
 
@@ -340,3 +353,168 @@ func TestWhatArrivedIsKeptWhenTheCallerGoesAway(t *testing.T) {
 		t.Errorf("what the user watched arrive was not kept: %+v", said)
 	}
 }
+
+// recording is a provider that answers, and keeps what it was asked, so what
+// a conversation looks like on the wire can be looked at.
+type recording struct {
+	url  string
+	mu   sync.Mutex
+	sent []map[string]any
+}
+
+func recordingProvider(t *testing.T, text string) *recording {
+	t.Helper()
+	piece, err := json.Marshal(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &recording{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		r.mu.Lock()
+		r.sent = append(r.sent, body)
+		r.mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\"}\n\n"+
+			"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,"+
+			"\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n")
+		_, _ = fmt.Fprintf(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\","+
+			"\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":%s}}\n\n", piece)
+		_, _ = fmt.Fprint(w, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+	}))
+	t.Cleanup(srv.Close)
+	r.url = srv.URL
+	return r
+}
+
+// roles is what the last request carried, turn by turn, with what each said.
+func (r *recording) roles(t *testing.T) ([]string, string) {
+	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.sent) == 0 {
+		t.Fatal("the provider was not asked anything")
+	}
+	body := r.sent[len(r.sent)-1]
+	turns, ok := body["messages"].([]any)
+	if !ok || len(turns) == 0 {
+		t.Fatalf("the request carries no messages: %v", body)
+	}
+	var said []string
+	for _, turn := range turns {
+		m, ok := turn.(map[string]any)
+		if !ok {
+			t.Fatalf("a turn is not a turn: %v", turn)
+		}
+		role, _ := m["role"].(string)
+		said = append(said, role)
+	}
+	return said, fmt.Sprint(turns)
+}
+
+// alternating fails when a conversation is not one the Anthropic API takes:
+// it starts with the user, and no two turns in a row are the same role.
+func alternating(t *testing.T, roles []string, what string) {
+	t.Helper()
+	if roles[0] != "user" {
+		t.Errorf("the conversation starts with %q, want the user: %v", roles[0], roles)
+	}
+	for at := 1; at < len(roles); at++ {
+		if roles[at] == roles[at-1] {
+			t.Errorf("two %s turns in a row at %d: %v", roles[at], at, roles)
+			break
+		}
+	}
+	_ = what
+}
+
+func TestAnAnswerThatNeverArrivedDoesNotSpoilTheNextOne(t *testing.T) {
+	f := newFixture(t)
+	p := recordingProvider(t, "this one answers")
+	if _, err := f.chat.AddProvider(ctx, "anthropic", "sk-ant-secret",
+		p.url, []string{"claude-opus-5"}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	// A conversation the provider failed in the middle of: the question is
+	// there and nothing ever answered it.
+	now := time.Now().UTC()
+	c, err := f.store.StartConversation(ctx, store.Conversation{
+		Title: "the first question", Model: "claude-opus-5", Created: now, Updated: now,
+	})
+	if err != nil {
+		t.Fatalf("StartConversation: %v", err)
+	}
+	if _, err := f.store.AddChatMessage(ctx, store.ChatMessage{
+		ConversationID: c.ID, Role: "user", Text: "the first question", Created: now,
+	}); err != nil {
+		t.Fatalf("AddChatMessage: %v", err)
+	}
+
+	if _, err := f.chat.Send(ctx, chat.SendRequest{
+		Conversation: c.ID, Model: "claude-opus-5", Text: "the second question",
+	}, nil); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	roles, said := p.roles(t)
+	alternating(t, roles, said)
+	for _, want := range []string{"the first question", "the second question"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("what was sent does not carry %q:\n%s", want, said)
+		}
+	}
+}
+
+func TestAConversationCutToItsRecentTurnsStillStartsWithTheUser(t *testing.T) {
+	f := newFixture(t)
+	p := recordingProvider(t, "understood")
+	if _, err := f.chat.AddProvider(ctx, "anthropic", "sk-ant-secret",
+		p.url, []string{"claude-opus-5"}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	now := time.Now().UTC()
+	c, err := f.store.StartConversation(ctx, store.Conversation{
+		Title: "a long conversation", Model: "claude-opus-5", Created: now, Updated: now,
+	})
+	if err != nil {
+		t.Fatalf("StartConversation: %v", err)
+	}
+	// Long enough that only its most recent turns are carried, and turns big
+	// enough that where the cut lands is not the user's turn.
+	long := strings.Repeat("x", 26000)
+	for at := range 10 {
+		role := "user"
+		if at%2 == 1 {
+			role = "assistant"
+		}
+		if _, err := f.store.AddChatMessage(ctx, store.ChatMessage{
+			ConversationID: c.ID, Role: role, Text: fmt.Sprintf("turn %d %s", at, long),
+			Created: now.Add(time.Duration(at) * time.Second),
+		}); err != nil {
+			t.Fatalf("AddChatMessage: %v", err)
+		}
+	}
+
+	if _, err := f.chat.Send(ctx, chat.SendRequest{
+		Conversation: c.ID, Model: "claude-opus-5", Text: "and one more thing",
+	}, nil); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	roles, said := p.roles(t)
+	alternating(t, roles, said)
+	if len(said) > maxCarried {
+		t.Errorf("the request carries %d bytes, want the recent turns and no more", len(said))
+	}
+	if !strings.Contains(said, "and one more thing") {
+		t.Error("what was sent does not carry the question that was asked")
+	}
+}
+
+// maxCarried is what a request may carry of a conversation, with room for the
+// turn markers around the text itself.
+const maxCarried = 160 << 10

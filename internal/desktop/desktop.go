@@ -328,14 +328,6 @@ func (a *App) SendTo(conversation int64, provider, model, text string) (int64, e
 		a.emit.Emit(EventChatEnd, ChatEnd{ConversationID: at, Error: message})
 	}()
 
-	// An exchange short enough to be over before this is reached leaves both
-	// ready at once, and a select would then choose between them at random.
-	// What the daemon announced is the answer whichever way it ended.
-	select {
-	case id := <-opened:
-		return id, nil
-	default:
-	}
 	// A message the daemon refuses outright - a model nobody configured, a
 	// conversation that is not there - is an error where the user typed it
 	// rather than an event about a conversation that never started.
@@ -343,6 +335,14 @@ func (a *App) SendTo(conversation int64, provider, model, text string) (int64, e
 	case id := <-opened:
 		return id, nil
 	case err := <-failed:
+		// An exchange over before this is reached leaves both ready at once,
+		// and the conversation was announced before the failure: which of them
+		// a select happened to take is not what the frontend needs to know.
+		select {
+		case id := <-opened:
+			return id, nil
+		default:
+		}
 		return conversation, err
 	case <-ctx.Done():
 		return conversation, ctx.Err()
