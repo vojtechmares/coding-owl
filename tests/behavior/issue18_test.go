@@ -691,6 +691,15 @@ func TestS15ChatTheAppNeverHoldsAProviderKey(t *testing.T) {
 	if !strings.Contains(err.Error(), "openrouter/nothing") {
 		t.Errorf("the refusal is %q, want it to say what was asked for", err)
 	}
+	// Named outright, rather than through a model nobody offers: the provider
+	// a message names is the one it goes to, and openrouter is not configured.
+	_, err = app.SendTo(0, "openrouter", anthropicModel(t, app), "hello")
+	if err == nil {
+		t.Fatal("the app sent a message to a provider that is not configured")
+	}
+	if !strings.Contains(err.Error(), "openrouter") {
+		t.Errorf("the refusal is %q, want it to name the provider that was asked for", err)
+	}
 }
 
 // anthropicModel is a model the configured anthropic provider offers.

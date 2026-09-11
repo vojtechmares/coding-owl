@@ -138,25 +138,30 @@ func TestAnthropicReadsAToolCallOutOfItsPieces(t *testing.T) {
 	}
 }
 
-func TestAnthropicReportsWhatTheProviderRefused(t *testing.T) {
-	p := newProvider(t, `event: error
-data: {"type":"error","error":{"type":"overloaded_error","message":"the model is overloaded"}}
+func TestAProviderThatRefusesIsReportedAsItself(t *testing.T) {
+	for what, stream := range map[string]string{
+		chat.Anthropic: "event: error\ndata: {\"type\":\"error\",\"error\":" +
+			"{\"type\":\"overloaded_error\",\"message\":\"the model is overloaded\"}}\n\n",
+		chat.OpenRouter: "data: {\"error\":{\"message\":\"the model is overloaded\"}}\n\n",
+	} {
+		p := newProvider(t, stream)
 
-`)
+		_, _, err := collect(t, p.client(t, what, "k"), chat.Request{Model: "a-model"})
 
-	_, _, err := collect(t, p.client(t, chat.Anthropic, "k"), chat.Request{Model: "claude-opus-5"})
-
-	if err == nil {
-		t.Fatal("Stream of a refusal = nil, want the refusal reported")
-	}
-	if !strings.Contains(err.Error(), "overloaded") {
-		t.Errorf("the error %q does not say what the provider said", err)
-	}
-	// A model that is overloaded is not a user who asked for something wrong,
-	// and what the app is told apart from the message is the difference.
-	var invalid *chat.InvalidError
-	if errors.As(err, &invalid) {
-		t.Errorf("a provider's own trouble is reported as the user asking for something wrong: %v", err)
+		if err == nil {
+			t.Fatalf("%s: Stream of a refusal = nil, want the refusal reported", what)
+		}
+		if !strings.Contains(err.Error(), "overloaded") {
+			t.Errorf("%s: the error %q does not say what the provider said", what, err)
+		}
+		// A model that is overloaded is not a user who asked for something
+		// wrong, and what the app is told apart from the message is the
+		// difference.
+		var invalid *chat.InvalidError
+		if errors.As(err, &invalid) {
+			t.Errorf("%s: a provider's own trouble is reported as the user asking for something wrong: %v",
+				what, err)
+		}
 	}
 }
 
