@@ -54,7 +54,9 @@ func read() (state, error) {
 	}
 	said := strings.Fields(string(raw))
 	if len(said) == 1 && said[0] == "unreadable" {
-		return state{}, fmt.Errorf("fakemachine: this machine cannot be read")
+		// With an escape sequence in it, because what a tool says on its way
+		// out is not Owl's text and ends up in front of a person.
+		return state{}, fmt.Errorf("fakemachine: this machine cannot be read \x1b]0;pwned\a")
 	}
 	if len(said) != 2 {
 		return state{}, fmt.Errorf("fakemachine: %q is not `<seconds> <ac|battery>`", strings.TrimSpace(string(raw)))

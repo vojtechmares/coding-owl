@@ -90,6 +90,7 @@ And with the machine idle and a Job that cannot run, it says what refused it rat
 Given a queued Job and a machine whose idleness cannot be read
 When the daemon has had time to look at the machine several times
 Then no Run has started, and `owl status` says the machine could not be read
+And what the tool said on its way out reaches the terminal as text rather than as an instruction to it
 And a Run already in flight is left alone rather than frozen on a reading nobody got
 
 ### S13 - a policy changed while the daemon is running is the one it holds the machine to
@@ -114,7 +115,12 @@ When the machine comes back into use
 Then the Run is frozen anyway, on the grace window Owl falls back to
 And `owl pause` still refuses, naming the file, because a person can be told and can fix it
 
-### S17 - the app shows whether the machine is idle
+### S17 - stopping the daemon while a Run is being got ready does not hang
+Given a Project whose setup takes half a minute, and a machine that has gone idle
+When the daemon is stopped while that setup is running
+Then it stops within the few seconds every other way of stopping it takes
+
+### S18 - the app shows whether the machine is idle
 Given the desktop app on a daemon whose machine is idle
 When the app is asked for the overview
 Then it carries the machine's idle state, how long it has been without input, and its power state
