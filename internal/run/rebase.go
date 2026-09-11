@@ -77,7 +77,9 @@ func (s *Service) rebase(ctx context.Context, j store.Job, details project.Detai
 	case err != nil:
 		// A rebase that could not be carried out at all is not something the
 		// next Run will do better: the Job waits for somebody rather than
-		// trying again every time the queue turns.
+		// trying again every time the queue turns. What git said carries the
+		// difference between a rebase that would not go through and a worktree
+		// that had to be put back by force.
 		return s.blocked(j, fmt.Sprintf("rebasing onto %s could not be carried out: %v",
 			details.BaseBranch, err))
 	case conflict.InStash:
