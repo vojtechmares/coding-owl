@@ -63,3 +63,4 @@ What else was on the table and why it lost.
 | [0031](0031-project-identity.md) | A Project is identified by a name, not by its path | Accepted |
 | [0032](0032-source-idempotency.md) | Every Job carries a Source reference, and producing is an upsert | Accepted |
 | [0033](0033-skill-fetching-and-placement.md) | Skills are fetched natively in Go and placed per Driver | Accepted |
+| [0034](0034-sigkill-after-sigterm.md) | An Agent that will not stop when it is asked is killed | Accepted |
