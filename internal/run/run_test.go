@@ -15,6 +15,7 @@ import (
 
 	"github.com/vojtechmares/coding-owl/internal/account"
 	"github.com/vojtechmares/coding-owl/internal/agent"
+	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/credential"
 	"github.com/vojtechmares/coding-owl/internal/driver"
 	"github.com/vojtechmares/coding-owl/internal/project"
@@ -981,9 +982,28 @@ func TestARunIsBlockedWhenTheProjectAsksForAReviewNobodyCanGive(t *testing.T) {
 	}
 	done := awaitState(t, st, j.ID, queue.StateBlocked)
 
-	if !strings.Contains(done.Reason, "reviewer") {
-		t.Errorf("reason = %q, want it to say the daemon has no reviewer", done.Reason)
+	if !strings.Contains(done.Reason, config.ReviewName) {
+		t.Errorf("reason = %q, want it to name the review", done.Reason)
 	}
+	// Why it could not be carried out is recorded where a user reads what
+	// Verification said, beside whatever the Project's own checks said.
+	results, err := st.ListCheckResults(context.Background(), lastRun(t, st, j.ID).ID)
+	if err != nil {
+		t.Fatalf("ListCheckResults: %v", err)
+	}
+	if len(results) != 1 || results[0].Passed || !strings.Contains(results[0].Reason, "no agent reviewer") {
+		t.Errorf("verification recorded %+v, want a review saying the daemon has none", results)
+	}
+}
+
+// lastRun is a Job's most recent Run.
+func lastRun(t *testing.T, st *store.Store, job int64) store.Run {
+	t.Helper()
+	runs, err := st.ListRuns(context.Background(), job)
+	if err != nil || len(runs) == 0 {
+		t.Fatalf("ListRuns = %+v, %v", runs, err)
+	}
+	return runs[len(runs)-1]
 }
 
 func TestARunPlacesTheSkillsTheProjectDeclares(t *testing.T) {

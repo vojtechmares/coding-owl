@@ -36,6 +36,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/skill"
 	"github.com/vojtechmares/coding-owl/internal/store"
 	"github.com/vojtechmares/coding-owl/internal/verifier"
+	agentverifier "github.com/vojtechmares/coding-owl/internal/verifier/agent"
 )
 
 // logSuffix names a Run's captured output under the state directory
@@ -140,6 +141,10 @@ type Details struct {
 	Job          queue.Job
 	Runs         []Run
 	SystemPrompt string
+	// ReviewSystemPrompt is Owl's standing contract with the reviewer, for a
+	// Project that asks for a review and empty for one that does not: nothing
+	// Owl puts in front of an Agent is hidden (ADR-0013, ADR-0017).
+	ReviewSystemPrompt string
 	// Phases is what each phase runs at and where each setting came from, in
 	// the order a Job passes through them (ADR-0028).
 	Phases []Settings
@@ -643,13 +648,14 @@ func (s *Service) Show(ctx context.Context, jobID int64) (Details, error) {
 		return Details{}, err
 	}
 	return Details{
-		Job:          queue.FromStore(j),
-		Runs:         runs,
-		SystemPrompt: SystemPrompt(details.Config.UnattendedClauses),
-		Phases:       settings,
-		Checks:       results,
-		Handoff:      handoff,
-		Diff:         diff,
+		Job:                queue.FromStore(j),
+		Runs:               runs,
+		SystemPrompt:       SystemPrompt(details.Config.UnattendedClauses),
+		ReviewSystemPrompt: reviewSystemPrompt(details.Config),
+		Phases:             settings,
+		Checks:             results,
+		Handoff:            handoff,
+		Diff:               diff,
 	}, nil
 }
 
@@ -1093,10 +1099,14 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64, details 
 	// checks said, so a blocked Job reports everything that is wrong at once
 	// rather than one thing a morning (ADR-0030).
 	if cfg.Review.Agent {
+		var got []verifier.Result
+		var err error
 		if s.opts.Reviewer == nil {
-			return "verification could not be carried out: this daemon has no agent reviewer"
+			// A Job must not reach review because nobody was asked (ADR-0013).
+			err = errors.New("this daemon has no agent reviewer")
+		} else {
+			got, err = s.opts.Reviewer.Verify(ctx, s.reviewRequest(j, details, req))
 		}
-		got, err := s.opts.Reviewer.Verify(ctx, s.reviewRequest(j, details, req))
 		if ctx.Err() != nil {
 			return ""
 		}
@@ -1135,6 +1145,16 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64, details 
 	}
 	s.opts.Logger.Info("verification refused a run", "run", runID, "job", j.ID, "checks", strings.Join(names, ", "))
 	return "verification failed: " + strings.Join(names, ", ")
+}
+
+// reviewSystemPrompt is what a reviewer is told it is for, for a Project that
+// asks for one. Nothing Owl puts in front of an Agent is hidden (ADR-0017),
+// and a reviewer is an Agent Owl starts.
+func reviewSystemPrompt(cfg config.Config) string {
+	if !cfg.Review.Agent {
+		return ""
+	}
+	return agentverifier.SystemPrompt()
 }
 
 // reviewRequest is what a reviewer is given: the plan the work was meant to

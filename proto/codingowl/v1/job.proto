@@ -274,6 +274,9 @@ message GetJobRequest {
 message GetJobResponse {
   Job job = 1;
   repeated Run runs = 2;
+  // ReviewSystemPrompt is the contract with the reviewer a Project asked for,
+  // empty for a Project that asked for none (ADR-0013, ADR-0017).
+  string review_system_prompt = 8;
   // SystemPrompt is the unattended contract with the Project's own clauses
   // appended, exactly as the Agent is given it (ADR-0017).
   string system_prompt = 3;

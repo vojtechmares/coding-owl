@@ -342,6 +342,11 @@ func printJob(env Env, d client.JobDetails) {
 		_, _ = fmt.Fprintf(env.Stdout, "\nhandoff: %s\n", noValue)
 	}
 	_, _ = fmt.Fprintf(env.Stdout, "\nsystem prompt:\n%s\n", d.SystemPrompt)
+	// A Project that asked for a review gets a second Agent, with a contract
+	// of its own: nothing Owl puts in front of one is hidden (ADR-0017).
+	if d.ReviewSystemPrompt != "" {
+		_, _ = fmt.Fprintf(env.Stdout, "\nreview system prompt:\n%s\n", d.ReviewSystemPrompt)
+	}
 }
 
 // printRunSkills reports what each Run read, so that what an Agent did is

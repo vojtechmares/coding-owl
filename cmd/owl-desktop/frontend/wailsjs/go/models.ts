@@ -235,6 +235,7 @@ export namespace client {
 	    Job: Job;
 	    Runs: Run[];
 	    SystemPrompt: string;
+	    ReviewSystemPrompt: string;
 	    Phases: PhaseSettings[];
 	    Checks: CheckResult[];
 	    Handoff: string;
@@ -249,6 +250,7 @@ export namespace client {
 	        this.Job = this.convertValues(source["Job"], Job);
 	        this.Runs = this.convertValues(source["Runs"], Run);
 	        this.SystemPrompt = source["SystemPrompt"];
+	        this.ReviewSystemPrompt = source["ReviewSystemPrompt"];
 	        this.Phases = this.convertValues(source["Phases"], PhaseSettings);
 	        this.Checks = this.convertValues(source["Checks"], CheckResult);
 	        this.Handoff = source["Handoff"];

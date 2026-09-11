@@ -69,6 +69,11 @@ func New(d driver.Driver, e executor.Executor) *Verifier {
 // Name identifies the Verifier.
 func (*Verifier) Name() string { return verifier.KindAgent }
 
+// SystemPrompt is Owl's standing contract with a reviewer, which `owl jobs
+// show` prints for a Project that asks for one: nothing Owl puts in front of
+// an Agent is hidden from the user (ADR-0017).
+func SystemPrompt() string { return systemPrompt }
+
 // Verify asks a fresh Agent Session for a verdict on the work, and reports
 // what it said. A Project that did not ask for a review gets nothing at all.
 //
@@ -135,6 +140,12 @@ func (v *Verifier) review(ctx context.Context, req verifier.Request) verifier.Re
 
 	verdict, findings, found, err := readVerdict(root)
 	out.Output = findings
+	if found && stillThere(root) {
+		// Nothing else will say so until the next Run clears it, and a file in
+		// the worktree is a worktree git reports as dirty (ADR-0015).
+		out.Output = strings.TrimRight(out.Output, "\n") +
+			fmt.Sprintf("\n\n(Owl could not take %s away again.)\n", VerdictPath)
+	}
 	// A Session that did not finish - stopped on the deadline, or ended in a
 	// way Owl could not read - did not finish reading either, so whatever it
 	// had written by then is not a verdict on the whole of the work: being
@@ -249,6 +260,13 @@ func readVerdict(root *os.Root) (verdict, findings string, found bool, err error
 	}
 	return "", strings.TrimSpace(body), true, fmt.Errorf(
 		"no %s line in %s", verdictKey, VerdictPath)
+}
+
+// stillThere reports whether the verdict is in the worktree after Owl read it
+// and tried to take it away.
+func stillThere(root *os.Root) bool {
+	_, err := root.Lstat(verdictName)
+	return err == nil
 }
 
 // cutFold is strings.CutPrefix, ignoring case: a reviewer writing `Verdict:`

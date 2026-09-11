@@ -88,3 +88,9 @@ Given the Job of S5
 When the app is asked for that Job's detail
 Then the detail carries both the Project's check and the review
 And the reviewer's findings are in what it carries
+
+### S12 - the reviewer's own contract is shown, like the Agent's
+Given the Job of S4, whose Project asks for a review
+When `owl jobs show <job>` runs
+Then it prints the review's system prompt as well as the Agent's
+And a Project that asks for no review has no review system prompt to print
