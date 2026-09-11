@@ -21,6 +21,7 @@ import (
 	codingowlv1 "github.com/vojtechmares/coding-owl/gen/codingowl/v1"
 	"github.com/vojtechmares/coding-owl/gen/codingowl/v1/codingowlv1connect"
 	"github.com/vojtechmares/coding-owl/internal/account"
+	"github.com/vojtechmares/coding-owl/internal/chat"
 	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/credential"
 	"github.com/vojtechmares/coding-owl/internal/driver/claudecode"
@@ -185,6 +186,10 @@ func Run(ctx context.Context, opts Options) error {
 	mux.Handle(codingowlv1connect.NewSkillServiceHandler(&skillService{
 		skills: project.NewSkillService(projects, skills),
 	}))
+	chats := chat.NewService(db, creds, chat.NewTools(&chatView{
+		projects: projects, jobs: queue.NewService(db, queue.Local{}), runs: runs,
+	}))
+	mux.Handle(codingowlv1connect.NewChatServiceHandler(&chatService{chat: chats}))
 	mux.Handle(codingowlv1connect.NewJobServiceHandler(&jobService{
 		jobs: queue.NewService(db, queue.Local{}),
 		runs: runs,

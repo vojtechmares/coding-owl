@@ -5,6 +5,10 @@ import {desktop} from '../models';
 
 export function Accept(arg1:number,arg2:boolean):Promise<client.Job>;
 
+export function Conversation(arg1:number):Promise<client.ConversationDetails>;
+
+export function Conversations():Promise<Array<client.Conversation>>;
+
 export function Drop(arg1:number,arg2:boolean):Promise<client.Job>;
 
 export function FollowLog(arg1:number):Promise<void>;
@@ -13,6 +17,8 @@ export function Job(arg1:number):Promise<client.JobDetails>;
 
 export function Jobs(arg1:boolean):Promise<Array<client.Job>>;
 
+export function Models():Promise<Array<client.ChatModel>>;
+
 export function Overview():Promise<client.Overview>;
 
 export function Pause():Promise<client.Run>;
@@ -20,6 +26,8 @@ export function Pause():Promise<client.Run>;
 export function Projects():Promise<Array<client.Project>>;
 
 export function Resume():Promise<client.Run>;
+
+export function Send(arg1:number,arg2:string,arg3:string):Promise<number>;
 
 export function Shutdown():Promise<void>;
 

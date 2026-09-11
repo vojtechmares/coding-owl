@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package codingowl.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// ChatService is the conversation the desktop app holds with a model
+// (ADR-0022). The daemon holds the model credentials and keeps the
+// conversations, and the tools it offers a model only read: the chat never
+// acts. The CLI configures the providers and surfaces no chat of its own.
+service ChatService {
+  // AddProvider configures a way to reach models, putting its key in the
+  // credential store and only a reference to it in the database (ADR-0019).
+  rpc AddProvider(AddProviderRequest) returns (AddProviderResponse) {}
+  // ListProviders reports what is configured, without any key.
+  rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse) {}
+  // RemoveProvider takes a provider and its key away.
+  rpc RemoveProvider(RemoveProviderRequest) returns (RemoveProviderResponse) {}
+  // ListModels is every model the configured providers offer.
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse) {}
+  // ListConversations returns them, the most recently spoken to first.
+  rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse) {}
+  // GetConversation returns one with what was said in it.
+  rpc GetConversation(GetConversationRequest) returns (GetConversationResponse) {}
+  // SendMessage says something and streams the answer back, a piece at a time.
+  rpc SendMessage(SendMessageRequest) returns (stream SendMessageResponse) {}
+}
+
+// ChatProvider is a configured way to reach models. Its key is never here.
+message ChatProvider {
+  // Name is the provider: `anthropic` or `openrouter`.
+  string name = 1;
+  // BaseUrl is where it is reached, empty for the provider's own default.
+  string base_url = 2;
+  // Models are the models it offers.
+  repeated string models = 3;
+  // Created is when it was configured.
+  google.protobuf.Timestamp created = 4;
+}
+
+// ChatModel is one model a user may speak to.
+message ChatModel {
+  // Provider is where it comes from.
+  string provider = 1;
+  // Id is what it is called, which is what a message names.
+  string id = 2;
+}
+
+// Conversation is a chat, as it is listed.
+message Conversation {
+  int64 id = 1;
+  // Title is what it is about, taken from what was said first.
+  string title = 2;
+  // Model is what it was last spoken to.
+  string model = 3;
+  google.protobuf.Timestamp created = 4;
+  google.protobuf.Timestamp updated = 5;
+}
+
+// ChatMessage is one turn of a conversation.
+message ChatMessage {
+  // Role is who said it: `user` or `assistant`.
+  string role = 1;
+  string text = 2;
+  google.protobuf.Timestamp created = 3;
+}
+
+message AddProviderRequest {
+  string name = 1;
+  // Key is the credential to reach it with. It goes to the credential store
+  // and is never written to the database.
+  string key = 2;
+  // BaseUrl is where to reach it, empty for the provider's own default.
+  string base_url = 3;
+  // Models are the models it is to offer. A provider Owl knows the models of
+  // may leave it empty.
+  repeated string models = 4;
+}
+
+message AddProviderResponse {
+  ChatProvider provider = 1;
+}
+
+message ListProvidersRequest {}
+
+message ListProvidersResponse {
+  repeated ChatProvider providers = 1;
+}
+
+message RemoveProviderRequest {
+  string name = 1;
+}
+
+message RemoveProviderResponse {}
+
+message ListModelsRequest {}
+
+message ListModelsResponse {
+  repeated ChatModel models = 1;
+}
+
+message ListConversationsRequest {}
+
+message ListConversationsResponse {
+  repeated Conversation conversations = 1;
+}
+
+message GetConversationRequest {
+  int64 id = 1;
+}
+
+message GetConversationResponse {
+  Conversation conversation = 1;
+  repeated ChatMessage messages = 2;
+}
+
+message SendMessageRequest {
+  // ConversationId is the conversation to say it in, and zero starts one.
+  int64 conversation_id = 1;
+  // Model is what to say it to, from the configured providers.
+  string model = 2;
+  // Text is what the user said.
+  string text = 3;
+}
+
+message SendMessageResponse {
+  // ConversationId is the conversation the answer belongs to, which the first
+  // message carries so a caller that started one knows it.
+  int64 conversation_id = 1;
+  // Delta is a piece of the answer as it arrived.
+  string delta = 2;
+}

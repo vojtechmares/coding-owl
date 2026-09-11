@@ -6,6 +6,14 @@ export function Accept(arg1, arg2) {
   return window['go']['desktop']['App']['Accept'](arg1, arg2);
 }
 
+export function Conversation(arg1) {
+  return window['go']['desktop']['App']['Conversation'](arg1);
+}
+
+export function Conversations() {
+  return window['go']['desktop']['App']['Conversations']();
+}
+
 export function Drop(arg1, arg2) {
   return window['go']['desktop']['App']['Drop'](arg1, arg2);
 }
@@ -22,6 +30,10 @@ export function Jobs(arg1) {
   return window['go']['desktop']['App']['Jobs'](arg1);
 }
 
+export function Models() {
+  return window['go']['desktop']['App']['Models']();
+}
+
 export function Overview() {
   return window['go']['desktop']['App']['Overview']();
 }
@@ -36,6 +48,10 @@ export function Projects() {
 
 export function Resume() {
   return window['go']['desktop']['App']['Resume']();
+}
+
+export function Send(arg1, arg2, arg3) {
+  return window['go']['desktop']['App']['Send'](arg1, arg2, arg3);
 }
 
 export function Shutdown() {
