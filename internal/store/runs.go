@@ -62,22 +62,47 @@ func (s *Store) StartRun(ctx context.Context, r Run) (Run, error) {
 	return out, err
 }
 
-// FinishRun records how an attempt ended, and what the Agent exited with.
+// FinishRun records how an attempt ended, and what the Agent exited with. It
+// spends one of the Job's attempts, which is what a Run costs whatever became
+// of it (ADR-0025). A Run only ends once, so an attempt is only spent once.
 func (s *Store) FinishRun(ctx context.Context, id int64, ended time.Time, outcome, reason string, exitCode int) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE runs SET ended = ?, outcome = ?, error = ?, exit_code = ? WHERE id = ?`,
-		ended.UTC().Format(timeFormat), outcome, reason, exitCode, id)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		var jobID int64
+		err := tx.QueryRowContext(ctx,
+			`UPDATE runs SET ended = ?, outcome = ?, error = ?, exit_code = ?
+			 WHERE id = ? AND outcome = '' RETURNING job_id`,
+			ended.UTC().Format(timeFormat), outcome, reason, exitCode, id).Scan(&jobID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return alreadyEnded(ctx, tx, id)
+		}
+		if err != nil {
+			return err
+		}
+		return spendAttempt(ctx, tx, jobID)
+	})
+}
+
+// alreadyEnded says why a Run could not be ended: either there is no such Run,
+// or it has ended already and its attempt is already spent.
+func alreadyEnded(ctx context.Context, tx *sql.Tx, id int64) error {
+	var outcome string
+	err := tx.QueryRowContext(ctx, `SELECT outcome FROM runs WHERE id = ?`, id).Scan(&outcome)
+	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: %d", ErrRunNotFound, id)
 	}
-	return nil
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("run %d has already ended as %s", id, outcome)
+}
+
+// spendAttempt takes one of a Job's attempts, what one Run costs (ADR-0025).
+// A Job with none left has nothing to spend: the count stops at zero rather
+// than going negative, so that what owl reports is always a number of Runs the
+// Job could still take.
+func spendAttempt(ctx context.Context, tx *sql.Tx, jobID int64) error {
+	_, err := tx.ExecContext(ctx, `UPDATE jobs SET ttl = ttl - 1 WHERE id = ? AND ttl > 0`, jobID)
+	return err
 }
 
 // SetRunLog records where a Run's output is being captured, which is only
@@ -131,13 +156,25 @@ func (s *Store) ListRuns(ctx context.Context, jobID int64) ([]Run, error) {
 // daemon (ADR-0012), so a Run still open at startup is one nothing survived to
 // record.
 func (s *Store) InterruptRunsInProgress(ctx context.Context, at time.Time, outcome, reason string) (int, error) {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE runs SET ended = ?, outcome = ?, error = ? WHERE outcome = ''`,
-		at.UTC().Format(timeFormat), outcome, reason)
-	if err != nil {
-		return 0, err
-	}
-	n, err := res.RowsAffected()
+	var n int64
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		// The attempts go first, while the Runs that cost them are still the
+		// ones in progress. An interrupted Run costs an attempt exactly as a
+		// finished one does (ADR-0025).
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE jobs SET ttl = ttl - 1
+			 WHERE ttl > 0 AND id IN (SELECT job_id FROM runs WHERE outcome = '')`); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx,
+			`UPDATE runs SET ended = ?, outcome = ?, error = ? WHERE outcome = ''`,
+			at.UTC().Format(timeFormat), outcome, reason)
+		if err != nil {
+			return err
+		}
+		n, err = res.RowsAffected()
+		return err
+	})
 	return int(n), err
 }
 

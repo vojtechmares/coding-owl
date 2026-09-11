@@ -48,6 +48,10 @@ type Job struct {
 	// command that failed before an Agent started, or the checks that refused
 	// the work.
 	Reason string
+	// TTL is how many Runs the Job may still take. One is spent at the end of
+	// every Run whatever its outcome, and a Job with none left is exhausted
+	// rather than pending (ADR-0025).
+	TTL int
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -57,7 +61,7 @@ type Job struct {
 
 // jobColumns is the select list every Job read shares, in scanJob's order.
 const jobColumns = `id, source, source_ref, project, prompt, state, branch, worktree,
-	planned, plan, model, effort, reason, position, created`
+	planned, plan, model, effort, reason, ttl, position, created`
 
 // UpsertJob produces j. A Job with that source and reference is not made
 // twice: the second production rewrites the prompt of the Job already in the
@@ -73,12 +77,12 @@ func (s *Store) UpsertJob(ctx context.Context, j Job) (Job, error) {
 	// NULLs of the Jobs that have left the queue, so their positions are not
 	// held against the ones still in it.
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO jobs (source, source_ref, project, prompt, state, planned, model, effort, position, created)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM jobs), ?)
+		`INSERT INTO jobs (source, source_ref, project, prompt, state, planned, model, effort, ttl, position, created)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM jobs), ?)
 		 ON CONFLICT (source, source_ref) DO UPDATE SET prompt = excluded.prompt
 		   WHERE jobs.position IS NOT NULL`,
 		j.Source, j.SourceRef, j.Project, j.Prompt, j.State, boolToInt(j.Planned), j.Model, j.Effort,
-		j.Created.UTC().Format(timeFormat)); err != nil {
+		j.TTL, j.Created.UTC().Format(timeFormat)); err != nil {
 		return Job{}, err
 	}
 	row := tx.QueryRowContext(ctx,
@@ -202,7 +206,7 @@ func scanJob(sc scanner) (Job, error) {
 	var created string
 	if err := sc.Scan(&j.ID, &j.Source, &j.SourceRef, &j.Project, &j.Prompt, &j.State,
 		&j.Branch, &j.Worktree, &planned, &j.Plan, &j.Model, &j.Effort, &j.Reason,
-		&position, &created); err != nil {
+		&j.TTL, &position, &created); err != nil {
 		return Job{}, err
 	}
 	j.Position = int(position.Int64)
@@ -326,4 +330,50 @@ func writePositions(ctx context.Context, tx *sql.Tx, ids []int64) error {
 		}
 	}
 	return nil
+}
+
+// ReturnJobToQueue puts a Job back in the queue at the place it kept while it
+// ran (ADR-0025), or leaves it exhausted when it has no attempts left: a Job
+// that has run out is not stuck on anything, it has simply had its Runs. The
+// state it ends up in is returned. The choice and the write are one statement,
+// so an extension arriving at the same moment cannot be overwritten by a
+// decision taken before it.
+func (s *Store) ReturnJobToQueue(ctx context.Context, id int64, pending, exhausted string) (string, error) {
+	var state string
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx,
+			`UPDATE jobs SET state = CASE WHEN ttl > 0 THEN ? ELSE ? END, reason = ''
+			 WHERE id = ? RETURNING state`, pending, exhausted, id).Scan(&state)
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("%w: %d", ErrJobNotFound, id)
+	}
+	return state, err
+}
+
+// maxAttempts caps what a Job can be extended to. The count is reported as a
+// 32-bit number, so letting it grow past that would mean showing the user a
+// number of attempts the Job does not have.
+const maxAttempts = 1<<31 - 1
+
+// ExtendJob gives a Job add more attempts, and returns a Job that had run out
+// to the queue at the place it kept (ADR-0025). A Job in any other state keeps
+// it: more attempts are not what a blocked Job is waiting for. The Job as it
+// stands afterwards is returned.
+func (s *Store) ExtendJob(ctx context.Context, id int64, add int, exhausted, pending string) (Job, error) {
+	var j Job
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		row := tx.QueryRowContext(ctx,
+			`UPDATE jobs SET ttl = MIN(ttl + ?, ?),
+			   state = CASE WHEN state = ? THEN ? ELSE state END
+			 WHERE id = ? RETURNING `+jobColumns,
+			add, maxAttempts, exhausted, pending, id)
+		var err error
+		j, err = scanJob(row)
+		return err
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Job{}, fmt.Errorf("%w: %d", ErrJobNotFound, id)
+	}
+	return j, err
 }

@@ -245,3 +245,169 @@ func TestListRunsInProgressLeavesOutTheRunsThatEnded(t *testing.T) {
 		t.Errorf("run %d of job %d, want run %d of job %d", rs[0].ID, rs[0].JobID, going.ID, second.ID)
 	}
 }
+
+// attemptsLeft is how many Runs the store says a Job may still take.
+func attemptsLeft(t *testing.T, s *store.Store, id int64) int {
+	t.Helper()
+	j, err := s.GetJob(context.Background(), id)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	return j.TTL
+}
+
+// jobWithAttempts queues a Job that may take n Runs.
+func jobWithAttempts(t *testing.T, s *store.Store, ref string, n int) store.Job {
+	t.Helper()
+	j := job("work", ref)
+	j.TTL = n
+	out, err := s.UpsertJob(context.Background(), j)
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	return out
+}
+
+func TestFinishRunSpendsOneOfTheJobsAttempts(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := jobWithAttempts(t, s, "a", 3)
+	now := time.Now().UTC()
+	r, err := s.StartRun(ctx, store.Run{JobID: j.ID, Started: now})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	if err := s.FinishRun(ctx, r.ID, now, "succeeded", "", 0); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+
+	if got := attemptsLeft(t, s, j.ID); got != 2 {
+		t.Errorf("the job has %d attempts left after one run, want two", got)
+	}
+}
+
+func TestFinishRunSpendsNothingTwiceForOneRun(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := jobWithAttempts(t, s, "a", 3)
+	now := time.Now().UTC()
+	r, err := s.StartRun(ctx, store.Run{JobID: j.ID, Started: now})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if err := s.FinishRun(ctx, r.ID, now, "succeeded", "", 0); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+
+	if err := s.FinishRun(ctx, r.ID, now, "failed", "", 1); err == nil {
+		t.Error("FinishRun on a run that has already ended = nil, want an error")
+	}
+
+	if got := attemptsLeft(t, s, j.ID); got != 2 {
+		t.Errorf("the job has %d attempts left, want the two one run left it", got)
+	}
+}
+
+func TestFinishRunNeverTakesAJobPastItsLastAttempt(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := jobWithAttempts(t, s, "a", 1)
+	now := time.Now().UTC()
+	for i := 0; i < 2; i++ {
+		r, err := s.StartRun(ctx, store.Run{JobID: j.ID, Started: now})
+		if err != nil {
+			t.Fatalf("StartRun: %v", err)
+		}
+		if err := s.FinishRun(ctx, r.ID, now, "succeeded", "", 0); err != nil {
+			t.Fatalf("FinishRun: %v", err)
+		}
+	}
+
+	if got := attemptsLeft(t, s, j.ID); got != 0 {
+		t.Errorf("the job has %d attempts left, want none: a job cannot owe attempts", got)
+	}
+}
+
+func TestInterruptRunsInProgressSpendsAnAttempt(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := jobWithAttempts(t, s, "a", 3)
+	other := jobWithAttempts(t, s, "b", 3)
+	now := time.Now().UTC()
+	if _, err := s.StartRun(ctx, store.Run{JobID: j.ID, Started: now}); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	if _, err := s.InterruptRunsInProgress(ctx, now, "interrupted", "the daemon stopped"); err != nil {
+		t.Fatalf("InterruptRunsInProgress: %v", err)
+	}
+
+	if got := attemptsLeft(t, s, j.ID); got != 2 {
+		t.Errorf("the job whose run was interrupted has %d attempts left, want two", got)
+	}
+	if got := attemptsLeft(t, s, other.ID); got != 3 {
+		t.Errorf("a job that never ran has %d attempts left, want the three it was given", got)
+	}
+}
+
+func TestReturnJobToQueueLeavesAJobWithAttemptsPending(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := jobWithAttempts(t, s, "a", 2)
+	if err := s.SetJobState(ctx, j.ID, "active"); err != nil {
+		t.Fatalf("SetJobState: %v", err)
+	}
+
+	state, err := s.ReturnJobToQueue(ctx, j.ID, "pending", "exhausted")
+
+	if err != nil {
+		t.Fatalf("ReturnJobToQueue: %v", err)
+	}
+	if state != "pending" {
+		t.Errorf("a job with attempts left came back as %q, want pending", state)
+	}
+	got, err := s.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if got.State != "pending" || got.Position != 1 {
+		t.Errorf("the job is %q at position %d, want pending at the place it kept", got.State, got.Position)
+	}
+}
+
+func TestReturnJobToQueueExhaustsAJobWithNothingLeft(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := jobWithAttempts(t, s, "a", 0)
+	if err := s.SetJobState(ctx, j.ID, "active"); err != nil {
+		t.Fatalf("SetJobState: %v", err)
+	}
+
+	state, err := s.ReturnJobToQueue(ctx, j.ID, "pending", "exhausted")
+
+	if err != nil {
+		t.Fatalf("ReturnJobToQueue: %v", err)
+	}
+	if state != "exhausted" {
+		t.Errorf("a job with no attempts left came back as %q, want exhausted", state)
+	}
+	got, err := s.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if got.State != "exhausted" {
+		t.Errorf("the job is %q, want exhausted", got.State)
+	}
+	if got.Position != 1 {
+		t.Errorf("the exhausted job is at position %d, want the place it kept", got.Position)
+	}
+}
+
+func TestReturnJobToQueueReportsAJobThatIsNotThere(t *testing.T) {
+	_, err := jobStore(t).ReturnJobToQueue(context.Background(), 999, "pending", "exhausted")
+
+	if !errors.Is(err, store.ErrJobNotFound) {
+		t.Errorf("ReturnJobToQueue on an unknown job = %v, want ErrJobNotFound", err)
+	}
+}
