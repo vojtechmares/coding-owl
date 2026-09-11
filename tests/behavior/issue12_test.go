@@ -10,10 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // rebasing is a Job whose planning Run has ended, so its branch exists and its
@@ -409,6 +409,26 @@ func TestS13AWorktreeLeftMidRebaseIsReported(t *testing.T) {
 	}
 }
 
+// midRebase reports whether a worktree is in the middle of a rebase. git says
+// so in several wordings depending on where it stopped, so this asks for the
+// directory git keeps the rebase in rather than reading its prose.
+func midRebase(t *testing.T, r *repo, worktree string) bool {
+	t.Helper()
+	dir := strings.TrimSpace(gitIn(t, r, worktree, "rev-parse", "--git-path", "rebase-merge"))
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(worktree, dir)
+	}
+	if _, err := os.Stat(dir); err == nil {
+		return true
+	}
+	apply := strings.TrimSpace(gitIn(t, r, worktree, "rev-parse", "--git-path", "rebase-apply"))
+	if !filepath.IsAbs(apply) {
+		apply = filepath.Join(worktree, apply)
+	}
+	_, err := os.Stat(apply)
+	return err == nil
+}
+
 // gitInAllowingFailure runs git in a directory and returns what it said,
 // whether or not it succeeded: a rebase that conflicts exits non-zero, and
 // that is what the scenario is arranging.
@@ -498,15 +518,15 @@ func TestS16AConflictInWhatNobodyCommittedKeepsIt(t *testing.T) {
 func TestS17ARebaseThatStopsPartWayBlocksTheJob(t *testing.T) {
 	rb := rebasingJobOn(t,
 		map[string]string{"work.txt": agentWork},
-		map[string]string{".gitattributes": "shared.txt filter=owlstop\n", "shared.txt": "one\n"})
+		map[string]string{".gitattributes": "marked.txt filter=owlstop\n"})
+	// A filter that refuses content one of the branch's own commits carries
+	// and a later one takes away, so git meets it while replaying and never
+	// before: somebody else's program, named by configuration an Agent can
+	// write.
+	rb.stopsPartWay(t)
 	worktree := rb.worktree(t)
 	before := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "HEAD"))
-	rb.moveBase(t, "shared.txt", "one\ntwo\n")
-	// A filter that refuses the base branch's own new content, which git only
-	// reaches once the rebase has begun: somebody else's program, named by
-	// configuration an Agent can write. Set last, because the fixture's own
-	// commits would go through it too.
-	rb.stopsPartWay(t)
+	rb.moveBase(t, "from-base.txt", "added while the job was waiting\n")
 
 	res := runOwl(t, rb.l, "start")
 
@@ -520,8 +540,8 @@ func TestS17ARebaseThatStopsPartWayBlocksTheJob(t *testing.T) {
 	if reason := line(t, out, "reason"); !strings.Contains(reason, "could not be carried out") {
 		t.Errorf("the reason does not say the rebase could not be carried out: %q", reason)
 	}
-	if status := gitIn(t, rb.repo, worktree, "status"); strings.Contains(status, "rebase in progress") {
-		t.Errorf("the worktree is still mid-rebase:\n%s", status)
+	if midRebase(t, rb.repo, worktree) {
+		t.Errorf("the worktree is still mid-rebase:\n%s", gitIn(t, rb.repo, worktree, "status"))
 	}
 	if got := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "HEAD")); got != before {
 		t.Errorf("the worktree is at %s, want where it was, %s", got, before)
@@ -536,17 +556,17 @@ func TestS17ARebaseThatStopsPartWayBlocksTheJob(t *testing.T) {
 // interrupted, and records that it got there.
 func (rb *rebasing) slowFilter(t *testing.T, marker string) {
 	t.Helper()
-	rb.filter(t, 2, "touch "+marker+"; sleep 3")
+	rb.stopsWhileReplaying(t, "touch "+marker+"; sleep 3")
 }
 
 func TestS19AClientThatGoesAwayLeavesNoRebaseInProgress(t *testing.T) {
 	rb := rebasingJobOn(t,
 		map[string]string{"work.txt": agentWork},
-		map[string]string{".gitattributes": "shared.txt filter=owlstop\n", "shared.txt": "one\n"})
+		map[string]string{".gitattributes": "marked.txt filter=owlstop\n"})
 	worktree := rb.worktree(t)
-	rb.moveBase(t, "shared.txt", "one\ntwo\n")
 	marker := filepath.Join(rb.l.root, "rebasing")
 	rb.slowFilter(t, marker)
+	rb.moveBase(t, "from-base.txt", "added while the job was waiting\n")
 
 	// Started and then killed while git is in the middle of the rebase.
 	cmd := exec.Command(owlBin, "start")
@@ -563,13 +583,24 @@ func TestS19AClientThatGoesAwayLeavesNoRebaseInProgress(t *testing.T) {
 	}
 	_ = cmd.Wait()
 
-	// The rebase finishes on its own, rather than being killed half way.
-	waitFor(t, "the rebase to finish", func() bool {
-		return !strings.Contains(gitIn(t, rb.repo, worktree, "status"), "rebase in progress")
-	})
+	// The rebase finishes on its own rather than being killed half way, which
+	// is what leaves a worktree nobody can use.
+	deadline := time.Now().Add(20 * time.Second)
+	for midRebase(t, rb.repo, worktree) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the worktree is still mid-rebase twenty seconds after the client went away:\n%s",
+				gitIn(t, rb.repo, worktree, "status"))
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "from-base.txt")); err != nil {
+		t.Errorf("the base branch's commit did not reach the worktree: %v", err)
+	}
 	if got := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "--abbrev-ref", "HEAD")); got != rb.branch(t) {
 		t.Errorf("the worktree is on %q, want the job's own branch", got)
 	}
+	// Given a moment to write down anything it was going to.
+	sleepABit()
 	if got := jobState(t, rb.l, rb.job); got == "blocked" {
 		t.Errorf("the job is blocked, and nothing went wrong with it: %q",
 			line(t, mustOwl(t, rb.l, "jobs", "show", rb.job).stdout, "reason"))
@@ -582,21 +613,34 @@ func TestS19AClientThatGoesAwayLeavesNoRebaseInProgress(t *testing.T) {
 // it has begun rather than before it starts.
 func (rb *rebasing) stopsPartWay(t *testing.T) {
 	t.Helper()
-	rb.filter(t, 2, "rm -f \"$t\"; exit 1")
+	rb.stopsWhileReplaying(t, "rm -f \"$t\"; exit 1")
 }
 
-// filter makes the Project require a filter that does what onNth says the nth
-// time git uses it, and passes everything through otherwise. Git filters the
-// worktree once before a rebase begins and again as it replays, so a later
-// count is what fires while the rebase is under way rather than before it.
-func (rb *rebasing) filter(t *testing.T, nth int, onNth string) {
+// midRebaseMark is content that exists in one of the Job branch's commits and
+// in none of its later ones. A filter watching for it therefore fires while
+// the rebase is replaying that commit - after the rebase has begun, and never
+// before, because the worktree does not hold it.
+const midRebaseMark = "only-while-replaying"
+
+// stopsWhileReplaying makes the Project require a filter that does what onMark
+// says when git writes that content, and puts a commit carrying it - and a
+// later commit removing it - on the Job's branch.
+func (rb *rebasing) stopsWhileReplaying(t *testing.T, onMark string) {
 	t.Helper()
+	worktree := rb.worktree(t)
+	gitIn(t, rb.repo, worktree, "config", "user.name", "Owl Test")
+	gitIn(t, rb.repo, worktree, "config", "user.email", "owl@example.com")
+	if err := os.WriteFile(filepath.Join(worktree, "marked.txt"), []byte(midRebaseMark+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, rb.repo, worktree, "add", "--", "marked.txt")
+	gitIn(t, rb.repo, worktree, "commit", "-m", "a commit whose content the filter reacts to")
+	gitIn(t, rb.repo, worktree, "rm", "-q", "--", "marked.txt")
+	gitIn(t, rb.repo, worktree, "commit", "-m", "and one that takes it away again")
+
 	path := filepath.Join(rb.l.root, "filter.sh")
-	count := filepath.Join(rb.l.root, "filter-count")
 	script := "#!/bin/sh\nt=$(mktemp)\ncat > \"$t\"\n" +
-		"c=0\n[ -f " + count + " ] && c=$(cat " + count + ")\n" +
-		"c=$((c+1))\necho \"$c\" > " + count + "\n" +
-		"if [ \"$c\" = " + strconv.Itoa(nth) + " ]; then\n  " + onNth + "\nfi\n" +
+		"if grep -q " + midRebaseMark + " \"$t\"; then\n  " + onMark + "\nfi\n" +
 		"cat \"$t\"\nrm -f \"$t\"\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -635,3 +679,7 @@ func TestS18AWorktreeThatIsGoneBlocksTheJobNotTheQueue(t *testing.T) {
 	}
 	rb.stub.let(t)
 }
+
+// sleepABit gives the daemon a moment to write down what it decided, where
+// waiting for a condition would be waiting for something not to happen.
+func sleepABit() { time.Sleep(500 * time.Millisecond) }
