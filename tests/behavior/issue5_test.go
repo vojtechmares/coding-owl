@@ -48,6 +48,9 @@ type invocation struct {
 	// Entries are the names in its working directory when it started, which is
 	// how a scenario sees what a setup command left there.
 	Entries []string `json:"entries"`
+	// Env holds the CLAUDE_ variables it was given, which is how a scenario
+	// sees the Account it was run as (ADR-0019).
+	Env map[string]string `json:"env"`
 }
 
 // agentLayout returns an XDG layout whose daemon finds the stub agent first on

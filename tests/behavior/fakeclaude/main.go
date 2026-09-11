@@ -19,7 +19,9 @@
 //	                         working directory after the files are written
 //
 // The invocation record also holds the names of the files in the working
-// directory, so a scenario can see what ran before the Agent did.
+// directory, so a scenario can see what ran before the Agent did, and every
+// CLAUDE_ variable it was given, so a scenario can see which Account it was
+// run as (ADR-0019).
 package main
 
 import (
@@ -31,6 +33,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -51,6 +54,9 @@ type invocation struct {
 	// Entries are the names in the working directory when the stub started,
 	// which is how a scenario sees what a setup command left there.
 	Entries []string `json:"entries"`
+	// Env holds the CLAUDE_ variables the stub was given, which is how a
+	// scenario sees the Account a Run was made on.
+	Env map[string]string `json:"env"`
 }
 
 func main() {
@@ -104,6 +110,7 @@ func record(path string) error {
 	}
 	data, err := json.Marshal(invocation{
 		Argv: os.Args, PID: os.Getpid(), PPID: os.Getppid(), Dir: dir, Entries: entries,
+		Env: claudeEnv(),
 	})
 	if err != nil {
 		return err
@@ -117,6 +124,20 @@ func record(path string) error {
 	defer func() { _ = f.Close() }()
 	_, err = f.Write(append(data, '\n'))
 	return err
+}
+
+// claudeEnv is every CLAUDE_ variable the stub was given. Only that prefix is
+// recorded: the record is a file in a temporary directory, and the rest of the
+// environment is nobody's business.
+func claudeEnv() map[string]string {
+	out := map[string]string{}
+	for _, kv := range os.Environ() {
+		name, value, ok := strings.Cut(kv, "=")
+		if ok && strings.HasPrefix(name, "CLAUDE_") {
+			out[name] = value
+		}
+	}
+	return out
 }
 
 // entryNames lists what is in the working directory, sorted so a scenario can
