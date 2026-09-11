@@ -598,9 +598,10 @@ func TestCollectDoesNotAcceptAJobSomebodyElseDecidedAbout(t *testing.T) {
 	f := newFixture(t, func(o *gc.Options) { o.ReviewAfter = time.Hour })
 	j := f.job(t, "a", string(queue.StateReview), true)
 	gitIn(t, f.repo, "merge", "--no-ff", "-m", "merge the job", j.Branch)
-	// Somebody drops the Job while the collection is between reading the Jobs
-	// and deciding about them.
-	f.svc.Interleave(func() {
+	// Somebody drops the Job after the collection has read it and before it
+	// decides anything, so that the state it read is no longer the state it is
+	// acting on.
+	f.svc.BeforeDeciding(func() {
 		if err := f.store.DequeueJob(context.Background(), j.ID, string(queue.StateCancelled), ""); err != nil {
 			t.Errorf("DequeueJob: %v", err)
 		}

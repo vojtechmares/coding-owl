@@ -64,11 +64,13 @@ func (s *Store) GetAccount(ctx context.Context, name string) (Account, error) {
 	return a, err
 }
 
-// ListAccounts returns every Account, oldest first, which is the order they
-// were added in.
+// ListAccounts returns every Account in the order they were added. The order
+// is the rowid rather than the created time, because a time is stored as text
+// and RFC 3339 trims the trailing zeros of a fraction, so two Accounts added
+// in the same second do not compare as strings the way they happened.
 func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+accountColumns+` FROM accounts ORDER BY created, name`)
+		`SELECT `+accountColumns+` FROM accounts ORDER BY rowid`)
 	if err != nil {
 		return nil, err
 	}
