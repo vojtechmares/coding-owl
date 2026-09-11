@@ -26,6 +26,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/driver/claudecode"
 	"github.com/vojtechmares/coding-owl/internal/executor/host"
 	"github.com/vojtechmares/coding-owl/internal/gc"
+	"github.com/vojtechmares/coding-owl/internal/git"
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/run"
@@ -94,6 +95,13 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer func() { _ = db.Close() }()
 	log.Info("database ready", "path", dbPath, "schema", migration.Schema, "applied", migration.Applied)
+
+	// Owl works with git from a certain version on, and a git that is too old
+	// would only be found out at the second Run of a Job. It is asked once,
+	// here, and a daemon that cannot rebase says so rather than starting.
+	if err := git.CheckVersion(); err != nil {
+		return err
+	}
 
 	ln, err := net.Listen("unix", sock)
 	if err != nil {

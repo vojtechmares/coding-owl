@@ -1488,3 +1488,43 @@ func TestWorktreeBelongsToTellsOneRepositorysWorktreeFromAnothers(t *testing.T) 
 		t.Error("the repository's main worktree is reported as somebody else's")
 	}
 }
+
+func TestParseVersionReadsWhatGitPrints(t *testing.T) {
+	for out, want := range map[string]git.Version{
+		"git version 2.55.0\n":                 {Major: 2, Minor: 55},
+		"git version 2.39.5 (Apple Git-154)\n": {Major: 2, Minor: 39},
+		"git version 2.38.0.windows.1":         {Major: 2, Minor: 38},
+		"git version 3.0.0-rc1":                {Major: 3, Minor: 0},
+	} {
+		got, err := git.ParseVersion(out)
+		if err != nil || got != want {
+			t.Errorf("ParseVersion(%q) = %v, %v; want %v", out, got, err, want)
+		}
+	}
+	for _, out := range []string{"", "git 2.55.0", "git version two"} {
+		if v, err := git.ParseVersion(out); err == nil {
+			t.Errorf("ParseVersion(%q) = %v, want it refused", out, v)
+		}
+	}
+}
+
+func TestVersionBeforeOrdersMajorThenMinor(t *testing.T) {
+	older := git.Version{Major: 2, Minor: 37}
+	if !older.Before(git.MinVersion) {
+		t.Errorf("%s is not reported as older than %s", older, git.MinVersion)
+	}
+	if git.MinVersion.Before(git.MinVersion) {
+		t.Errorf("%s is reported as older than itself", git.MinVersion)
+	}
+	if (git.Version{Major: 3, Minor: 0}).Before(git.MinVersion) {
+		t.Errorf("3.0 is reported as older than %s", git.MinVersion)
+	}
+}
+
+func TestCheckVersionAcceptsTheGitTheTestsRunWith(t *testing.T) {
+	// Every rebase test in this package passes --no-update-refs, so the git
+	// here is new enough, and the check has to agree.
+	if err := git.CheckVersion(); err != nil {
+		t.Errorf("CheckVersion: %v", err)
+	}
+}
