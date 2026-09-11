@@ -8,9 +8,9 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/idle"
 )
 
-// maxHold is the longest the watcher waits after something refused to start
-// before asking again. A Job that cannot start - no Account named, a Claude
-// Code nobody can run - is waiting for a person, and asking every few seconds
+// maxHold is the longest the watcher waits before asking the queue again after
+// something refused to start. A Job that cannot start - no Account named, a
+// tool nobody can run - is waiting for a person, and asking every few seconds
 // all night would spend the machine this product exists to leave alone.
 const maxHold = 5 * time.Minute
 
@@ -56,10 +56,18 @@ func (s *Service) Watch(ctx context.Context, d idle.Detector, every time.Duratio
 	// this alone, so that a reading lost in the middle of somebody returning
 	// is caught by the next one rather than forgotten.
 	var was *bool
-	// When to ask again after something refused to start, and how long the
-	// wait has grown to.
-	var askAgain time.Time
-	var waited time.Duration
+	ask := &asking{}
+	// Starting a Job can take minutes - a Project's setup commands run first -
+	// and the machine has to stay in view throughout, so it is done off this
+	// loop, one at a time.
+	var attempt chan string
+	defer func() {
+		// A Run half started is nobody's to walk away from: it is left to
+		// finish arriving, which it does whether this loop is over or not.
+		if attempt != nil {
+			<-attempt
+		}
+	}()
 	for {
 		state, err := d.Read(ctx)
 		switch {
@@ -75,19 +83,33 @@ func (s *Service) Watch(ctx context.Context, d idle.Detector, every time.Duratio
 			isIdle, why := s.idlePolicy().Allows(state)
 			s.machineRead(state, isIdle, why)
 			s.act(ctx, isIdle, was)
-			if !isIdle {
-				// A fresh idle window is a fresh chance: whatever refused
-				// last night may have been seen to.
-				askAgain, waited = time.Time{}, 0
-			} else if now := s.now(); !now.Before(askAgain) {
-				if refused := s.begin(ctx); refused != "" {
-					waited = nextAsk(waited, every)
-					askAgain = now.Add(waited)
-				} else {
-					askAgain, waited = time.Time{}, 0
-				}
+			switch {
+			case !isIdle:
+				// A fresh idle window is a fresh chance: whatever refused last
+				// night may have been seen to.
+				ask.reset()
+				// And a Run this daemon started is not one to leave going on a
+				// machine somebody is at, however late it came to be going:
+				// starting takes as long as a Project's setup commands do, and
+				// the machine can change its mind while it does.
+				s.freezeMine(ctx)
+			case attempt == nil && ask.due(s.now()):
+				attempt = make(chan string, 1)
+				go func(c chan string) { c <- s.begin(ctx) }(attempt)
 			}
 			was = &isIdle
+		}
+		if attempt != nil {
+			select {
+			case refusal := <-attempt:
+				attempt = nil
+				if refusal == "" {
+					ask.reset()
+				} else {
+					ask.refused(s.now(), every)
+				}
+			default:
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -96,6 +118,26 @@ func (s *Service) Watch(ctx context.Context, d idle.Detector, every time.Duratio
 		}
 	}
 }
+
+// asking is when the watcher may ask the queue to start something again. What
+// cannot start is waiting for a person, so it is asked about less and less
+// often rather than on every look.
+type asking struct {
+	at     time.Time
+	waited time.Duration
+}
+
+// due reports whether it is time to ask again.
+func (a *asking) due(now time.Time) bool { return !now.Before(a.at) }
+
+// refused records that something refused, and waits longer next time.
+func (a *asking) refused(now time.Time, every time.Duration) {
+	a.waited = nextAsk(a.waited, every)
+	a.at = now.Add(a.waited)
+}
+
+// reset forgets the waiting, so the next look asks.
+func (a *asking) reset() { a.at, a.waited = time.Time{}, 0 }
 
 // nextAsk is how long to wait before asking again after something refused to
 // start, given how long the last wait was: one look, then twice that each time,
@@ -158,6 +200,41 @@ func (s *Service) freeze(ctx context.Context) {
 	}
 }
 
+// mine records that this daemon started that Run itself, because the machine
+// was Idle. The Agent is not running yet when this is called - starting it is
+// the next thing that happens - so what is written down is the Run rather than
+// anything about the process.
+func (s *Service) mine(runID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ours[runID] = true
+}
+
+// freezeMine stops a Run this daemon started that is still going on a machine
+// somebody is at. Nothing is frozen twice, and nothing somebody asked for by
+// hand is frozen at all.
+func (s *Service) freezeMine(ctx context.Context) {
+	if !s.hasMineGoing() {
+		return
+	}
+	if _, err := s.Pause(ctx, ByMachine); err != nil {
+		s.opts.Logger.Warn("a run this daemon started could not be frozen on a machine in use", "error", err)
+	}
+}
+
+// hasMineGoing reports whether a Run this daemon started is going and not
+// frozen.
+func (s *Service) hasMineGoing() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, l := range s.live {
+		if s.ours[id] && !l.paused {
+			return true
+		}
+	}
+	return false
+}
+
 // freezable reports whether there is a Run this daemon could freeze, which is
 // what tells a refusal nobody needs from one somebody does.
 func (s *Service) freezable() bool {
@@ -178,18 +255,25 @@ func (s *Service) thaw(ctx context.Context) {
 	}
 }
 
-// begin starts the Job at the head of the queue, if the daemon is in a
-// position to start anything. It returns what refused, empty when nothing did,
-// which is both what `owl status` says and what makes the watcher wait a while
-// before asking again.
+// begin starts the Job at the head of the queue, if the daemon is in a position
+// to start anything. It returns what refused: empty when nothing did, and empty
+// for a refusal that clears itself. What it returns is both what `owl status`
+// says and what makes the watcher wait before asking again.
 func (s *Service) begin(ctx context.Context) string {
 	job, r, started, err := s.Start(ctx)
 	var refusal *RefusedError
+	var inHand *busyError
 	switch {
 	case started:
 		s.opts.Logger.Info("run started on an idle machine", "run", r.ID, "job", job.ID)
+		s.mine(r.ID)
+	case errors.As(err, &inHand):
+		// The daemon already has work in hand, or is stopping. Nothing is
+		// waiting for a person, so nothing is reported and nothing waits.
+		s.holdingBack("")
+		return ""
 	case errors.Is(err, context.Canceled):
-		// The daemon is stopping, which is not a refusal to report.
+		s.holdingBack("")
 		return ""
 	case errors.As(err, &refusal):
 		// A Job that cannot start is waiting for a person - an Account nobody

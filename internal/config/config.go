@@ -456,6 +456,11 @@ func ParseGlobal(source string, data []byte) (Global, error) {
 	}, nil
 }
 
+// minInterval is as often as Owl will look at the machine. Every look runs the
+// tools that read it, so a configuration asking for oftener than this is
+// asking for a machine spent on watching itself.
+const minInterval = 50 * time.Millisecond
+
 // parseIdle reads the `idle` block: when the machine counts as one nobody is
 // at, and how often Owl looks. A policy that cannot be read is refused rather
 // than quietly replaced with the default, which would have Owl working at a
@@ -483,6 +488,13 @@ func parseIdle(source string, p *idlePolicy) (Idle, error) {
 			return Idle{}, fmt.Errorf(
 				"%s: idle.%s: %s is not a length of time Owl can wait; leave it out for the default",
 				source, what, field.value)
+		}
+		// Looking at the machine costs a look, and looking oftener than this
+		// is a loop rather than a policy.
+		if what == "interval" && d < minInterval {
+			return Idle{}, fmt.Errorf(
+				"%s: idle.interval: %s is oftener than Owl looks at a machine; %s is as often as it goes",
+				source, field.value, minInterval)
 		}
 		*field.into = d
 	}

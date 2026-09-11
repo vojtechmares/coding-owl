@@ -41,8 +41,9 @@ const maxOutput = 256 << 10
 // the keychain is handed every Account's token, and these two are handed
 // nothing and asked a question. An Agent that could put its own `ioreg` on the
 // daemon's PATH runs unsandboxed as the same user already (ADR-0006), so it
-// could as easily write `idle: {after: 0s}` into the configuration; what it
-// would gain is a lie about the machine, not a secret and not a privilege. In
+// could as easily write `idle: {after: 1s, requirePower: false}` into the
+// configuration; what it would gain is a lie about the machine, not a secret
+// and not a privilege. In
 // return, the tools being found the ordinary way is what lets the behaviour
 // suite put a machine of its own in front of them and step away from it.
 type darwin struct{}

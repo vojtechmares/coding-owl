@@ -451,6 +451,7 @@ func TestParseGlobalRefusesAnIdlePolicyThatIsNotOne(t *testing.T) {
 		"idle:\n  after: 0s\n",
 		"idle:\n  interval: never\n",
 		"idle:\n  interval: 0s\n",
+		"idle:\n  interval: 1ms\n",
 	} {
 		_, err := config.ParseGlobal("/somewhere/config.yaml", []byte(
 			"apiVersion: codingowl.dev/v1\n"+body))

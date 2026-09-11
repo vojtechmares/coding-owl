@@ -97,7 +97,24 @@ Given a running daemon, a queued Job, and a machine idle for two seconds on batt
 When the global configuration is given an `idle` policy that machine satisfies
 Then a Run starts without the daemon being restarted, as a changed grace window takes effect without one
 
-### S14 - the app shows whether the machine is idle
+### S14 - the next Job starts as soon as the one before it has ended
+Given two queued Jobs and a machine that stays idle throughout
+When the first Run ends
+Then the second Run starts without waiting on anything
+And while the first is still going, nothing is reported as holding work back: a Run in progress is work happening, not work refused
+
+### S15 - a Run that starts as the machine comes back into use is frozen anyway
+Given a Project whose setup takes a moment, a queued Job, and a machine that has gone idle
+When the machine comes back into use while the Run is still starting
+Then the Run is frozen as soon as it has started, rather than left going on a machine somebody is at
+
+### S16 - freezing does not depend on reading the configuration
+Given a Run the daemon started on an idle machine, and a global configuration that has since stopped parsing
+When the machine comes back into use
+Then the Run is frozen anyway, on the grace window Owl falls back to
+And `owl pause` still refuses, naming the file, because a person can be told and can fix it
+
+### S17 - the app shows whether the machine is idle
 Given the desktop app on a daemon whose machine is idle
 When the app is asked for the overview
 Then it carries the machine's idle state, how long it has been without input, and its power state
