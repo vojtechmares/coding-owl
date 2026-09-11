@@ -210,6 +210,14 @@ func (s *Service) mine(runID int64) {
 	s.ours[runID] = true
 }
 
+// disown forgets that this daemon started that Run, which is what keeps the
+// note from outliving the Run it is about.
+func (s *Service) disown(runID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.ours, runID)
+}
+
 // freezeMine stops a Run this daemon started that is still going on a machine
 // somebody is at. Nothing is frozen twice, and nothing somebody asked for by
 // hand is frozen at all.
@@ -218,6 +226,10 @@ func (s *Service) freezeMine(ctx context.Context) {
 		return
 	}
 	if _, err := s.Pause(ctx, ByMachine); err != nil {
+		if ctx.Err() != nil || s.ctx.Err() != nil {
+			// A daemon on its way out has already asked its Agents to stop.
+			return
+		}
 		s.opts.Logger.Warn("a run this daemon started could not be frozen on a machine in use", "error", err)
 	}
 }
@@ -272,7 +284,10 @@ func (s *Service) begin(ctx context.Context) string {
 		// waiting for a person, so nothing is reported and nothing waits.
 		s.holdingBack("")
 		return ""
-	case errors.Is(err, context.Canceled):
+	case ctx.Err() != nil:
+		// The daemon is stopping. Whatever it was in the middle of - a
+		// Project's setup commands, a rebase - was cut short by that rather
+		// than by anything being wrong.
 		s.holdingBack("")
 		return ""
 	case errors.As(err, &refusal):

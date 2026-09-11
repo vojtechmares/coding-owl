@@ -815,6 +815,10 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 	// down, so that nothing can see it between its Run ending and the Job
 	// being moved on and conclude that it was abandoned.
 	defer s.carry(j.ID, false)
+	// And this daemon stops calling the Run its own, whether or not its Agent
+	// ever became something to reach: the note is taken when the Run starts,
+	// so it is dropped where the Run ends rather than where the Agent does.
+	defer s.disown(r.ID)
 	outcome, reason, code := s.execute(r, req, b)
 	s.closeBroker(r.ID)
 	defer s.setStage(r.ID, "")
