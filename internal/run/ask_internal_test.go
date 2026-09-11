@@ -29,3 +29,35 @@ func TestAskingAgainBacksOffAndIsCapped(t *testing.T) {
 		t.Errorf("a wait of an hour became %s, want it capped at %s", got, maxHold)
 	}
 }
+
+// asking is what the watcher uses to decide whether to ask the queue again.
+func TestAskingWaitsAfterARefusalAndForgetsOnReset(t *testing.T) {
+	now := time.Date(2026, 9, 11, 3, 0, 0, 0, time.UTC)
+	const every = 5 * time.Second
+	a := &asking{}
+
+	if !a.due(now) {
+		t.Error("nothing has refused yet and the watcher is already waiting")
+	}
+
+	a.refused(now, every)
+
+	if a.due(now) {
+		t.Error("something refused and the watcher asked again at once")
+	}
+	if !a.due(now.Add(every)) {
+		t.Errorf("the watcher is still waiting %s after a refusal", every)
+	}
+	// Twice as long the second time, so a refusal that stands is asked about
+	// less and less.
+	a.refused(now, every)
+	if a.due(now.Add(every)) {
+		t.Error("a second refusal did not wait longer than the first")
+	}
+
+	a.reset()
+
+	if !a.due(now) {
+		t.Error("the watcher is still waiting after the reason to wait was forgotten")
+	}
+}

@@ -62,6 +62,7 @@ func (s *Service) track(runID, jobID int64, proc agent.Process) func() {
 			l.window.Stop()
 		}
 		delete(s.live, runID)
+		delete(s.ours, runID)
 	}
 }
 
@@ -80,9 +81,19 @@ func (s *Service) Pause(ctx context.Context, by Freezer) (Run, error) {
 	// How long the Run may stay frozen is read before anything is signalled:
 	// a configuration nobody can read is the caller's mistake, not a reason to
 	// freeze a Run that nothing will then release.
+	//
+	// That holds for a person, who is told and can fix it. It cannot hold for
+	// the machine: refusing there would leave the Agent running on a machine
+	// its user has come back to, for as long as the file stays broken. Owl's
+	// own window is used instead, and said out loud.
 	window, err := s.graceWindow()
 	if err != nil {
-		return Run{}, err
+		if by != ByMachine {
+			return Run{}, err
+		}
+		s.opts.Logger.Warn("freezing on the default grace window: the configuration could not be read",
+			"grace", DefaultGraceWindow, "error", err)
+		window = DefaultGraceWindow
 	}
 
 	s.mu.Lock()
@@ -105,6 +116,11 @@ func (s *Service) Pause(ctx context.Context, by Freezer) (Run, error) {
 		// takes it over, and walking away again will not continue it.
 		if by == ByUser {
 			l.by = ByUser
+			// Nothing was done, but something changed, and a person told their
+			// pause failed would not know that it had taken hold.
+			return Run{}, refused(
+				"run %d is already paused, and will stay paused whatever the machine does; owl resume continues it",
+				runID)
 		}
 		return Run{}, refused("run %d is already paused; owl resume continues it", runID)
 	}
@@ -141,6 +157,11 @@ func (s *Service) Resume(ctx context.Context, by Freezer) (Run, error) {
 	// somebody took deliberately is not the machine's to reverse.
 	if by == ByMachine && l.by == ByUser {
 		return Run{}, refused("run %d was paused with owl pause; owl resume continues it", runID)
+	}
+	// A Run the user continues by hand stops being the machine's to freeze on
+	// its own: they have said they want it going, on the machine they are at.
+	if by == ByUser {
+		delete(s.ours, runID)
 	}
 	if err := l.proc.SignalGroup(syscall.SIGCONT); err != nil {
 		s.opts.Logger.Warn("a run could not be resumed", "run", runID, "error", err)

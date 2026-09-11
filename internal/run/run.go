@@ -178,6 +178,21 @@ func refused(format string, a ...any) error {
 	return &RefusedError{Err: fmt.Errorf(format, a...)}
 }
 
+// busyError is a refusal that clears itself: the daemon already has a Run in
+// hand, or is stopping. It reads as what it says; what it adds is that nobody
+// has to do anything about it, so the watcher neither reports it as what is
+// holding work back nor waits before asking again.
+type busyError struct{ Err error }
+
+func (e *busyError) Error() string { return e.Err.Error() }
+func (e *busyError) Unwrap() error { return e.Err }
+
+// busy is a refusal of that kind, refused like any other to every caller that
+// only wants to know it was one.
+func busy(format string, a ...any) error {
+	return &RefusedError{Err: &busyError{Err: fmt.Errorf(format, a...)}}
+}
+
 // Options is what a Service needs to carry out Jobs.
 type Options struct {
 	// Store holds the Jobs and their Runs.
@@ -261,6 +276,10 @@ type Service struct {
 	// refused to start work on it (ADR-0011).
 	machine Machine
 	holding string
+	// ours is the Runs this daemon started itself because the machine was
+	// Idle. They are the Runs the machine may freeze without being asked; one
+	// somebody started with `owl start` is theirs, not the machine's.
+	ours map[int64]bool
 
 	// carrying is the Jobs this daemon has a Run going for, which is what
 	// makes "no daemon is running it" a question somebody can answer rather
@@ -282,6 +301,7 @@ func NewService(opts Options) *Service {
 		cancel:   cancel,
 		brokers:  map[int64]*broker{},
 		live:     map[int64]*live{},
+		ours:     map[int64]bool{},
 		stages:   map[int64]Stage{},
 		carrying: map[int64]bool{},
 	}
@@ -358,13 +378,13 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	// The flag and the context are set a moment apart, and either of them
 	// means the same thing: nothing new starts now.
 	if s.stopping || s.ctx.Err() != nil {
-		return queue.Job{}, Run{}, false, refused("the daemon is stopping; nothing new is started now")
+		return queue.Job{}, Run{}, false, busy("the daemon is stopping; nothing new is started now")
 	}
 	if r, ok, err := s.opts.Store.RunInProgress(ctx); err != nil {
 		return queue.Job{}, Run{}, false, err
 	} else if ok {
 		return queue.Job{}, Run{}, false,
-			refused("a run for job %d is already in progress; only one agent runs at a time", r.JobID)
+			busy("a run for job %d is already in progress; only one agent runs at a time", r.JobID)
 	}
 	j, ok, err := s.nextRunnable(ctx)
 	if err != nil || !ok {

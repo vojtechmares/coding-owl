@@ -490,6 +490,7 @@ export namespace client {
 	    Exhausted: Job[];
 	    Unfinished: Unfinished[];
 	    Machine: Machine;
+	    Holding: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Overview(source);
@@ -504,6 +505,7 @@ export namespace client {
 	        this.Exhausted = this.convertValues(source["Exhausted"], Job);
 	        this.Unfinished = this.convertValues(source["Unfinished"], Unfinished);
 	        this.Machine = this.convertValues(source["Machine"], Machine);
+	        this.Holding = source["Holding"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -474,7 +474,104 @@ func TestS13IdleAPolicyChangedWhileRunningIsTheOneThatHolds(t *testing.T) {
 	}
 }
 
-func TestS14IdleTheAppShowsWhetherTheMachineIsIdle(t *testing.T) {
+func TestS14IdleTheNextJobStartsWhenTheOneBeforeItEnds(t *testing.T) {
+	b := beatingLayout(t, "")
+	l, m := watching(t, b.l, "")
+	b.l = l
+	daemonUp(t, l)
+	r, first := queuedJob(t, l)
+	addJob(t, l, r.dir, "and then this one", "--no-plan")
+	second := "2"
+	m.away(t)
+	firstRun := waitStarted(t, l, first)
+	b.started(t)
+
+	// A Run in progress is work happening. Nothing is being held back, and
+	// saying otherwise would be reporting a refusal that refused nothing.
+	if said := maybeLine(mustOwl(t, l, "status").stdout, "nothing is running"); said != "" {
+		t.Errorf("status says %q while a run is in progress", said)
+	}
+	// Long enough that a wait growing on every look would have grown past the
+	// moment the Run ends.
+	sleep(4 * time.Second)
+	b.stub.let(t)
+	waitRun(t, l, first, firstRun)
+	ended := time.Now()
+
+	// The machine never stopped being idle, so the queue moves on at the next
+	// look rather than after a wait nothing earned.
+	deadline := ended.Add(10 * time.Second)
+	for time.Now().Before(deadline) && !running(t, l, second) {
+		sleep(50 * time.Millisecond)
+	}
+	if !running(t, l, second) {
+		t.Fatalf("the next job had not started 10s after the run before it ended:\n%s",
+			mustOwl(t, l, "status").stdout)
+	}
+	if waited := time.Since(ended); waited > 1500*time.Millisecond {
+		t.Errorf("the next job started %s after the one before it ended, as though something had refused it",
+			waited.Truncate(time.Millisecond))
+	}
+	b.stub.let(t)
+}
+
+func TestS15IdleARunStartingAsTheMachineReturnsIsFrozen(t *testing.T) {
+	b := beatingLayout(t, "")
+	l, m := watching(t, b.l, "")
+	b.l = l
+	daemonUp(t, l)
+	// Setup that takes a moment, so the machine can change its mind while the
+	// Run is still being got ready.
+	r := checkedProject(t, l, "apiVersion: codingowl.dev/v1\nsetup:\n  - sleep 2\n")
+	job := "1"
+	_ = r
+
+	m.away(t)
+	sleep(300 * time.Millisecond)
+	m.inUse(t)
+
+	run := waitStarted(t, l, job)
+	waitFor(t, "the run to be reported as paused", func() bool {
+		return runRowOf(t, l, job, run).outcome == "paused"
+	})
+	if !b.still(t) {
+		t.Error("the agent's child is still beating on a machine somebody is at")
+	}
+	b.stub.let(t)
+}
+
+func TestS16IdleFreezingDoesNotDependOnReadingTheConfiguration(t *testing.T) {
+	b := beatingLayout(t, "")
+	l, m := watching(t, b.l, "")
+	b.l = l
+	daemonUp(t, l)
+	_, job := queuedJob(t, l)
+	m.away(t)
+	run := waitStarted(t, l, job)
+	b.started(t)
+
+	// The file stops parsing while the Run is going, which is exactly when
+	// giving the machine back matters.
+	globalConfig(t, l, "apiVersion: codingowl.dev/v1\ngraceWindow: soon\n")
+	m.inUse(t)
+
+	// Nothing can be asked of the daemon while its configuration does not
+	// parse, so what says the Run was frozen is the Agent's own child going
+	// quiet - which is what being frozen is.
+	waitFor(t, "the agent's child to stop beating", func() bool { return b.still(t) })
+	_ = run
+	// A person is told, because a person can fix it.
+	res := runOwl(t, l, "pause")
+	if res.code == 0 {
+		t.Errorf("owl pause exited 0 with a configuration that does not parse:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stderr, "graceWindow") {
+		t.Errorf("stderr does not name the setting:\n%s", res.stderr)
+	}
+	b.stub.let(t)
+}
+
+func TestS17IdleTheAppShowsWhetherTheMachineIsIdle(t *testing.T) {
 	l, _ := agentLayout(t, agentScript, 0)
 	l, m := watching(t, l, "")
 	daemonUp(t, l)
@@ -503,11 +600,13 @@ func TestS14IdleTheAppShowsWhetherTheMachineIsIdle(t *testing.T) {
 	}
 
 	// The window shows it, rather than the app merely knowing it.
+	// What is rendered, rather than what is imported: a view that reads the
+	// machine and shows none of it would satisfy the words alone.
 	src := filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src")
 	body := readFile(t, filepath.Join(src, "views", "Overview.tsx"))
-	for _, want := range []string{"Machine", "Idle"} {
+	for _, want := range []string{`title="Machine"`, `label="Idle"`, `label="Last input"`, `label="Power"`} {
 		if !strings.Contains(body, want) {
-			t.Errorf("the overview view does not carry %q", want)
+			t.Errorf("the overview view does not render %s", want)
 		}
 	}
 }
