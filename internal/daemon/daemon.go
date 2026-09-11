@@ -181,6 +181,12 @@ func Run(ctx context.Context, opts Options) error {
 		"state", opts.Paths.StateDir,
 	)
 
+	// Garbage collection asks the daemon what it is carrying, so that an
+	// active Job between its Run ending and the Job being moved on is not
+	// mistaken for one a dead daemon left behind; and it takes the same lock
+	// that serialises deciding a Job's fate (ADR-0015).
+	collector.Decides(runs.Carrying, runs.DisposalLock())
+
 	// Garbage collection runs on start and on an interval, so that disk stays
 	// bounded and nothing quietly rots without anybody asking (ADR-0015). It
 	// is stopped on the way out of this function rather than only when the

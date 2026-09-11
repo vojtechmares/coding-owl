@@ -148,6 +148,23 @@ func (s *Store) SetJobState(ctx context.Context, id int64, state string) error {
 	return s.affectOneJob(ctx, id, `UPDATE jobs SET state = ?, reason = '' WHERE id = ?`, state, id)
 }
 
+// MoveJobState moves a Job from one state to another, and reports whether it
+// was in the state to move from. It is what a caller uses when the state it
+// read and the state it is acting on have to be the same one: a Job somebody
+// else has already decided about is left exactly as they left it.
+func (s *Store) MoveJobState(ctx context.Context, id int64, from, to string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE jobs SET state = ?, reason = '' WHERE id = ? AND state = ?`, to, id, from)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // SetJobAccount records the Account a Job runs on. It is set at the Job's
 // first Run and does not change afterwards, so what a Job drew on stays
 // knowable for its whole life (ADR-0023).

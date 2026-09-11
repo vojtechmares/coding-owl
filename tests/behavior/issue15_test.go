@@ -23,9 +23,9 @@ garbageCollection:
   reviewAfter: 1ns
 `
 
-// sweeping is onDemand for the scenarios about the collection nobody asks for:
+// unasked is onDemand for the scenarios about the collection nobody asks for:
 // there the daemon collects on its own, often.
-const sweeping = `apiVersion: codingowl.dev/v1
+const unasked = `apiVersion: codingowl.dev/v1
 garbageCollection:
   interval: 200ms
   reviewAfter: 1ns
@@ -51,12 +51,12 @@ func patientLayout(t *testing.T) (*layout, *stub) {
 	return l, s
 }
 
-// sweepingLayout is gcLayout with a daemon that collects on its own, for the
+// unaskedLayout is gcLayout with a daemon that collects on its own, for the
 // scenarios about the collection nobody asks for.
-func sweepingLayout(t *testing.T) (*layout, *stub) {
+func unaskedLayout(t *testing.T) (*layout, *stub) {
 	t.Helper()
 	l, s := committingLayout(t)
-	globalConfig(t, l, sweeping)
+	globalConfig(t, l, unasked)
 	return l, s
 }
 
@@ -308,7 +308,9 @@ func TestS11GCReportsAJobLeftActiveByADeadDaemon(t *testing.T) {
 func TestS12StatusListsUnfinishedWork(t *testing.T) {
 	script := []string{agentScript[0], "#wait", agentScript[2]}
 	l, _ := writingLayout(t, map[string]string{"work.txt": "the agent's work\n"}, true, script)
-	globalConfig(t, l, onDemand)
+	// Patient about a decision, so that a Job in review is what awaits one
+	// rather than being unfinished work in its own right.
+	globalConfig(t, l, "apiVersion: codingowl.dev/v1\ngarbageCollection:\n  interval: 24h\n  reviewAfter: 24h\n")
 	p := daemonUp(t, l)
 
 	// A worktree holding changes nobody committed, which is S5's kind.
@@ -321,6 +323,16 @@ func TestS12StatusListsUnfinishedWork(t *testing.T) {
 	r.git("worktree", "add", worktree, line(t, out, "branch"))
 	if err := os.WriteFile(filepath.Join(worktree, "not-committed.txt"), []byte("unfinished\n"), 0o600); err != nil {
 		t.Fatal(err)
+	}
+
+	// A Job merely awaiting a decision, which is not unfinished work.
+	second := newRepo(t, l, "web")
+	addProject(t, l, second)
+	addJob(t, l, second.dir, "waiting", "--no-plan")
+	release(t, l)
+	waitingOut, waiting := finishedJob(t, l)
+	if got := line(t, waitingOut, "state"); got != "review" {
+		t.Fatalf("state = %q, want a job awaiting a decision:\n%s", got, waitingOut)
 	}
 
 	// A Job left active by a daemon that died, which is S11's kind.
@@ -342,6 +354,13 @@ func TestS12StatusListsUnfinishedWork(t *testing.T) {
 	}
 	// What is merely waiting for a person is its own list, and has been since
 	// issue #8; unfinished work is what nothing is going to resolve on its own.
+	awaiting := section(t, status, "awaiting a decision:")
+	if !strings.Contains(awaiting, waiting) {
+		t.Errorf("owl status does not list job %s as awaiting a decision:\n%s", waiting, status)
+	}
+	if strings.Contains(unfinished, "job "+waiting+" ") {
+		t.Errorf("owl status reports a job merely awaiting a decision as unfinished work:\n%s", status)
+	}
 	if strings.Contains(section(t, status, "jobs:"), "unfinished") {
 		t.Errorf("owl status counts unfinished work as a job state:\n%s", status)
 	}
@@ -383,7 +402,7 @@ func TestS14GCRunsWhenTheDaemonStarts(t *testing.T) {
 }
 
 func TestS15GCRunsAgainOnItsInterval(t *testing.T) {
-	l, _ := sweepingLayout(t)
+	l, _ := unaskedLayout(t)
 	daemonUp(t, l)
 
 	// The worktree becomes reclaimable while the daemon is already running, so
@@ -394,7 +413,7 @@ func TestS15GCRunsAgainOnItsInterval(t *testing.T) {
 }
 
 func TestS16GCNeverRunsAnAgent(t *testing.T) {
-	l, s := sweepingLayout(t)
+	l, s := unaskedLayout(t)
 	daemonUp(t, l)
 	// A Job that has run, so the stub has a record and the collections below
 	// have a worktree to reclaim: this is the state S14 and S15 leave behind.
@@ -458,14 +477,4 @@ func waitForGone(t *testing.T, path string) {
 		_, err := os.Stat(path)
 		return err != nil
 	})
-}
-
-// read is a file's contents, for a message about what should not be there.
-func read(t *testing.T, path string) string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return string(data)
 }

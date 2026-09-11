@@ -193,6 +193,12 @@ type Service struct {
 
 	mu      sync.Mutex
 	brokers map[int64]*broker
+
+	// carrying is the Jobs this daemon has a Run going for, which is what
+	// makes "no daemon is running it" a question somebody can answer rather
+	// than a guess from two tables (ADR-0015).
+	carryingMu sync.Mutex
+	carrying   map[int64]bool
 }
 
 // NewService returns a Service. Close it to stop the Agents it started.
@@ -202,11 +208,12 @@ func NewService(opts Options) *Service {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Service{
-		opts:    opts,
-		now:     time.Now,
-		ctx:     ctx,
-		cancel:  cancel,
-		brokers: map[int64]*broker{},
+		opts:     opts,
+		now:      time.Now,
+		ctx:      ctx,
+		cancel:   cancel,
+		brokers:  map[int64]*broker{},
+		carrying: map[int64]bool{},
 	}
 }
 
@@ -387,6 +394,7 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	// empty log it reads as the end of one.
 	b := s.openBroker(r.ID)
 	s.wg.Add(1)
+	s.carry(j.ID, true)
 	go s.carryOut(j, r, phase, req, b, details.Config)
 
 	return queue.FromStore(j), toRun(r), true, nil
@@ -614,6 +622,10 @@ func (s *Service) sendFile(path string, send func(Line) error) (int64, error) {
 // carryOut runs the Agent and records what became of the Job.
 func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Request, b *broker, cfg config.Config) {
 	defer s.wg.Done()
+	// The Job stops being carried only once everything about it is written
+	// down, so that nothing can see it between its Run ending and the Job
+	// being moved on and conclude that it was abandoned.
+	defer s.carry(j.ID, false)
 	outcome, reason, code := s.execute(r, req, b)
 	s.closeBroker(r.ID)
 
@@ -733,6 +745,27 @@ func (s *Service) nextRunnable(ctx context.Context) (store.Job, bool, error) {
 		}
 		s.opts.Logger.Warn("a job out of attempts was still queued", "job", j.ID)
 	}
+}
+
+// carry records whether this daemon has a Run going for a Job.
+func (s *Service) carry(jobID int64, going bool) {
+	s.carryingMu.Lock()
+	defer s.carryingMu.Unlock()
+	if going {
+		s.carrying[jobID] = true
+		return
+	}
+	delete(s.carrying, jobID)
+}
+
+// Carrying reports whether this daemon has a Run going for that Job. Every
+// Agent is a child of the daemon (ADR-0012), so this daemon is the only one
+// that could be, and an active Job it is not carrying is one a dead daemon
+// left behind (ADR-0015).
+func (s *Service) Carrying(jobID int64) bool {
+	s.carryingMu.Lock()
+	defer s.carryingMu.Unlock()
+	return s.carrying[jobID]
 }
 
 // requeue puts a Job back in the queue after a Run that did not finish with

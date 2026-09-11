@@ -449,30 +449,24 @@ func TestCollectWithNoWorktreeDirectoryYetIsNotAFailure(t *testing.T) {
 	}
 }
 
-func TestDescribeSaysWhatIsUnfinishedAboutIt(t *testing.T) {
-	for _, c := range []struct {
-		what gc.Unfinished
-		want []string
-	}{
-		{
-			what: gc.Unfinished{Path: "/worktrees/1", Reason: gc.ReasonUncommitted},
-			want: []string{"/worktrees/1", "committed"},
-		},
-		{
-			what: gc.Unfinished{Job: 7, Reason: gc.ReasonWaiting, Since: 3 * 24 * time.Hour},
-			want: []string{"job 7", "decision", "3 days"},
-		},
-		{
-			what: gc.Unfinished{Job: 9, Reason: gc.ReasonAbandoned, Since: time.Second},
-			want: []string{"job 9", "running", "less than a minute"},
-		},
-	} {
-		got := c.what.Describe()
-		for _, want := range c.want {
-			if !strings.Contains(got, want) {
-				t.Errorf("Describe() = %q, want it to say %q", got, want)
-			}
-		}
+func TestCollectLeavesAWorktreeNamedAfterAJobThatHasNotRecordedItYet(t *testing.T) {
+	f := newFixture(t, func(o *gc.Options) { o.ReviewAfter = time.Hour })
+	// A Run creates the worktree and then records it, so for a moment a live
+	// worktree belongs to a Job that does not yet say so. It is named after
+	// the Job (ADR-0014), which is what says whose it is.
+	j := f.job(t, "a", string(queue.StateActive), false)
+	path := filepath.Join(f.worktreeDir, strconv.FormatInt(j.ID, 10))
+	if err := git.AddWorktree(f.repo, path, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+
+	report := f.collect(t)
+
+	if !there(path) {
+		t.Error("a collection took the worktree of a run that was starting")
+	}
+	if len(report.Reclaimed) != 0 {
+		t.Errorf("reclaimed = %+v, want nothing", report.Reclaimed)
 	}
 }
 
@@ -506,27 +500,6 @@ func TestUnfinishedReportsWithoutCollecting(t *testing.T) {
 	}
 }
 
-func TestCollectLeavesAWorktreeNamedAfterAJobThatHasNotRecordedItYet(t *testing.T) {
-	f := newFixture(t, func(o *gc.Options) { o.ReviewAfter = time.Hour })
-	// A Run creates the worktree and then records it, so for a moment a live
-	// worktree belongs to a Job that does not yet say so. It is named after
-	// the Job (ADR-0014), which is what says whose it is.
-	j := f.job(t, "a", string(queue.StateActive), false)
-	path := filepath.Join(f.worktreeDir, strconv.FormatInt(j.ID, 10))
-	if err := git.AddWorktree(f.repo, path, "owl/job-1", "main"); err != nil {
-		t.Fatalf("AddWorktree: %v", err)
-	}
-
-	report := f.collect(t)
-
-	if !there(path) {
-		t.Error("a collection took the worktree of a run that was starting")
-	}
-	if len(report.Reclaimed) != 0 {
-		t.Errorf("reclaimed = %+v, want nothing", report.Reclaimed)
-	}
-}
-
 func TestCollectLeavesAWorktreeMadeWhileItWasThinking(t *testing.T) {
 	f := newFixture(t, func(o *gc.Options) { o.ReviewAfter = time.Hour })
 	if err := os.MkdirAll(f.worktreeDir, 0o700); err != nil {
@@ -549,5 +522,100 @@ func TestCollectLeavesAWorktreeMadeWhileItWasThinking(t *testing.T) {
 	}
 	if len(report.Reclaimed) != 0 {
 		t.Errorf("reclaimed = %+v, want nothing", report.Reclaimed)
+	}
+}
+
+func TestCollectLeavesAJobTheDaemonIsCarrying(t *testing.T) {
+	f := newFixture(t, func(o *gc.Options) {
+		// The daemon has a Run going for job 1, and has not yet written down
+		// how it ended - which is exactly the moment two tables would say
+		// nothing is running it.
+		o.Carrying = func(jobID int64) bool { return jobID == 1 }
+	})
+	j := f.job(t, "a", string(queue.StateActive), false)
+
+	report := f.collect(t)
+
+	if j.ID != 1 {
+		t.Fatalf("the job is %d, and this test is about job 1", j.ID)
+	}
+	if len(report.Unfinished) != 0 {
+		t.Errorf("unfinished = %+v, want nothing: the daemon is carrying that job", report.Unfinished)
+	}
+}
+
+func TestCollectMeasuresWaitingFromWhenTheJobsRunEnded(t *testing.T) {
+	f := newFixture(t, func(o *gc.Options) { o.ReviewAfter = time.Hour })
+	// A Job produced long ago whose Run ended a moment ago has been waiting
+	// for a decision for a moment, not for as long as it has existed.
+	j := f.job(t, "a", string(queue.StateReview), false)
+	ctx := context.Background()
+	if _, err := f.store.UpsertJob(ctx, store.Job{
+		Source: "local", SourceRef: "a", Project: "api", Prompt: "a",
+		State: string(queue.StateReview), Created: time.Now().Add(-30 * 24 * time.Hour).UTC(),
+	}); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	r, err := f.store.StartRun(ctx, store.Run{JobID: j.ID, Started: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if err := f.store.FinishRun(ctx, r.ID, time.Now().UTC(), "succeeded", "", 0); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+
+	report := f.collect(t)
+
+	if len(report.Unfinished) != 0 {
+		t.Errorf("unfinished = %+v, want nothing: the job has been in review for a moment", report.Unfinished)
+	}
+}
+
+func TestCollectReportsHowLongAJobHasBeenWaiting(t *testing.T) {
+	f := newFixture(t, func(o *gc.Options) { o.ReviewAfter = time.Hour })
+	j := f.job(t, "a", string(queue.StateReview), false)
+	ctx := context.Background()
+	r, err := f.store.StartRun(ctx, store.Run{JobID: j.ID, Started: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	ended := time.Now().Add(-3 * time.Hour).UTC()
+	if err := f.store.FinishRun(ctx, r.ID, ended, "succeeded", "", 0); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+
+	report := f.collect(t)
+
+	if len(report.Unfinished) != 1 {
+		t.Fatalf("unfinished = %+v, want the job that has been waiting three hours", report.Unfinished)
+	}
+	if got := report.Unfinished[0].Since; got < 3*time.Hour || got > 4*time.Hour {
+		t.Errorf("it has been waiting %s, want about three hours", got)
+	}
+}
+
+func TestCollectDoesNotAcceptAJobSomebodyElseDecidedAbout(t *testing.T) {
+	f := newFixture(t, func(o *gc.Options) { o.ReviewAfter = time.Hour })
+	j := f.job(t, "a", string(queue.StateReview), true)
+	gitIn(t, f.repo, "merge", "--no-ff", "-m", "merge the job", j.Branch)
+	// Somebody drops the Job while the collection is between reading the Jobs
+	// and deciding about them.
+	f.svc.Interleave(func() {
+		if err := f.store.DequeueJob(context.Background(), j.ID, string(queue.StateCancelled), ""); err != nil {
+			t.Errorf("DequeueJob: %v", err)
+		}
+	})
+
+	report := f.collect(t)
+
+	after, err := f.store.GetJob(context.Background(), j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if queue.State(after.State) != queue.StateCancelled {
+		t.Errorf("state = %q, want the decision somebody else took", after.State)
+	}
+	if len(report.Accepted) != 0 {
+		t.Errorf("accepted = %+v, want nothing: the job was decided about first", report.Accepted)
 	}
 }
