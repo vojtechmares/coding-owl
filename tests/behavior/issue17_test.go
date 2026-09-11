@@ -60,6 +60,19 @@ func lastArg(t *testing.T, inv invocation) string {
 	return inv.Argv[len(inv.Argv)-1]
 }
 
+// workInvocation is the stub agent's invocation that carried the Job out,
+// which is the one that was not asked for a review.
+func workInvocation(t *testing.T, s *stub) invocation {
+	t.Helper()
+	for _, inv := range s.invocations(t) {
+		if !strings.Contains(strings.Join(inv.Argv, " "), reviewPath) {
+			return inv
+		}
+	}
+	t.Fatalf("the stub agent was only ever asked for a review: %v", s.invocations(t))
+	return invocation{}
+}
+
 // reviewInvocation is the stub agent's invocation that was asked for a review.
 func reviewInvocation(t *testing.T, s *stub) invocation {
 	t.Helper()
@@ -106,7 +119,7 @@ func TestS2ReviewIsASecondSeparateSession(t *testing.T) {
 	if got := len(s.invocations(t)); got != 2 {
 		t.Fatalf("the agent was invoked %d times, want twice: once to work and once to review", got)
 	}
-	worked, reviewed := s.invocations(t)[0], reviewInvocation(t, s)
+	worked, reviewed := workInvocation(t, s), reviewInvocation(t, s)
 	// The stub records the directory it was started in with its symlinks
 	// resolved, which is what /var is on a mac.
 	worktree, err := filepath.EvalSymlinks(line(t, out, "worktree"))
@@ -147,8 +160,16 @@ func TestS3ReviewIsGivenThePlanAndTheDiff(t *testing.T) {
 	// The plan is quoted as the plan: the handoff it came from is also on the
 	// branch, so a prompt that carries the sentence anywhere carries it twice
 	// over and says nothing about what the reviewer was told it was.
-	if planned := quoted(t, prompt, planFence); !strings.Contains(planned, "Add the file and stop.") {
+	planned := quoted(t, prompt, planFence)
+	if !strings.Contains(planned, "Add the file and stop.") {
 		t.Errorf("the reviewer was not given the plan:\n%s", planned)
+	}
+	// The plan, not the diff quoted under the plan's name: the handoff the
+	// plan came from is committed on the branch, so it is in the diff too.
+	for _, notWant := range []string{"diff --git", "work.txt"} {
+		if strings.Contains(planned, notWant) {
+			t.Errorf("what the reviewer was told is the plan carries %q:\n%s", notWant, planned)
+		}
 	}
 	diff := quoted(t, prompt, diffFence)
 	for _, want := range []string{"work.txt", "a line the agent added"} {

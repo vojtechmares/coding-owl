@@ -784,8 +784,11 @@ type DiffSummary struct {
 // The comparison is from the merge base, like DiffStat: what landed on base
 // since the branch left it is not the branch's doing.
 func DiffPatch(dir, base, branch string, max int) (patch string, complete bool, err error) {
-	out, stderr, code, err := run(dir, "diff", "--no-color", "--end-of-options",
-		branchRef(base)+"..."+branchRef(branch))
+	// No external diff driver and no textconv: what a repository's own
+	// .gitattributes asks for is a program to run, and this diff is read by a
+	// daemon nobody is watching rather than by the person who wrote that file.
+	out, stderr, code, err := run(dir, "diff", "--no-color", "--no-ext-diff", "--no-textconv",
+		"--end-of-options", branchRef(base)+"..."+branchRef(branch))
 	if err != nil {
 		return "", false, err
 	}
@@ -796,7 +799,7 @@ func DiffPatch(dir, base, branch string, max int) (patch string, complete bool, 
 		// Cut at the last whole line, so what is carried is a diff as far as
 		// it goes rather than one ending mid-rune or mid-hunk.
 		cut := out[:max]
-		if at := bytes.LastIndexByte(cut, '\n'); at > 0 {
+		if at := bytes.LastIndexByte(cut, '\n'); at >= 0 {
 			cut = cut[:at+1]
 		}
 		return string(cut), false, nil

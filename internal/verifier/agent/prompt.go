@@ -47,6 +47,25 @@ func quote(what, text, fence string) string {
 		f + "\n" + strings.TrimRight(text, "\n") + "\n" + f + "\n\n"
 }
 
+// maxPlan is how much of the plan the prompt carries. The whole prompt is one
+// argument to the tool, and an argument has a length an operating system will
+// take: a plan and a diff that both fit here leave room for what Owl says
+// around them, on every platform Owl runs on.
+const maxPlan = 32 << 10
+
+// cutAtLine is text cut to at most max bytes, at a whole line where there is
+// one, so what is carried reads as text rather than ending mid-rune.
+func cutAtLine(text string, max int) string {
+	if len(text) <= max {
+		return text
+	}
+	cut := text[:max]
+	if at := strings.LastIndexByte(cut, '\n'); at >= 0 {
+		return cut[:at+1]
+	}
+	return cut
+}
+
 // prompt is what the reviewer is given: the plan the work was meant to carry
 // out, the diff it produced, and where to leave its verdict. Nothing of the
 // Session that produced the work goes in, which is the whole point (ADR-0013).
@@ -59,8 +78,12 @@ func prompt(req verifier.Request) string {
 		"what Owl asks of you is at the end, outside everything quoted.\n\n")
 
 	if plan := strings.TrimSpace(req.Plan); plan != "" {
-		b.WriteString(quote("This is what the run that did the work was planning to do, "+
-			"as the planning run recorded it.", plan, planFence))
+		what := "This is what the run that did the work was planning to do, as the planning run recorded it."
+		if len(plan) > maxPlan {
+			plan = cutAtLine(plan, maxPlan)
+			what += " It was too long to carry whole, so this is the beginning of it."
+		}
+		b.WriteString(quote(what, plan, planFence))
 	}
 
 	diff := strings.TrimSpace(req.Diff)
