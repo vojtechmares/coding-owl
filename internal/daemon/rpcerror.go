@@ -30,7 +30,8 @@ func rpcError(err error) error {
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrJobNotFound),
 		errors.Is(err, store.ErrRunNotFound), errors.Is(err, store.ErrAccountNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
-	case errors.As(err, &conflict), errors.Is(err, store.ErrNameTaken):
+	case errors.As(err, &conflict), errors.Is(err, store.ErrNameTaken),
+		errors.Is(err, store.ErrAccountNameTaken):
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.As(err, &invalid), errors.As(err, &unusable), errors.As(err, &unusableAccount),
 		errors.Is(err, store.ErrNotQueued):

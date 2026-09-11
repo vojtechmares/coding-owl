@@ -11,6 +11,11 @@ import (
 // ErrAccountNotFound is returned when no Account carries the name asked for.
 var ErrAccountNotFound = errors.New("no such account")
 
+// ErrAccountNameTaken is returned when an Account of that name is already
+// there. It is its own error rather than the Project one, because the message
+// a user reads has to name what they were adding.
+var ErrAccountNameTaken = errors.New("account name already in use")
+
 // Account is a subscription Owl runs work on, with a tool configuration
 // directory of its own (ADR-0019).
 type Account struct {
@@ -35,15 +40,16 @@ type Account struct {
 // order.
 const accountColumns = `name, driver, config_dir, credential_ref, failover_allowed, created`
 
-// AddAccount records an Account. A name already taken is ErrNameTaken: an
-// Account's name is how a Project asks for it, so two cannot share one.
+// AddAccount records an Account. A name already taken is ErrAccountNameTaken:
+// an Account's name is how a Project asks for it, so two cannot share one, and
+// the name is unique whatever its case.
 func (s *Store) AddAccount(ctx context.Context, a Account) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO accounts (`+accountColumns+`) VALUES (?, ?, ?, ?, ?, ?)`,
 		a.Name, a.Driver, a.ConfigDir, a.CredentialRef, boolToInt(a.FailoverAllowed),
 		a.Created.UTC().Format(timeFormat))
 	if isUniqueViolation(err) {
-		return fmt.Errorf("%w: %s", ErrNameTaken, a.Name)
+		return fmt.Errorf("%w: %s", ErrAccountNameTaken, a.Name)
 	}
 	return err
 }

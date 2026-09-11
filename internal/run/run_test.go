@@ -929,3 +929,34 @@ func TestStartPassesOverAJobWithNoAttemptsLeft(t *testing.T) {
 		t.Errorf("the job with no attempts left is %q, want exhausted", after.State)
 	}
 }
+
+func TestAJobRunsOnTheAccountItRecordedRatherThanTheProjectsCurrentOne(t *testing.T) {
+	ctx := context.Background()
+	d := &fakeDriver{}
+	svc, st, _, root := newVerifiedFixture(t, d, &fakeExecutor{}, &fakeVerifier{})
+	accounts := account.NewService(st, credential.NewFile(filepath.Join(root, "credentials.json")), root)
+	second, err := accounts.Add(ctx, account.AddRequest{Name: "second", Token: "sk-ant-oat01-second"})
+	if err != nil {
+		t.Fatalf("adding the second account: %v", err)
+	}
+	j := queueJob(t, st, "work")
+	// The Job has already run on another Account than the one its Project's
+	// configuration names.
+	if err := st.SetJobAccount(ctx, j.ID, second.Name); err != nil {
+		t.Fatalf("SetJobAccount: %v", err)
+	}
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	awaitState(t, st, j.ID, queue.StateReview)
+
+	// Which Account a Job drew on is stable for its whole life (ADR-0023), so
+	// reconfiguring the Project moves its next Jobs, not this one.
+	if got := d.given().ConfigDir; got != second.ConfigDir {
+		t.Errorf("the run was made in %s, want the account the job recorded, %s", got, second.ConfigDir)
+	}
+	if got := d.given().Token; got != "sk-ant-oat01-second" {
+		t.Errorf("the run drew on %q, want the token of the account the job recorded", got)
+	}
+}

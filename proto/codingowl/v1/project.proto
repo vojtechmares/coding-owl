@@ -43,6 +43,9 @@ message ProjectConfig {
   string source = 1;
   // BranchPrefix is prepended to the branch of every Job in the Project.
   string branch_prefix = 2;
+  // Account names the Account every Job in this Project runs on (ADR-0023).
+  // Empty is a Project that names none, which cannot run until it does.
+  string account = 3;
 }
 
 message AddProjectRequest {

@@ -82,7 +82,7 @@ input instead, for a machine that has one already.`,
 					return err
 				}
 			}
-			token, err := accountToken(cmd, env, d.SetupToken, account.DirFor(env.Paths.DataDir, name), tokenStdin)
+			token, err := accountToken(cmd, env, d.SetupToken, env.Paths.DataDir, name, tokenStdin)
 			if err != nil {
 				return err
 			}
@@ -122,7 +122,8 @@ type setupCommand func(configDir string) (agent.Invocation, error)
 
 // accountToken is the long-lived token to store for an Account: what is on
 // standard input, or what the tool's own setup printed for the user to paste.
-func accountToken(cmd *cobra.Command, env Env, setup setupCommand, configDir string, fromStdin bool) (string, error) {
+func accountToken(cmd *cobra.Command, env Env, setup setupCommand, dataDir, name string, fromStdin bool) (string, error) {
+	configDir := account.DirFor(dataDir, name)
 	if fromStdin {
 		token, err := io.ReadAll(io.LimitReader(env.stdin(), maxToken))
 		if err != nil {
@@ -132,6 +133,13 @@ func accountToken(cmd *cobra.Command, env Env, setup setupCommand, configDir str
 	}
 	inv, err := setup(configDir)
 	if err != nil {
+		return "", err
+	}
+	// The tool writes its whole credential state into that directory
+	// (ADR-0019), so it exists and is the user's alone before the tool runs,
+	// rather than being made at the process umask by whatever gets there
+	// first.
+	if err := account.EnsureDir(dataDir, name); err != nil {
 		return "", err
 	}
 	_, _ = fmt.Fprintf(env.Stdout,

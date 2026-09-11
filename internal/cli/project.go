@@ -126,6 +126,7 @@ so editing one on another branch changes nothing here.`,
 					{"registered", d.Project.Registered.UTC().Format(time.RFC3339)},
 					{"config", source},
 					{"branch prefix", d.Config.BranchPrefix},
+					{"account", orNone(d.Config.Account)},
 				} {
 					_, _ = fmt.Fprintf(env.Stdout, "%s: %s\n", kv[0], kv[1])
 				}

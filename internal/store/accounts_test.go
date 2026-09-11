@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,8 +50,8 @@ func TestAddAccountReadsBackWhatItWasGiven(t *testing.T) {
 	if !got.FailoverAllowed {
 		t.Error("the account does not allow failover, though it was added allowing it")
 	}
-	if !got.Created.Equal(a.Created.Truncate(time.Second)) && got.Created.IsZero() {
-		t.Errorf("the account was created %v, want the time it was given", got.Created)
+	if !got.Created.Equal(a.Created) {
+		t.Errorf("the account was created %v, want the %v it was given", got.Created, a.Created)
 	}
 }
 
@@ -63,8 +64,43 @@ func TestAddAccountRefusesANameThatIsTaken(t *testing.T) {
 
 	err := s.AddAccount(ctx, account("work"))
 
-	if !errors.Is(err, store.ErrNameTaken) {
-		t.Errorf("adding an account twice = %v, want ErrNameTaken", err)
+	if !errors.Is(err, store.ErrAccountNameTaken) {
+		t.Errorf("adding an account twice = %v, want ErrAccountNameTaken", err)
+	}
+	if !strings.Contains(err.Error(), "account") {
+		t.Errorf("the error %q does not say what was already there", err)
+	}
+}
+
+func TestAddAccountRefusesANameThatIsTakenInAnotherCase(t *testing.T) {
+	ctx := context.Background()
+	s := accountStore(t)
+	if err := s.AddAccount(ctx, account("work")); err != nil {
+		t.Fatalf("AddAccount: %v", err)
+	}
+
+	err := s.AddAccount(ctx, account("Work"))
+
+	// The name becomes a directory, and macOS does not tell the two apart.
+	if !errors.Is(err, store.ErrAccountNameTaken) {
+		t.Errorf("adding Work beside work = %v, want ErrAccountNameTaken", err)
+	}
+}
+
+func TestGetAccountFindsItWhateverTheCase(t *testing.T) {
+	ctx := context.Background()
+	s := accountStore(t)
+	if err := s.AddAccount(ctx, account("work")); err != nil {
+		t.Fatalf("AddAccount: %v", err)
+	}
+
+	got, err := s.GetAccount(ctx, "WORK")
+
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if got.Name != "work" {
+		t.Errorf("GetAccount = %q, want the account as it was named", got.Name)
 	}
 }
 

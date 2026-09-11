@@ -245,8 +245,15 @@ func TestS5AccountAddRefusesANameThatIsTaken(t *testing.T) {
 	if res.code == 0 {
 		t.Fatalf("adding an account twice exited 0\nstdout:\n%s", res.stdout)
 	}
-	if !strings.Contains(res.stderr, "work") {
-		t.Errorf("stderr does not name the account:\n%s", res.stderr)
+	// Naming the account is not saying what is wrong with it, and the message
+	// a user reads has to be about the account rather than about a project.
+	for _, want := range []string{"work", "account", "already in use"} {
+		if !strings.Contains(res.stderr, want) {
+			t.Errorf("stderr does not say %q:\n%s", want, res.stderr)
+		}
+	}
+	if strings.Contains(res.stderr, "project") {
+		t.Errorf("stderr talks about a project:\n%s", res.stderr)
 	}
 	if rows := accountRows(t, l); len(rows) != 1 {
 		t.Errorf("owl account list reports %d accounts, want the one that was added", len(rows))
@@ -343,9 +350,11 @@ func TestS10AProjectThatNamesNoAccountRefusesToStart(t *testing.T) {
 	if res.code == 0 {
 		t.Fatalf("owl start for a project with no account exited 0\nstdout:\n%s", res.stdout)
 	}
-	for _, want := range []string{"api", "account"} {
+	// Saying what is missing is half of it; the other half is how to give the
+	// project one.
+	for _, want := range []string{"api", "names no account", "account: ", "owl account list"} {
 		if !strings.Contains(res.stderr, want) {
-			t.Errorf("stderr does not name %q:\n%s", want, res.stderr)
+			t.Errorf("stderr does not say %q:\n%s", want, res.stderr)
 		}
 	}
 	out := mustOwl(t, l, "jobs", "show", "1").stdout
@@ -474,10 +483,15 @@ func TestS16AnAccountRecordsWhetherFailoverIsAllowed(t *testing.T) {
 const harnessAccount = "owl"
 
 // runsOn gives a Project an Account to run on: the harness Account, added to
-// the layout if it is not there yet, and named in the Project's configuration
-// on its base branch. A Project whose configuration already names one is left
+// the layout if it is not there yet, and named in the configuration in force
+// for the Project. A Project whose configuration already names one is left
 // alone.
-func runsOn(t *testing.T, l *layout, r *repo) {
+//
+// A Project that carries a configuration file has the account added to it, on
+// its base branch where the daemon reads it. A Project that carries none is
+// given the per-Project fallback file of ADR-0014 instead, so that a scenario
+// whose Project has no configuration file still has none.
+func runsOn(t *testing.T, l *layout, r *repo, name string) {
 	t.Helper()
 	if !hasAccount(t, l, harnessAccount) {
 		addAccount(t, l, harnessAccount, testToken)
@@ -489,10 +503,24 @@ func runsOn(t *testing.T, l *layout, r *repo) {
 		}
 	}
 	if strings.TrimSpace(body) == "" {
-		body = "apiVersion: codingowl.dev/v1\n"
+		projectConfig(t, l, name, "apiVersion: codingowl.dev/v1\naccount: "+harnessAccount+"\n")
+		return
 	}
 	r.commit(".coding-owl.yaml", strings.TrimRight(body, "\n")+"\naccount: "+harnessAccount+"\n",
 		"run on the "+harnessAccount+" account")
+}
+
+// projectConfig writes the per-Project fallback configuration file, which the
+// daemon reads for a Project whose repository carries none (ADR-0014).
+func projectConfig(t *testing.T, l *layout, name, body string) {
+	t.Helper()
+	dir := filepath.Join(l.config, "coding-owl", name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // hasAccount reports whether the layout already has that Account.

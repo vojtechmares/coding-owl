@@ -53,6 +53,7 @@ func (s *projectService) GetProject(ctx context.Context, req *connect.Request[co
 		Config: &codingowlv1.ProjectConfig{
 			Source:       d.ConfigSource,
 			BranchPrefix: d.Config.BranchPrefix,
+			Account:      d.Config.Account,
 		},
 	}), nil
 }

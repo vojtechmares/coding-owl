@@ -103,7 +103,10 @@ type ProjectConfig struct {
 	// was found and the defaults apply.
 	Source string `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	// BranchPrefix is prepended to the branch of every Job in the Project.
-	BranchPrefix  string `protobuf:"bytes,2,opt,name=branch_prefix,json=branchPrefix,proto3" json:"branch_prefix,omitempty"`
+	BranchPrefix string `protobuf:"bytes,2,opt,name=branch_prefix,json=branchPrefix,proto3" json:"branch_prefix,omitempty"`
+	// Account names the Account every Job in this Project runs on (ADR-0023).
+	// Empty is a Project that names none, which cannot run until it does.
+	Account       string `protobuf:"bytes,3,opt,name=account,proto3" json:"account,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -148,6 +151,13 @@ func (x *ProjectConfig) GetSource() string {
 func (x *ProjectConfig) GetBranchPrefix() string {
 	if x != nil {
 		return x.BranchPrefix
+	}
+	return ""
+}
+
+func (x *ProjectConfig) GetAccount() string {
+	if x != nil {
+		return x.Account
 	}
 	return ""
 }
@@ -730,10 +740,11 @@ const file_codingowl_v1_project_proto_rawDesc = "" +
 	"baseBranch\x12:\n" +
 	"\n" +
 	"registered\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"registered\"L\n" +
+	"registered\"f\n" +
 	"\rProjectConfig\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12#\n" +
-	"\rbranch_prefix\x18\x02 \x01(\tR\fbranchPrefix\"\\\n" +
+	"\rbranch_prefix\x18\x02 \x01(\tR\fbranchPrefix\x12\x18\n" +
+	"\aaccount\x18\x03 \x01(\tR\aaccount\"\\\n" +
 	"\x11AddProjectRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
