@@ -345,6 +345,11 @@ func (a *App) SendTo(conversation int64, provider, model, text string) (int64, e
 		}
 		return conversation, err
 	case <-ctx.Done():
+		select {
+		case id := <-opened:
+			return id, nil
+		default:
+		}
 		return conversation, ctx.Err()
 	}
 }

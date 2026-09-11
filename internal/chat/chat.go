@@ -177,6 +177,12 @@ func (s *Service) AddProvider(ctx context.Context, name, key, baseURL string, mo
 			_ = s.creds.Delete(ctx, ref)
 		case had != "":
 			_ = s.creds.Set(ctx, ref, had)
+		default:
+			// The key it had could not be read, so there is nothing to put
+			// back. That leaves it reaching models with the new one, which the
+			// user is told rather than left to find out.
+			return Config{}, fmt.Errorf("%w; %s is configured as it was but now "+
+				"reaches models with the new key", err, name)
 		}
 		return Config{}, err
 	}
@@ -290,6 +296,11 @@ func checkBaseURL(raw string) error {
 	}
 	if at.Host == "" {
 		return invalid("the base url %q names no host", raw)
+	}
+	// A url that carries a name and password would put them in the database
+	// and in a listing, which is not where a credential lives (ADR-0019).
+	if at.User != nil {
+		return invalid("the base url carries a name or a password; a provider's key is configured with --key-stdin")
 	}
 	return nil
 }

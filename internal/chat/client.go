@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -140,7 +141,8 @@ func post(ctx context.Context, c *http.Client, url string, header map[string]str
 		// What a provider says about a refusal is worth reading, but it is
 		// somebody else's text: only the beginning of it is carried.
 		message, _ := io.ReadAll(io.LimitReader(res.Body, 2<<10))
-		return nil, fmt.Errorf("%s said %s: %s", url, res.Status, strings.TrimSpace(string(message)))
+		return nil, fmt.Errorf("%s said %s: %s", reachedAt(url), res.Status,
+			strings.TrimSpace(string(message)))
 	}
 	return res, nil
 }
@@ -167,4 +169,14 @@ func events(body io.Reader, on func(data []byte) error) error {
 		}
 	}
 	return sc.Err()
+}
+
+// reachedAt is where a request went, as a message may say it: what a url
+// carries beyond that is the user's own text, and an error is shown.
+func reachedAt(raw string) string {
+	at, err := neturl.Parse(raw)
+	if err != nil {
+		return "the provider"
+	}
+	return at.Scheme + "://" + at.Host + at.Path
 }

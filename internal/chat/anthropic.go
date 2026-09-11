@@ -117,62 +117,34 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, emit func(str
 }
 
 // anthropicMessages is the conversation as that API takes it: text, tool calls
-// and tool results are all content blocks on a turn.
-//
-// That API takes a conversation that starts with the user, so the shape is
-// made here rather than assumed. A conversation cut to its most recent turns
-// can start with an answer, and an answer that never arrived leaves two
-// questions in a row; neither is the user's doing, and neither may lose them
-// the conversation.
+// and tool results are all content blocks on a turn. It arrives in the shape
+// that API requires - starting with the user, one turn to a role - because
+// open shapes it there, for every provider.
 func anthropicMessages(turns []Turn) []map[string]any {
 	out := make([]map[string]any, 0, len(turns))
-	// Calls on a turn dropped for starting the conversation, so their results
-	// are not carried on to a call that is no longer there.
-	dropped := map[string]bool{}
 	for _, t := range turns {
-		if len(out) == 0 && t.Role != RoleUser {
-			for _, call := range t.ToolCalls {
-				dropped[call.ID] = true
-			}
-			continue
+		var content []map[string]any
+		if strings.TrimSpace(t.Text) != "" {
+			content = append(content, map[string]any{"type": "text", "text": t.Text})
 		}
-		content := anthropicContent(t, dropped)
+		for _, call := range t.ToolCalls {
+			content = append(content, map[string]any{
+				"type": "tool_use", "id": call.ID, "name": call.Name,
+				"input": json.RawMessage(orEmptyObject(string(call.Input))),
+			})
+		}
+		for _, result := range t.ToolResults {
+			content = append(content, map[string]any{
+				"type": "tool_result", "tool_use_id": result.CallID,
+				"content": result.Text, "is_error": result.Failed,
+			})
+		}
 		if len(content) == 0 {
-			continue
-		}
-		// Two turns of one role are one turn: what the user said while nothing
-		// answered is still what the user said.
-		if last := len(out) - 1; last >= 0 && out[last]["role"] == t.Role {
-			out[last]["content"] = append(out[last]["content"].([]map[string]any), content...)
 			continue
 		}
 		out = append(out, map[string]any{"role": t.Role, "content": content})
 	}
 	return out
-}
-
-// anthropicContent is one turn's content blocks.
-func anthropicContent(t Turn, dropped map[string]bool) []map[string]any {
-	var content []map[string]any
-	if strings.TrimSpace(t.Text) != "" {
-		content = append(content, map[string]any{"type": "text", "text": t.Text})
-	}
-	for _, call := range t.ToolCalls {
-		content = append(content, map[string]any{
-			"type": "tool_use", "id": call.ID, "name": call.Name,
-			"input": json.RawMessage(orEmptyObject(string(call.Input))),
-		})
-	}
-	for _, result := range t.ToolResults {
-		if dropped[result.CallID] {
-			continue
-		}
-		content = append(content, map[string]any{
-			"type": "tool_result", "tool_use_id": result.CallID,
-			"content": result.Text, "is_error": result.Failed,
-		})
-	}
-	return content
 }
 
 // orEmptyObject is arguments as JSON, for a call the model sent none for.
