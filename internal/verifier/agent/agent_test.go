@@ -351,7 +351,7 @@ func TestVerifyRefusesAVerdictThatIsALinkToSomewhereElse(t *testing.T) {
 	}
 	d, e := &fakeDriver{}, &fakeExecutor{link: secret}
 
-	results, _, err := review(t, d, e, verifier.Request{})
+	results, worktree, err := review(t, d, e, verifier.Request{})
 	got := only(t, results, err)
 
 	if got.Passed {
@@ -362,6 +362,11 @@ func TestVerifyRefusesAVerdictThatIsALinkToSomewhereElse(t *testing.T) {
 	}
 	if _, statErr := os.Stat(secret); statErr != nil {
 		t.Errorf("what the link pointed at was removed: %v", statErr)
+	}
+	// The link itself is Owl's to take away, like any verdict: one left
+	// behind is a worktree git reports as dirty (ADR-0015).
+	if _, statErr := os.Lstat(filepath.Join(worktree, agent.VerdictPath)); statErr == nil {
+		t.Error("the link the agent left was not taken away")
 	}
 }
 
