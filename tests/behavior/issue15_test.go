@@ -13,22 +13,31 @@ import (
 	"time"
 )
 
-// collecting is the daemon configuration these scenarios share: collect often,
-// and report a Job that has waited any time at all for a decision, so that
-// nothing in the suite waits on a clock.
-const collecting = `apiVersion: codingowl.dev/v1
+// onDemand is the daemon configuration the scenarios about `owl gc` share: it
+// reports a Job that has waited any time at all for a decision, so that
+// nothing waits on a clock, and it collects only when asked, so that nothing
+// collects behind the scenario's back.
+const onDemand = `apiVersion: codingowl.dev/v1
+garbageCollection:
+  interval: 24h
+  reviewAfter: 1ns
+`
+
+// sweeping is onDemand for the scenarios about the collection nobody asks for:
+// there the daemon collects on its own, often.
+const sweeping = `apiVersion: codingowl.dev/v1
 garbageCollection:
   interval: 200ms
   reviewAfter: 1ns
 `
 
 // gcLayout is a layout whose stub agent commits a file and whose daemon
-// collects often. The Agent commits, so a Job in review has work on its branch
-// and a worktree worth reclaiming.
+// collects only when asked. The Agent commits, so a Job in review has work on
+// its branch and a worktree worth reclaiming.
 func gcLayout(t *testing.T) (*layout, *stub) {
 	t.Helper()
 	l, s := committingLayout(t)
-	globalConfig(t, l, collecting)
+	globalConfig(t, l, onDemand)
 	return l, s
 }
 
@@ -38,7 +47,16 @@ func gcLayout(t *testing.T) (*layout, *stub) {
 func patientLayout(t *testing.T) (*layout, *stub) {
 	t.Helper()
 	l, s := committingLayout(t)
-	globalConfig(t, l, "apiVersion: codingowl.dev/v1\ngarbageCollection:\n  interval: 200ms\n  reviewAfter: 24h\n")
+	globalConfig(t, l, "apiVersion: codingowl.dev/v1\ngarbageCollection:\n  interval: 24h\n  reviewAfter: 24h\n")
+	return l, s
+}
+
+// sweepingLayout is gcLayout with a daemon that collects on its own, for the
+// scenarios about the collection nobody asks for.
+func sweepingLayout(t *testing.T) (*layout, *stub) {
+	t.Helper()
+	l, s := committingLayout(t)
+	globalConfig(t, l, sweeping)
 	return l, s
 }
 
@@ -170,7 +188,9 @@ func TestS6GCLeavesAWorktreeWhoseJobIsStillGoing(t *testing.T) {
 	if _, err := os.Stat(worktree); err != nil {
 		t.Errorf("the worktree of a job in review went: %v", err)
 	}
-	if strings.Contains(section(t, out, "reclaimed:"), worktree) {
+	// A heading that is not there is the strongest possible form of "it was
+	// not reclaimed", so this reads the section only when there is one.
+	if strings.Contains(out, "reclaimed:") && strings.Contains(section(t, out, "reclaimed:"), worktree) {
 		t.Errorf("owl gc reclaimed the worktree of job %s, which is still in review:\n%s", job, out)
 	}
 }
@@ -261,7 +281,7 @@ func TestS10GCReportsAJobWaitingTooLongForADecision(t *testing.T) {
 func TestS11GCReportsAJobLeftActiveByADeadDaemon(t *testing.T) {
 	script := []string{agentScript[0], "#wait", agentScript[2]}
 	l, _ := agentLayout(t, script, 0)
-	globalConfig(t, l, collecting)
+	globalConfig(t, l, onDemand)
 	p := daemonUp(t, l)
 	runnableJob(t, l, "work")
 	_, job := startRun(t, l)
@@ -292,8 +312,15 @@ func TestS12StatusListsUnfinishedWork(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(worktree, "not-committed.txt"), []byte("unfinished\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r, waiting, _, _ := reviewed(t, l)
-	_ = r
+	// A second Project, because the first one's Job has been disposed of and
+	// what awaits a decision has to be a Job of its own.
+	second := newRepo(t, l, "web")
+	addProject(t, l, second)
+	addJob(t, l, second.dir, "waiting", "--no-plan")
+	out, waiting := finishedJob(t, l)
+	if got := line(t, out, "state"); got != "review" {
+		t.Fatalf("state = %q, want a job awaiting a decision:\n%s", got, out)
+	}
 
 	status := mustOwl(t, l, "status").stdout
 
@@ -328,6 +355,8 @@ func TestS13GCWithNothingToDoSaysSo(t *testing.T) {
 }
 
 func TestS14GCRunsWhenTheDaemonStarts(t *testing.T) {
+	// A daemon that collects only when asked, so that what reclaims the
+	// worktree is this scenario's restart and nothing else.
 	l, _ := gcLayout(t)
 	d := daemonUp(t, l)
 	_, _, worktree := disposedWithItsWorktreeBack(t, l, "accept")
@@ -340,7 +369,7 @@ func TestS14GCRunsWhenTheDaemonStarts(t *testing.T) {
 }
 
 func TestS15GCRunsAgainOnItsInterval(t *testing.T) {
-	l, _ := gcLayout(t)
+	l, _ := sweepingLayout(t)
 	daemonUp(t, l)
 
 	// The worktree becomes reclaimable while the daemon is already running, so
@@ -351,7 +380,7 @@ func TestS15GCRunsAgainOnItsInterval(t *testing.T) {
 }
 
 func TestS16GCNeverRunsAnAgent(t *testing.T) {
-	l, s := gcLayout(t)
+	l, s := sweepingLayout(t)
 	daemonUp(t, l)
 	r := project(t, l, "api")
 	stray := worktreeDir(l, "999")

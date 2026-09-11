@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package codingowl.v1;
+
+import "google/protobuf/duration.proto";
+
+// GarbageCollectionService runs the task that keeps the worktrees honest
+// (ADR-0015): it reclaims what nothing needs any more, prunes what git is
+// still counting, accepts a Job whose work is already in the base branch, and
+// reports - rather than removes - what somebody has not finished with. The
+// daemon runs it on start and on an interval; this is the same task on demand.
+service GarbageCollectionService {
+  // Collect runs one collection and reports what it did.
+  rpc Collect(CollectRequest) returns (CollectResponse) {}
+}
+
+// UnfinishedReason says what is unfinished about a piece of unfinished work.
+enum UnfinishedReason {
+  UNFINISHED_REASON_UNSPECIFIED = 0;
+  // UNFINISHED_REASON_UNCOMMITTED is a worktree holding changes nobody has
+  // committed. Reclaiming it would destroy them.
+  UNFINISHED_REASON_UNCOMMITTED = 1;
+  // UNFINISHED_REASON_WAITING is a Job that has waited for a decision longer
+  // than the daemon's threshold.
+  UNFINISHED_REASON_WAITING = 2;
+  // UNFINISHED_REASON_ABANDONED is a Job left active by a daemon that died.
+  UNFINISHED_REASON_ABANDONED = 3;
+}
+
+// Unfinished is one piece of work garbage collection will not touch and
+// somebody has to decide about.
+message Unfinished {
+  // JobId is the Job it belongs to, zero for a worktree belonging to none.
+  int64 job_id = 1;
+  // Project is the Project it belongs to, empty when nothing says.
+  string project = 2;
+  // Path is the worktree it is about, empty when it is about a Job rather than
+  // a directory.
+  string path = 3;
+  // Reason says what is unfinished about it.
+  UnfinishedReason reason = 4;
+  // Since is how long it has been that way, unset for what has no clock on it.
+  google.protobuf.Duration since = 5;
+}
+
+// Reclaimed is one worktree garbage collection took back.
+message Reclaimed {
+  // JobId is the Job it belonged to, zero for a worktree belonging to none.
+  int64 job_id = 1;
+  // Path is where it was.
+  string path = 2;
+  // Why says what made it reclaimable, in the words a user reads.
+  string why = 3;
+}
+
+// Accepted is one Job garbage collection finished on the user's behalf,
+// because its work is already in the Project's base branch.
+message Accepted {
+  int64 job_id = 1;
+  string branch = 2;
+  string base = 3;
+}
+
+message CollectRequest {}
+
+message CollectResponse {
+  repeated Reclaimed reclaimed = 1;
+  repeated Accepted accepted = 2;
+  // Pruned is the Projects whose stale worktree entries were cleared.
+  repeated string pruned = 3;
+  repeated Unfinished unfinished = 4;
+}

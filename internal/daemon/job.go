@@ -164,6 +164,7 @@ func (s *jobService) GetOverview(ctx context.Context, _ *connect.Request[codingo
 	for _, j := range o.Exhausted {
 		res.Exhausted = append(res.Exhausted, toJobProto(j))
 	}
+	res.Unfinished = toUnfinishedProto(o.Unfinished)
 	return connect.NewResponse(res), nil
 }
 

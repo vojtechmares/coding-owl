@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/vojtechmares/coding-owl/internal/gc"
 	"github.com/vojtechmares/coding-owl/internal/git"
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/store"
@@ -30,6 +31,10 @@ type Overview struct {
 	Awaiting  []queue.Job
 	Blocked   []queue.Job
 	Exhausted []queue.Job
+	// Unfinished is what garbage collection found and would not touch: it is
+	// collected here rather than stored, so that owl status reports what is
+	// true now rather than what was true at the last collection.
+	Unfinished []gc.Unfinished
 }
 
 // Accept finishes a Job whose work is wanted: the branch stays where it is and
@@ -186,6 +191,14 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	running, err := s.opts.Store.ListRunsInProgress(ctx)
 	if err != nil {
 		return Overview{}, err
+	}
+	// What garbage collection would report is read here rather than remembered
+	// from the last collection, so that owl status answers about now (ADR-0015).
+	if s.opts.Collector != nil {
+		out.Unfinished, err = s.opts.Collector.Unfinished(ctx)
+		if err != nil {
+			return Overview{}, err
+		}
 	}
 	for _, r := range running {
 		j, ok := byID[r.JobID]

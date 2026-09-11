@@ -204,6 +204,84 @@ func WorktreeIsClean(path string) (bool, error) {
 	return strings.TrimSpace(string(out)) == "", nil
 }
 
+// BranchIsIn reports whether branch is contained in base: every commit on it
+// is already on the base branch. That is what Owl reads as the user having
+// merged a Job's work through their own git tooling, which is an implicit
+// accept (ADR-0015).
+//
+// A branch that never carried a commit of its own is contained trivially,
+// which is the right answer: there is nothing on it for the base branch to be
+// missing.
+func BranchIsIn(dir, branch, base string) (bool, error) {
+	// Both are addressed as refs for the reason branchRef gives, and
+	// --is-ancestor exits 0 for contained, 1 for not, and something else for a
+	// ref it could not read - which is a question that was never answered
+	// rather than an answer of no.
+	_, stderr, code, err := run(dir, "merge-base", "--is-ancestor",
+		"--end-of-options", branchRef(branch), branchRef(base))
+	if err != nil {
+		return false, err
+	}
+	switch code {
+	case 0:
+		return true, nil
+	case 1:
+		return false, nil
+	default:
+		return false, fmt.Errorf("asking whether %s is in %s in %s: %s",
+			branch, base, dir, message(stderr))
+	}
+}
+
+// WorktreePaths is every worktree git is counting for a repository, apart from
+// the repository's own checkout. A path here is one git believes in, whether or
+// not the directory is still there.
+func WorktreePaths(dir string) ([]string, error) {
+	out, stderr, code, err := run(dir, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	if code != 0 {
+		return nil, fmt.Errorf("listing the worktrees of %s: %s", dir, message(stderr))
+	}
+	root, err := Root(dir)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, ln := range strings.Split(string(out), "\n") {
+		path, ok := strings.CutPrefix(ln, "worktree ")
+		if !ok {
+			continue
+		}
+		path = strings.TrimSpace(path)
+		// The first entry is the repository's own checkout, which is not a
+		// worktree anybody asked Owl to make.
+		if path == "" || sameDir(path, root) {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	return paths, nil
+}
+
+// sameDir reports whether two paths name the same directory, following
+// symlinks: /tmp and /private/tmp are the same place on macOS, and git answers
+// with the resolved one.
+func sameDir(a, b string) bool {
+	return resolve(a) == resolve(b)
+}
+
+// resolve cleans a path and follows symlinks, falling back to the path itself
+// when it cannot be resolved - a directory that is gone is still worth
+// comparing by name.
+func resolve(path string) string {
+	if r, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(r)
+	}
+	return filepath.Clean(path)
+}
+
 // PruneWorktrees forgets the administrative files of worktrees whose
 // directories are no longer there, so that git stops reporting a worktree
 // nobody can use.

@@ -25,6 +25,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/credential"
 	"github.com/vojtechmares/coding-owl/internal/driver/claudecode"
 	"github.com/vojtechmares/coding-owl/internal/executor/host"
+	"github.com/vojtechmares/coding-owl/internal/gc"
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/run"
@@ -120,14 +121,22 @@ func Run(ctx context.Context, opts Options) error {
 
 	projects := project.NewService(db, opts.Paths.ConfigDir)
 	accounts := account.NewService(db, creds, opts.Paths.DataDir)
+	worktrees := filepath.Join(opts.Paths.DataDir, worktreesDir)
+	collector := gc.NewService(gc.Options{
+		Store:       db,
+		WorktreeDir: worktrees,
+		ReviewAfter: global.GarbageCollection.ReviewAfter,
+		Logger:      log,
+	})
 	runs := run.NewService(run.Options{
 		Store:       db,
 		Projects:    projects,
 		Accounts:    accounts,
+		Collector:   collector,
 		Driver:      claudecode.New(),
 		Executor:    host.New(),
 		Verifier:    command.New(),
-		WorktreeDir: filepath.Join(opts.Paths.DataDir, worktreesDir),
+		WorktreeDir: worktrees,
 		LogDir:      filepath.Join(opts.Paths.StateDir, logsDir),
 		ConfigPath:  configPath,
 		Logger:      log,
@@ -151,6 +160,9 @@ func Run(ctx context.Context, opts Options) error {
 	mux.Handle(codingowlv1connect.NewAccountServiceHandler(&accountService{
 		accounts: accounts,
 	}))
+	mux.Handle(codingowlv1connect.NewGarbageCollectionServiceHandler(&gcService{
+		gc: collector,
+	}))
 	mux.Handle(codingowlv1connect.NewJobServiceHandler(&jobService{
 		jobs: queue.NewService(db, queue.Local{}),
 		runs: runs,
@@ -168,6 +180,11 @@ func Run(ctx context.Context, opts Options) error {
 		"data", opts.Paths.DataDir,
 		"state", opts.Paths.StateDir,
 	)
+
+	// Garbage collection runs on start and on an interval, so that disk stays
+	// bounded and nothing quietly rots without anybody asking (ADR-0015).
+	collecting := collect(ctx, collector, global.GarbageCollection.Interval, log)
+	defer func() { <-collecting }()
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
@@ -195,6 +212,41 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("shutting down: %w", err)
 	}
 	return nil
+}
+
+// collect runs garbage collection now and then every interval until ctx is
+// done, and returns a channel that closes once it has stopped. A collection
+// that fails is logged and the next one still happens: the task exists to keep
+// the disk bounded, and one bad night must not end it.
+func collect(ctx context.Context, collector *gc.Service, interval time.Duration, log *slog.Logger) <-chan struct{} {
+	if interval <= 0 {
+		interval = gc.DefaultInterval
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			report, err := collector.Collect(ctx)
+			switch {
+			case errors.Is(err, context.Canceled):
+				// The daemon is stopping, which is not a failed collection.
+			case err != nil:
+				log.Error("garbage collection", "error", err)
+			default:
+				log.Info("garbage collection",
+					"reclaimed", len(report.Reclaimed), "accepted", len(report.Accepted),
+					"pruned", len(report.Pruned), "unfinished", len(report.Unfinished))
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return done
 }
 
 // removeStaleSocket unlinks a socket that nothing is listening on, which is

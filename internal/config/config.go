@@ -91,6 +91,20 @@ type Global struct {
 	// `file` (ADR-0019). Empty leaves it to the platform, which is the
 	// keychain where there is one.
 	CredentialStore string
+	// GarbageCollection is how often the task that keeps the worktrees honest
+	// runs, and how long a Job may wait for a decision before it is reported
+	// (ADR-0015). A zero field is one this file does not set.
+	GarbageCollection GarbageCollection
+}
+
+// GarbageCollection is what the daemon's configuration says about the task
+// that reclaims worktrees and reports unfinished work (ADR-0015).
+type GarbageCollection struct {
+	// Interval is how often it runs. Zero leaves it to Owl.
+	Interval time.Duration
+	// ReviewAfter is how long a Job may wait for a decision before it is
+	// reported as unfinished work. Zero leaves it to Owl.
+	ReviewAfter time.Duration
 }
 
 // defaultBranchPrefix is what a Job's branch is prefixed with when no
@@ -114,6 +128,13 @@ type file struct {
 	Checks            []check          `yaml:"checks"`
 	Account           string           `yaml:"account"`
 	CredentialStore   string           `yaml:"credentialStore"`
+	GarbageCollection *garbage         `yaml:"garbageCollection"`
+}
+
+// garbage is the on-disk shape of the `garbageCollection` block.
+type garbage struct {
+	Interval    string `yaml:"interval"`
+	ReviewAfter string `yaml:"reviewAfter"`
 }
 
 // check is the on-disk shape of one entry under `checks`.
@@ -233,7 +254,47 @@ func ParseGlobal(source string, data []byte) (Global, error) {
 	if err != nil {
 		return Global{}, err
 	}
-	return Global{Phases: phases, CredentialStore: strings.TrimSpace(f.CredentialStore)}, nil
+	collection, err := parseGarbageCollection(source, f.GarbageCollection)
+	if err != nil {
+		return Global{}, err
+	}
+	return Global{
+		Phases:            phases,
+		CredentialStore:   strings.TrimSpace(f.CredentialStore),
+		GarbageCollection: collection,
+	}, nil
+}
+
+// parseGarbageCollection reads the `garbageCollection` block, refusing a
+// duration Owl could not act on rather than quietly running on its default.
+func parseGarbageCollection(source string, g *garbage) (GarbageCollection, error) {
+	if g == nil {
+		return GarbageCollection{}, nil
+	}
+	var out GarbageCollection
+	for _, field := range []struct {
+		name string
+		text string
+		into *time.Duration
+	}{
+		{name: "interval", text: g.Interval, into: &out.Interval},
+		{name: "reviewAfter", text: g.ReviewAfter, into: &out.ReviewAfter},
+	} {
+		if strings.TrimSpace(field.text) == "" {
+			continue
+		}
+		d, err := time.ParseDuration(field.text)
+		if err != nil {
+			return GarbageCollection{}, fmt.Errorf("%s: garbageCollection.%s is %q, which is not a length of time: %w",
+				source, field.name, field.text, err)
+		}
+		if d <= 0 {
+			return GarbageCollection{}, fmt.Errorf("%s: garbageCollection.%s is %s; it has to be some time at all",
+				source, field.name, d)
+		}
+		*field.into = d
+	}
+	return out, nil
 }
 
 // parsePhases reads the phases map, refusing a phase nobody runs and a value
