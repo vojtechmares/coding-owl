@@ -117,9 +117,8 @@ func TestAddDoesNotTakeTheSecretOfTheAccountThatIsAlreadyThere(t *testing.T) {
 	f := newFixture(t)
 	f.added(t, "work")
 
-	// The second add replaces the secret before the name collides, so an
-	// Account that refuses to be added twice must not take the first one's
-	// credential with it.
+	// An Account that refuses to be added twice must leave the first one's
+	// credential exactly where it is.
 	_, _ = f.svc.Add(context.Background(), account.AddRequest{Name: "work", Token: "another"})
 
 	got, err := f.creds.Get(context.Background(), account.RefFor("work"))
@@ -297,6 +296,36 @@ func TestRemoveRefusesWhileAJobRecordsTheAccount(t *testing.T) {
 	}
 	if _, err := f.creds.Get(ctx, account.RefFor("work")); err != nil {
 		t.Errorf("a refused removal took the credential anyway: %v", err)
+	}
+}
+
+// stubborn is a credential store that will not let a secret go, so that what
+// Remove says when it cannot take one out can be read.
+type stubborn struct {
+	credential.Store
+	err error
+}
+
+func (s stubborn) Delete(context.Context, string) error { return s.err }
+
+func TestRemoveSaysTheAccountWentEvenWhenItsSecretCouldNot(t *testing.T) {
+	f := newFixture(t)
+	f.added(t, "work")
+	svc := account.NewService(f.store, stubborn{Store: f.creds, err: errors.New("the keychain is locked")}, f.dataDir)
+
+	_, err := svc.Remove(context.Background(), "work")
+
+	if err == nil {
+		t.Fatal("Remove with a credential that could not go = nil, want an error")
+	}
+	for _, want := range []string{"work", "was removed", "by hand"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error %q does not say %q", err, want)
+		}
+	}
+	// The Account is gone either way, which is what the message has to admit.
+	if _, err := f.store.GetAccount(context.Background(), "work"); !errors.Is(err, store.ErrAccountNotFound) {
+		t.Errorf("the account survived: %v", err)
 	}
 }
 

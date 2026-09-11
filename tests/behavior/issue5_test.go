@@ -20,8 +20,13 @@ import (
 	"time"
 )
 
-// smokeEnv enables the smoke test that runs the real Claude Code.
-const smokeEnv = "OWL_SMOKE_CLAUDE"
+// smokeEnv enables the smoke test that runs the real Claude Code, and
+// smokeTokenEnv carries the token it runs on: a Job runs on its Project's
+// Account (ADR-0023), and the real tool needs a real one.
+const (
+	smokeEnv      = "OWL_SMOKE_CLAUDE"
+	smokeTokenEnv = "OWL_SMOKE_CLAUDE_TOKEN"
+)
 
 // agentScript is what the stub agent emits when a scenario does not care what
 // the Agent said, only that it said it.
@@ -809,8 +814,18 @@ func TestSmokeRealClaudeCode(t *testing.T) {
 	if os.Getenv(smokeEnv) == "" {
 		t.Skipf("set %s=1 to run the smoke test against the real Claude Code; it spends tokens", smokeEnv)
 	}
+	token := os.Getenv(smokeTokenEnv)
+	if token == "" {
+		t.Skipf("set %s to a token from `claude setup-token`; the smoke test runs on an account like every other job", smokeTokenEnv)
+	}
 	l := newLayout(t)
+	// The real Claude Code is an Agent like the stub, so this layout runs one
+	// and its Project is given an Account to run on (ADR-0023) - this one,
+	// added before the Project so that the harness does not add its own with a
+	// token the real tool cannot use.
+	l.agent = true
 	daemonUp(t, l)
+	addAccount(t, l, harnessAccount, token)
 	r := project(t, l, "api")
 	addJob(t, l, r.dir,
 		"Write a file called SMOKE.md containing the single word owl, then commit it.", "--no-plan")
