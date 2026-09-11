@@ -90,12 +90,20 @@ type Client interface {
 
 // NewClient is the client for a configured provider.
 func NewClient(p store.ChatProvider, key string) (Client, error) {
-	http := &http.Client{Timeout: requestTimeout}
+	// A redirect is not followed. Go strips `Authorization` across hosts but
+	// not a header a provider invented - Anthropic's key is one - so following
+	// one would hand somebody else's server the key (ADR-0019).
+	hc := &http.Client{
+		Timeout: requestTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	switch p.Name {
 	case Anthropic:
-		return &anthropicClient{key: key, baseURL: orDefault(p.BaseURL, anthropicURL), http: http}, nil
+		return &anthropicClient{key: key, baseURL: orDefault(p.BaseURL, anthropicURL), http: hc}, nil
 	case OpenRouter:
-		return &openAIClient{key: key, baseURL: orDefault(p.BaseURL, openRouterURL), http: http}, nil
+		return &openAIClient{key: key, baseURL: orDefault(p.BaseURL, openRouterURL), http: hc}, nil
 	default:
 		return nil, invalid("%q is not a provider Owl drives", p.Name)
 	}

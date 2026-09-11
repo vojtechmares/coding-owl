@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -128,6 +129,7 @@ func NewService(st Store, creds credential.Store, tools *Tools) *Service {
 // Configuring one that is already there replaces it, which is how a key is
 // rotated.
 func (s *Service) AddProvider(ctx context.Context, name, key, baseURL string, models []string) (Config, error) {
+	var err error
 	name = strings.ToLower(strings.TrimSpace(name))
 	if !known(name) {
 		return Config{}, invalid("%q is not a provider Owl drives; it drives %s",
@@ -139,11 +141,19 @@ func (s *Service) AddProvider(ctx context.Context, name, key, baseURL string, mo
 	if err := checkBaseURL(baseURL); err != nil {
 		return Config{}, err
 	}
-	models, err := checkModels(name, models)
+	models, err = checkModels(name, models)
 	if err != nil {
 		return Config{}, err
 	}
 	ref := credentialRef(name)
+	// Whether this is a first configuration or a rotation decides what happens
+	// if the row cannot be written: a rotation's key is the one the provider
+	// that is still configured uses.
+	_, err = s.store.GetChatProvider(ctx, name)
+	rotating := err == nil
+	if err != nil && !errors.Is(err, store.ErrProviderNotFound) {
+		return Config{}, err
+	}
 	if err := s.creds.Set(ctx, ref, strings.TrimSpace(key)); err != nil {
 		return Config{}, err
 	}
@@ -153,8 +163,11 @@ func (s *Service) AddProvider(ctx context.Context, name, key, baseURL string, mo
 	}
 	if err := s.store.AddChatProvider(ctx, p); err != nil {
 		// The row is what makes the key reachable, so a key without one is
-		// taken back rather than left in the store.
-		_ = s.creds.Delete(ctx, ref)
+		// taken back rather than left in the store - unless a row was already
+		// there, whose provider is still using it.
+		if !rotating {
+			_ = s.creds.Delete(ctx, ref)
+		}
 		return Config{}, err
 	}
 	return asConfig(p), nil
@@ -258,8 +271,15 @@ func checkBaseURL(raw string) error {
 	if raw == "" {
 		return nil
 	}
-	if !strings.HasPrefix(raw, "https://") && !strings.HasPrefix(raw, "http://") {
+	at, err := url.Parse(raw)
+	if err != nil {
+		return invalid("the base url %q is not one: %v", raw, err)
+	}
+	if at.Scheme != "https" && at.Scheme != "http" {
 		return invalid("the base url %q is not http or https", raw)
+	}
+	if at.Host == "" {
+		return invalid("the base url %q names no host", raw)
 	}
 	return nil
 }
@@ -307,7 +327,7 @@ func titleOf(text string) string {
 	if len(title) <= maxTitle {
 		return title
 	}
-	cut := title[:maxTitle]
+	cut := strings.ToValidUTF8(title[:maxTitle], "")
 	if at := strings.LastIndexByte(cut, ' '); at > maxTitle/2 {
 		cut = cut[:at]
 	}

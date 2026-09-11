@@ -6,6 +6,7 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/vojtechmares/coding-owl/internal/account"
+	"github.com/vojtechmares/coding-owl/internal/chat"
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/run"
@@ -24,19 +25,22 @@ func rpcError(err error) error {
 	var unusable *queue.InvalidError
 	var unusableAccount *account.InvalidError
 	var unusableSkill *skill.InvalidError
+	var unusableChat *chat.InvalidError
 	var inUse *account.InUseError
 	var refused *run.RefusedError
 	switch {
 	case errors.As(err, &refused), errors.As(err, &inUse):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrJobNotFound),
-		errors.Is(err, store.ErrRunNotFound), errors.Is(err, store.ErrAccountNotFound):
+		errors.Is(err, store.ErrRunNotFound), errors.Is(err, store.ErrAccountNotFound),
+		errors.Is(err, store.ErrConversationNotFound), errors.Is(err, store.ErrProviderNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.As(err, &conflict), errors.Is(err, store.ErrNameTaken),
 		errors.Is(err, store.ErrAccountNameTaken):
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.As(err, &invalid), errors.As(err, &unusable), errors.As(err, &unusableAccount),
-		errors.As(err, &unusableSkill), errors.Is(err, store.ErrNotQueued):
+		errors.As(err, &unusableSkill), errors.As(err, &unusableChat),
+		errors.Is(err, store.ErrNotQueued):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)

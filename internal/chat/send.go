@@ -14,6 +14,16 @@ import (
 // question, and a daemon nobody is watching must not follow it for ever.
 const maxTurns = 8
 
+// maxAnswer bounds one answer. It is held in memory, written to one row and
+// sent back to the model in every later exchange, so a provider that never
+// stops talking is stopped here.
+const maxAnswer = 256 << 10
+
+// maxHistory bounds what of a conversation is sent to the model: the most
+// recent turns up to this much text. A conversation grows without end, and a
+// request that carried all of it would grow with it.
+const maxHistory = 128 << 10
+
 // systemPrompt is what the model is told it is. It says what the tools are for
 // and, plainly, that it cannot act: the chat proposes nothing and runs nothing
 // in the MVP (ADR-0022).
@@ -31,6 +41,10 @@ type SendRequest struct {
 	Conversation int64
 	// Model is what to say it to, from the configured providers.
 	Model string
+	// Provider is where that model comes from, for a model two providers
+	// offer: overlapping access is expected rather than a problem to solve
+	// (ADR-0022). Empty takes whichever provider offers it.
+	Provider string
 	// Text is what the user said.
 	Text string
 }
@@ -55,13 +69,20 @@ func (s *Service) Send(ctx context.Context, req SendRequest, emit func(Delta) er
 	if text == "" {
 		return 0, invalid("a message needs something to say")
 	}
-	provider, client, err := s.clientFor(ctx, req.Model)
+	provider, client, err := s.clientFor(ctx, req.Model, req.Provider)
 	if err != nil {
 		return 0, err
 	}
 	conversation, history, err := s.open(ctx, req, text)
 	if err != nil {
 		return conversation, err
+	}
+	// Which conversation the answer belongs to is said before any of it
+	// arrives, so a caller that started one knows where the pieces are going.
+	if emit != nil {
+		if err := emit(Delta{Conversation: conversation}); err != nil {
+			return conversation, err
+		}
 	}
 
 	answer, err := s.converse(ctx, client, provider, req.Model, history, conversation, emit)
@@ -78,15 +99,19 @@ func (s *Service) Send(ctx context.Context, req SendRequest, emit func(Delta) er
 }
 
 // clientFor is the provider a model comes from, and a client for it.
-func (s *Service) clientFor(ctx context.Context, model string) (store.ChatProvider, Client, error) {
+func (s *Service) clientFor(ctx context.Context, model, from string) (store.ChatProvider, Client, error) {
 	if strings.TrimSpace(model) == "" {
 		return store.ChatProvider{}, nil, invalid("a message needs a model to send it to")
 	}
+	from = strings.ToLower(strings.TrimSpace(from))
 	providers, err := s.store.ListChatProviders(ctx)
 	if err != nil {
 		return store.ChatProvider{}, nil, err
 	}
 	for _, p := range providers {
+		if from != "" && !strings.EqualFold(p.Name, from) {
+			continue
+		}
 		for _, offered := range p.Models {
 			if offered != model {
 				continue
@@ -102,6 +127,10 @@ func (s *Service) clientFor(ctx context.Context, model string) (store.ChatProvid
 			}
 			return p, client, nil
 		}
+	}
+	if from != "" {
+		return store.ChatProvider{}, nil, invalid(
+			"%s offers no model %q; `owl providers list` says what is configured", from, model)
 	}
 	return store.ChatProvider{}, nil, invalid(
 		"no configured provider offers the model %q; `owl providers list` says what is configured", model)
@@ -138,12 +167,24 @@ func (s *Service) open(ctx context.Context, req SendRequest, text string) (int64
 	if err != nil {
 		return id, nil, err
 	}
-	history := make([]Turn, 0, len(said))
-	for _, m := range said {
-		history = append(history, Turn{Role: m.Role, Text: m.Text})
+	// The most recent turns, oldest first, up to what a request may carry: a
+	// long conversation is still one request.
+	var history []Turn
+	var carried int
+	for at := len(said) - 1; at >= 0; at-- {
+		m := said[at]
+		if carried+len(m.Text) > maxHistory && len(history) > 0 {
+			break
+		}
+		carried += len(m.Text)
+		history = append([]Turn{{Role: m.Role, Text: m.Text}}, history...)
 	}
 	return id, history, nil
 }
+
+// errTooLong stops a provider that will not stop talking. It is Owl's own, so
+// the caller can tell it from what the provider said.
+var errTooLong = errors.New("the answer is longer than Owl will keep")
 
 // converse asks the model, carries out the tools it asks for, and asks again
 // until it has an answer. It returns what the model said, whatever it was that
@@ -159,9 +200,19 @@ func (s *Service) converse(ctx context.Context, client Client, provider store.Ch
 			Messages: history,
 			Tools:    s.tools.Definitions(),
 		}, func(piece string) error {
+			if answer.Len() >= maxAnswer {
+				// The model has said more than Owl will keep. What it says
+				// after this is not shown and not written down, so it is not
+				// carried either.
+				return errTooLong
+			}
 			answer.WriteString(piece)
 			return emit(Delta{Conversation: conversation, Text: piece})
 		})
+		if errors.Is(err, errTooLong) {
+			return answer.String(), fmt.Errorf("%s said more than %d bytes without stopping",
+				provider.Name, maxAnswer)
+		}
 		if err != nil {
 			return answer.String(), fmt.Errorf("%s: %w", provider.Name, err)
 		}

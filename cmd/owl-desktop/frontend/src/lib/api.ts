@@ -73,6 +73,8 @@ export const api = {
     }),
   send: (conversation: number, model: string, text: string): Promise<number> =>
     App.Send(conversation, model, text),
+  sendTo: (conversation: number, provider: string, model: string, text: string): Promise<number> =>
+    App.SendTo(conversation, provider, model, text),
   followLog: (runId: number): Promise<void> => App.FollowLog(runId),
   stopLog: (runId: number): Promise<void> => App.StopLog(runId),
 };

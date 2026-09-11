@@ -109,11 +109,6 @@ func (a *App) call() (context.Context, context.CancelFunc) {
 // daemon to somebody else rather than a request to the daemon.
 const chatTimeout = 10 * time.Minute
 
-// refusalWindow is how long Send waits to see whether the daemon refused the
-// message outright, so that a refusal is an error where the user typed it
-// rather than an event about a conversation that never started.
-const refusalWindow = 2 * time.Second
-
 // fetchTimeout bounds a request that fetches somebody else's repository, which
 // is not a request to the daemon so much as one through it (ADR-0033).
 const fetchTimeout = 5 * time.Minute
@@ -282,44 +277,50 @@ func (a *App) Conversation(id int64) (client.ConversationDetails, error) {
 
 // Send says something in a conversation and streams the answer to the frontend
 // as EventChatDelta events, then EventChatEnd. It returns the conversation the
-// answer belongs to, which is the one the daemon started when none was given,
-// so the frontend knows where the pieces are going before they arrive.
+// answer belongs to, which is the one the daemon started when none was given:
+// the daemon says which that is before any of the answer arrives, and Send
+// waits for that much so the frontend knows where the pieces are going.
 //
-// The answer is streamed rather than returned because it arrives over time;
-// what it ends up saying is in the conversation either way.
+// The answer itself is streamed rather than returned because it arrives over
+// time; what it ends up saying is in the conversation either way.
 func (a *App) Send(conversation int64, model, text string) (int64, error) {
-	ctx, cancel := context.WithTimeout(a.ctx, chatTimeout)
-	// The daemon starts the conversation, so the id is not known until the
-	// first message comes back. It is read once, under the lock, and used for
-	// every event of this answer.
-	id := conversation
-	var mu sync.Mutex
-	started := make(chan struct{})
-	var once sync.Once
-	var sendErr error
+	return a.SendTo(conversation, "", model, text)
+}
 
+// SendTo is Send, naming which provider the model comes from: two providers
+// may offer the same model, and overlapping access is expected rather than a
+// problem to solve (ADR-0022).
+func (a *App) SendTo(conversation int64, provider, model, text string) (int64, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, chatTimeout)
+	// The daemon's first message carries the conversation and nothing else.
+	opened := make(chan int64, 1)
+	failed := make(chan error, 1)
+
+	var announced sync.Once
 	go func() {
 		defer cancel()
-		got, err := a.client.SendMessage(ctx, conversation, model, text, func(delta string) error {
-			mu.Lock()
-			if id == 0 {
-				id = conversation
+		at := conversation
+		_, err := a.client.SendMessage(ctx, client.SendMessageRequest{
+			Conversation: conversation, Model: model, Provider: provider, Text: text,
+		}, func(id int64, delta string) error {
+			// The daemon says which conversation this is before any of the
+			// answer arrives, whether the caller named one or not.
+			if id != 0 {
+				at = id
+				announced.Do(func() { opened <- id })
 			}
-			at := id
-			mu.Unlock()
+			if delta == "" {
+				return nil
+			}
 			a.emit.Emit(EventChatDelta, ChatDelta{ConversationID: at, Text: delta})
 			return nil
 		})
-		mu.Lock()
-		if got != 0 {
-			id = got
-		}
-		at := id
-		mu.Unlock()
 		if err != nil {
-			sendErr = err
+			select {
+			case failed <- err:
+			default:
+			}
 		}
-		once.Do(func() { close(started) })
 		message := ""
 		if err != nil {
 			message = err.Error()
@@ -327,19 +328,17 @@ func (a *App) Send(conversation int64, model, text string) (int64, error) {
 		a.emit.Emit(EventChatEnd, ChatEnd{ConversationID: at, Error: message})
 	}()
 
-	// A message the daemon refuses - a model nobody configured, an empty
-	// conversation - is refused here rather than reported as an event, so the
-	// frontend can say so where the user typed it.
+	// A message the daemon refuses outright - a model nobody configured, a
+	// conversation that is not there - is an error where the user typed it
+	// rather than an event about a conversation that never started.
 	select {
-	case <-started:
-		if sendErr != nil && id == conversation {
-			return id, sendErr
-		}
-	case <-time.After(refusalWindow):
+	case id := <-opened:
+		return id, nil
+	case err := <-failed:
+		return conversation, err
+	case <-ctx.Done():
+		return conversation, ctx.Err()
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	return id, nil
 }
 
 // follow is one log being followed: how to stop it, and whether the

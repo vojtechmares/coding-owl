@@ -831,7 +831,10 @@ type SendMessageRequest struct {
 	// Model is what to say it to, from the configured providers.
 	Model string `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
 	// Text is what the user said.
-	Text          string `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	Text string `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	// Provider is where that model comes from, for a model two providers offer.
+	// Empty takes whichever provider offers it.
+	Provider      string `protobuf:"bytes,4,opt,name=provider,proto3" json:"provider,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -883,6 +886,13 @@ func (x *SendMessageRequest) GetModel() string {
 func (x *SendMessageRequest) GetText() string {
 	if x != nil {
 		return x.Text
+	}
+	return ""
+}
+
+func (x *SendMessageRequest) GetProvider() string {
+	if x != nil {
+		return x.Provider
 	}
 	return ""
 }
@@ -988,11 +998,12 @@ const file_codingowl_v1_chat_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\"\x90\x01\n" +
 	"\x17GetConversationResponse\x12>\n" +
 	"\fconversation\x18\x01 \x01(\v2\x1a.codingowl.v1.ConversationR\fconversation\x125\n" +
-	"\bmessages\x18\x02 \x03(\v2\x19.codingowl.v1.ChatMessageR\bmessages\"g\n" +
+	"\bmessages\x18\x02 \x03(\v2\x19.codingowl.v1.ChatMessageR\bmessages\"\x83\x01\n" +
 	"\x12SendMessageRequest\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\x03R\x0econversationId\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x12\n" +
-	"\x04text\x18\x03 \x01(\tR\x04text\"T\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\x12\x1a\n" +
+	"\bprovider\x18\x04 \x01(\tR\bprovider\"T\n" +
 	"\x13SendMessageResponse\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\x03R\x0econversationId\x12\x14\n" +
 	"\x05delta\x18\x02 \x01(\tR\x05delta2\x93\x05\n" +

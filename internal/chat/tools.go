@@ -96,7 +96,9 @@ func (t *Tools) Call(ctx context.Context, call ToolCall) ToolResult {
 	out := ToolResult{CallID: call.ID}
 	text, err := t.answer(ctx, call)
 	if err != nil {
-		out.Text, out.Failed = err.Error(), true
+		// Why it could not be done is bounded too: it carries what a Project,
+		// a Job or a provider said, which is not Owl's text.
+		out.Text, out.Failed = cut(err.Error(), maxResult), true
 		return out
 	}
 	out.Text = cut(text, maxResult)

@@ -20,7 +20,9 @@ import { Banner, Button, Empty, Panel } from "../components/ui";
 export function Chat() {
   const models = usePoll(() => api.models(), 10000);
   const conversations = usePoll(() => api.conversations(), 5000);
-  const [model, setModel] = useState<string | undefined>(undefined);
+  // A model is chosen with the provider it comes from: two providers may
+  // offer the same model (ADR-0022).
+  const [chosenKey, setChosenKey] = useState<string | undefined>(undefined);
   const [open, setOpen] = useState<number | undefined>(undefined);
   const [said, setSaid] = useState<ChatMessage[]>([]);
   const [answer, setAnswer] = useState("");
@@ -29,7 +31,8 @@ export function Chat() {
   const [text, setText] = useState("");
   const bottom = useRef<HTMLDivElement | null>(null);
 
-  const chosen = model ?? models.data?.[0]?.ID;
+  const offered = models.data ?? [];
+  const chosen = offered.find((m) => `${m.Provider}/${m.ID}` === chosenKey) ?? offered[0];
 
   // What was said in the conversation being read, which the daemon keeps.
   useEffect(() => {
@@ -75,7 +78,7 @@ export function Chat() {
     setWaiting(true);
     setSaid((current) => [...current, { Role: "user", Text: asked, Created: new Date().toISOString() } as ChatMessage]);
     try {
-      const id = await api.send(open ?? 0, chosen, asked);
+      const id = await api.sendTo(open ?? 0, chosen.Provider, chosen.ID, asked);
       setOpen(id);
     } catch (err) {
       setWaiting(false);
@@ -90,9 +93,13 @@ export function Chat() {
       <div className="page-title">
         <h1>Chat</h1>
         <div className="actions">
-          <select value={chosen ?? ""} onChange={(e) => setModel(e.target.value)} disabled={waiting}>
-            {(models.data ?? []).map((m) => (
-              <option key={`${m.Provider}/${m.ID}`} value={m.ID}>
+          <select
+            value={chosen ? `${chosen.Provider}/${chosen.ID}` : ""}
+            onChange={(e) => setChosenKey(e.target.value)}
+            disabled={waiting}
+          >
+            {offered.map((m) => (
+              <option key={`${m.Provider}/${m.ID}`} value={`${m.Provider}/${m.ID}`}>
                 {m.ID} ({m.Provider})
               </option>
             ))}
@@ -104,7 +111,7 @@ export function Chat() {
       </div>
       {models.error ? <Banner>{models.error}</Banner> : null}
       {note ? <Banner>{note}</Banner> : null}
-      {!models.data || models.data.length === 0 ? (
+      {offered.length === 0 ? (
         <Panel>
           <Empty>
             No model provider is configured. Configure one with owl providers add, and its key stays in the

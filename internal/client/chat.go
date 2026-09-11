@@ -120,12 +120,27 @@ func (c *Client) GetConversation(ctx context.Context, id int64) (ConversationDet
 	return out, nil
 }
 
+// SendMessageRequest is one thing said in a conversation.
+type SendMessageRequest struct {
+	// Conversation is the conversation to say it in, and zero starts one.
+	Conversation int64
+	// Model is what to say it to.
+	Model string
+	// Provider is where that model comes from, for a model two providers
+	// offer. Empty takes whichever provider offers it.
+	Provider string
+	// Text is what the user said.
+	Text string
+}
+
 // SendMessage says something in a conversation and calls onDelta for each
-// piece of the answer as it arrives. It returns the conversation the answer
-// belongs to, which is the one the daemon started when none was named.
-func (c *Client) SendMessage(ctx context.Context, conversation int64, model, text string, onDelta func(string) error) (int64, error) {
+// piece of the answer as it arrives, with the conversation it belongs to. It
+// returns that conversation, which is the one the daemon started when none was
+// named.
+func (c *Client) SendMessage(ctx context.Context, req SendMessageRequest, onDelta func(conversation int64, delta string) error) (int64, error) {
+	conversation := req.Conversation
 	stream, err := c.chat.SendMessage(ctx, connect.NewRequest(&codingowlv1.SendMessageRequest{
-		ConversationId: conversation, Model: model, Text: text,
+		ConversationId: req.Conversation, Model: req.Model, Text: req.Text, Provider: req.Provider,
 	}))
 	if err != nil {
 		return conversation, c.wrap(err)
@@ -137,10 +152,13 @@ func (c *Client) SendMessage(ctx context.Context, conversation int64, model, tex
 		if msg.GetConversationId() != 0 {
 			id = msg.GetConversationId()
 		}
-		if delta := msg.GetDelta(); delta != "" && onDelta != nil {
-			if err := onDelta(delta); err != nil {
-				return id, err
-			}
+		if onDelta == nil {
+			continue
+		}
+		// Every piece carries the conversation it belongs to, including the
+		// first message, which carries only that.
+		if err := onDelta(id, msg.GetDelta()); err != nil {
+			return id, err
 		}
 	}
 	if err := stream.Err(); err != nil {

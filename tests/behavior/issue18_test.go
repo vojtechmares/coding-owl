@@ -168,14 +168,20 @@ func chatLayout(t *testing.T, replies ...string) (*layout, *fakeProvider) {
 // key is typed: the app never holds one.
 func addProvider(t *testing.T, l *layout, name, key, baseURL string, models ...string) result {
 	t.Helper()
-	args := []string{"providers", "add", name, "--key", key}
+	args := []string{"providers", "add", name, "--key-stdin"}
 	if baseURL != "" {
 		args = append(args, "--base-url", baseURL)
 	}
 	for _, m := range models {
 		args = append(args, "--model", m)
 	}
-	return mustOwl(t, l, args...)
+	// The key goes in on standard input: an argument is in the shell history
+	// and in what every process on the machine can see (ADR-0019).
+	res := runOwlStdin(t, l, key, args...)
+	if res.code != 0 {
+		t.Fatalf("owl %v exited %d\nstdout:\n%s\nstderr:\n%s", args, res.code, res.stdout, res.stderr)
+	}
+	return res
 }
 
 // chatEvents collects what the app emitted about a conversation.
@@ -236,6 +242,15 @@ func TestS1ChatAProviderIsConfiguredFromTheCLI(t *testing.T) {
 	if strings.Contains(string(database(t, l)), "sk-ant-test") {
 		t.Error("the provider's key is in owl.db")
 	}
+	// Nor is a key taken as an argument, where the shell and every process on
+	// the machine would see it.
+	refused := runOwl(t, l, "providers", "add", "openrouter", "--model", "openai/gpt-5")
+	if refused.code == 0 {
+		t.Fatalf("a provider was configured with no key at all:\n%s", refused.stdout)
+	}
+	if !strings.Contains(refused.stderr, "--key-stdin") {
+		t.Errorf("stderr does not say where a key is read from:\n%s", refused.stderr)
+	}
 }
 
 func TestS2ChatAnOpenRouterProviderCarriesItsModels(t *testing.T) {
@@ -251,7 +266,7 @@ func TestS2ChatAnOpenRouterProviderCarriesItsModels(t *testing.T) {
 			t.Errorf("owl providers list does not report %q:\n%s", want, listed)
 		}
 	}
-	res := runOwl(t, l, "providers", "add", "openrouter", "--key", "sk-or-2")
+	res := runOwlStdin(t, l, "sk-or-2", "providers", "add", "openrouter", "--key-stdin")
 	if res.code == 0 {
 		t.Fatalf("openrouter with no model was accepted:\n%s", res.stdout)
 	}
@@ -385,8 +400,10 @@ func TestS7ChatAConversationIsThereAfterTheAppRestarts(t *testing.T) {
 	if !asked || !answered {
 		t.Errorf("the conversation carries %+v, want what was said and what came back", got.Messages)
 	}
-	if !strings.Contains(string(database(t, l)), "why was job 7 blocked") {
-		t.Error("the conversation is not in owl.db")
+	// What the model said is never the title, so finding it proves the turns
+	// themselves are in the database rather than only the conversation.
+	if !strings.Contains(string(database(t, l)), "It was the tests.") {
+		t.Error("what was said is not in owl.db, so the daemon is keeping it somewhere else")
 	}
 }
 
@@ -433,12 +450,10 @@ func TestS9ChatTheToolsOfferedOnlyRead(t *testing.T) {
 			t.Errorf("the model was not offered %s: %v", want, names)
 		}
 	}
-	for name := range names {
-		for _, forbidden := range []string{"run", "exec", "command", "shell", "write", "delete", "start", "cancel"} {
-			if strings.Contains(name, forbidden) && name != "read_run_log" {
-				t.Errorf("the model was offered %q, which is not a tool that only reads", name)
-			}
-		}
+	// Exactly those five: a tool that acts is one more, whatever it is called,
+	// and a blocklist of words would not catch `accept_job`.
+	if len(names) != 5 {
+		t.Errorf("the model was offered %v, want only the five that read", names)
 	}
 }
 
@@ -476,7 +491,13 @@ checks:
 }
 
 func TestS11ChatARunsLogIsAnsweredBounded(t *testing.T) {
-	l, _ := agentLayout(t, agentScript, 0)
+	// A log long enough that carrying all of it is a choice, and every line of
+	// it different, so the end of it is not the beginning.
+	script := make([]string, 0, 2000)
+	for at := range 2000 {
+		script = append(script, fmt.Sprintf(`{"type":"assistant","message":"line %04d of what it printed"}`, at))
+	}
+	l, _ := agentLayout(t, script, 0)
 	daemonUp(t, l)
 	checkedProject(t, l, "apiVersion: codingowl.dev/v1\n")
 	out, _ := finishedJob(t, l)
@@ -490,12 +511,23 @@ func TestS11ChatARunsLogIsAnsweredBounded(t *testing.T) {
 	chatting(t, app, ev, 0, anthropicModel(t, app), "what did run 1 print")
 
 	second := fmt.Sprint(p.asked(t, 1)["messages"])
-	if !strings.Contains(second, "working on it") {
-		t.Errorf("the tool result does not carry the run's log:\n%s", second)
+	if !strings.Contains(second, "line 1999 of what it printed") {
+		t.Errorf("the tool result does not carry the end of the run's log:\n%s", tail(second))
 	}
-	if len(second) > 64<<10 {
-		t.Errorf("the tool result is %d bytes, want it bounded", len(second))
+	if strings.Contains(second, "line 0000 of what it printed") {
+		t.Errorf("the tool result carries the whole log rather than the end of it (%d bytes)", len(second))
 	}
+	if len(second) > 32<<10 {
+		t.Errorf("the tool result is %d bytes, want no more than the daemon will carry", len(second))
+	}
+}
+
+// tail is the end of something long, for a message a person reads.
+func tail(text string) string {
+	if len(text) <= 500 {
+		return text
+	}
+	return "..." + text[len(text)-500:]
 }
 
 func TestS12ChatWhatAJobChangedIsAnsweredWithTheDiff(t *testing.T) {
@@ -523,6 +555,10 @@ func TestS13ChatAToolTheDaemonDoesNotHaveIsRefused(t *testing.T) {
 	l, p := chatLayout(t,
 		anthropicToolUse("call-1", "run_command", map[string]any{"argv": []string{"rm", "-rf", "/"}}),
 		anthropicText("I cannot do that."))
+	r := newRepo(t, l, "api")
+	addProject(t, l, r)
+	addJob(t, l, r.dir, "work", "--no-plan")
+	before := mustOwl(t, l, "status").stdout
 	app, ev := desktopApp(t, l)
 
 	_, got := chatting(t, app, ev, 0, anthropicModel(t, app), "delete everything")
@@ -536,6 +572,14 @@ func TestS13ChatAToolTheDaemonDoesNotHaveIsRefused(t *testing.T) {
 	}
 	if answer := strings.Join(got.deltas, ""); !strings.Contains(answer, "I cannot do that.") {
 		t.Errorf("the answer after the refusal is %q", answer)
+	}
+	// Nothing about Owl's state changed: the same Projects, the same queue.
+	if after := mustOwl(t, l, "status").stdout; after != before {
+		t.Errorf("what Owl holds changed while the model was asking for a tool:\nbefore:\n%s\nafter:\n%s",
+			before, after)
+	}
+	if got := mustOwl(t, l, "project", "list").stdout; !strings.Contains(got, "api") {
+		t.Errorf("the project is gone:\n%s", got)
 	}
 }
 
@@ -627,8 +671,8 @@ func TestS16ChatTheAppsWindowOffersTheChat(t *testing.T) {
 	// of is checked on disk, as issue #9 checks its theme.
 	src := filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src")
 	for path, wants := range map[string][]string{
-		filepath.Join("views", "Chat.tsx"): {"api.send(", "api.models(", "api.conversations(", "EVENT_CHAT_DELTA"},
-		filepath.Join("lib", "api.ts"):     {"App.Send(", "App.Models(", "App.Conversations(", "App.Conversation("},
+		filepath.Join("views", "Chat.tsx"): {"api.sendTo(", "api.models(", "api.conversations(", "EVENT_CHAT_DELTA"},
+		filepath.Join("lib", "api.ts"):     {"App.SendTo(", "App.Models(", "App.Conversations(", "App.Conversation("},
 		"App.tsx":                          {"views/Chat", "<Chat", "label: \"Chat\""},
 	} {
 		body := readFile(t, filepath.Join(src, path))

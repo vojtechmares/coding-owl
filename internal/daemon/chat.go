@@ -95,10 +95,11 @@ func (s *chatService) GetConversation(ctx context.Context, req *connect.Request[
 // knows which it is before any of the answer arrives.
 func (s *chatService) SendMessage(ctx context.Context, req *connect.Request[codingowlv1.SendMessageRequest], stream *connect.ServerStream[codingowlv1.SendMessageResponse]) error {
 	var told bool
-	_, err := s.chat.Send(ctx, chat.SendRequest{
+	id, err := s.chat.Send(ctx, chat.SendRequest{
 		Conversation: req.Msg.GetConversationId(),
 		Model:        req.Msg.GetModel(),
 		Text:         req.Msg.GetText(),
+		Provider:     req.Msg.GetProvider(),
 	}, func(d chat.Delta) error {
 		told = true
 		return stream.Send(&codingowlv1.SendMessageResponse{
@@ -115,7 +116,7 @@ func (s *chatService) SendMessage(ctx context.Context, req *connect.Request[codi
 	}
 	if !told {
 		// An answer with nothing in it still says which conversation it was.
-		return stream.Send(&codingowlv1.SendMessageResponse{ConversationId: req.Msg.GetConversationId()})
+		return stream.Send(&codingowlv1.SendMessageResponse{ConversationId: id})
 	}
 	return nil
 }
