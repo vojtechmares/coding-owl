@@ -715,6 +715,14 @@ func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 		"rebase", "--no-update-refs", "--no-verify", "--autostash", "--", branchRef(base))
 	_, stderr, code, err := runWithin(ctx, path, args...)
 	if err != nil {
+		// git was killed - by the deadline above, or by the daemon stopping -
+		// and a killed git leaves what it was holding: the rebase itself, and
+		// the lock on the index it was writing. Both are cleared, because the
+		// next Run must not begin on top of either (ADR-0016). The abort runs
+		// under its own deadline, whatever became of this one.
+		if abortErr := abortRebase(ctx, path, onBranch, true); abortErr != nil {
+			return Conflict{}, fmt.Errorf("%w; and putting the worktree back: %v", err, abortErr)
+		}
 		return Conflict{}, err
 	}
 	if code == 0 {
@@ -735,7 +743,7 @@ func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 	// abort happens either way. Whatever stopped it, the worktree must not be
 	// left in the middle of a rebase for the next Run to trip over.
 	conflicts, listErr := unmergedPaths(path)
-	abortErr := abortRebase(ctx, path, onBranch)
+	abortErr := abortRebase(ctx, path, onBranch, false)
 	if listErr != nil {
 		return Conflict{}, listErr
 	}
@@ -753,9 +761,19 @@ func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 // abort at all. It runs whether or not what asked for the rebase is still
 // waiting - that is the point of it - but it is bounded, because a filter or
 // a hook the abort has to run through can hang as easily as the rebase could.
-func abortRebase(ctx context.Context, path, branch string) error {
+//
+// killed says the git that was rebasing did not finish of its own accord. A
+// killed git leaves the lock on the index it was writing, and every git after
+// it - the abort, and the force-back behind it - refuses on that lock; so it
+// is cleared first, as a lock nobody holds any more.
+func abortRebase(ctx context.Context, path, branch string, killed bool) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abortTimeout)
 	defer cancel()
+	if killed {
+		if _, err := ClearStaleLocks(path); err != nil {
+			return err
+		}
+	}
 	inProgress, err := RebaseInProgress(path)
 	if err != nil || !inProgress {
 		return err
@@ -803,6 +821,42 @@ func forceBack(ctx context.Context, path, branch string) error {
 		return fmt.Errorf("checking out %s: %s", branch, message(stderr))
 	}
 	return nil
+}
+
+// staleLocks are the lock files a git that was killed leaves behind in a
+// worktree: the one on its index, and the one on its HEAD.
+var staleLocks = []string{"index.lock", "HEAD.lock"}
+
+// ClearStaleLocks removes the locks a killed git left in a worktree, and says
+// which. Nothing runs in a Job's worktree between Runs - the Agent is gone,
+// and Owl does one thing in it at a time - so a lock found there before a
+// rebase, or after the git that was rebasing was killed, is a lock nobody
+// holds: an Agent's git ended by SIGKILL (ADR-0034) leaves one, and so does a
+// rebase the daemon stopped in the middle of. Left alone, every git after it
+// refuses, and the Job is blocked for good on a file nobody is using.
+func ClearStaleLocks(path string) (cleared []string, err error) {
+	for _, name := range staleLocks {
+		out, stderr, code, err := run(path, "rev-parse", "--git-path", name)
+		if err != nil {
+			return cleared, err
+		}
+		if code != 0 {
+			return cleared, fmt.Errorf("finding %s in %s: %s", name, path, message(stderr))
+		}
+		lock := strings.TrimSpace(string(out))
+		if !filepath.IsAbs(lock) {
+			lock = filepath.Join(path, lock)
+		}
+		err = os.Remove(lock)
+		switch {
+		case err == nil:
+			cleared = append(cleared, lock)
+		case errors.Is(err, fs.ErrNotExist):
+		default:
+			return cleared, err
+		}
+	}
+	return cleared, nil
 }
 
 // unmergedPaths are the paths a rebase left with conflicts to resolve.
@@ -979,6 +1033,11 @@ func runWithin(ctx context.Context, dir string, args ...string) (stdout []byte, 
 	switch {
 	case err == nil:
 		return out.Bytes(), errb.String(), 0, nil
+	case ctx.Err() != nil:
+		// git was killed because ctx ended, and a killed git is not git
+		// saying no: it was stopped in the middle of something, and may have
+		// left that something behind. The caller is told the difference.
+		return nil, errb.String(), -1, fmt.Errorf("running git %s in %s: %w", strings.Join(args, " "), dir, ctx.Err())
 	case errors.As(err, &exitErr):
 		return out.Bytes(), errb.String(), exitErr.ExitCode(), nil
 	case errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil:
@@ -986,9 +1045,6 @@ func runWithin(ctx context.Context, dir string, args ...string) (stdout []byte, 
 		// open, and has been let go of. Its status is the answer.
 		return out.Bytes(), errb.String(), cmd.ProcessState.ExitCode(), nil
 	default:
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, errb.String(), -1, fmt.Errorf("running git %s in %s: %w", strings.Join(args, " "), dir, ctxErr)
-		}
 		return nil, errb.String(), -1, fmt.Errorf("running git %s in %s: %w", strings.Join(args, " "), dir, err)
 	}
 }
