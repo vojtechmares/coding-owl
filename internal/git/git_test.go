@@ -519,3 +519,114 @@ func TestIsWorktreeSaysNoToAHalfRemovedWorktree(t *testing.T) {
 		t.Errorf("IsWorktree on a directory that is not there = %v, %v, want false", live, err)
 	}
 }
+
+func TestBranchIsInSaysWhenABranchHasBeenMerged(t *testing.T) {
+	dir := newRepo(t)
+	run(t, dir, "checkout", "-q", "-b", "owl/job-1")
+	commit(t, dir, "work.txt", "the job's work\n")
+	run(t, dir, "checkout", "-q", "main")
+
+	before, err := git.BranchIsIn(dir, "owl/job-1", "main")
+	if err != nil {
+		t.Fatalf("BranchIsIn: %v", err)
+	}
+	run(t, dir, "merge", "--no-ff", "-m", "merge the job", "owl/job-1")
+	after, err := git.BranchIsIn(dir, "owl/job-1", "main")
+	if err != nil {
+		t.Fatalf("BranchIsIn: %v", err)
+	}
+
+	if before {
+		t.Error("a branch carrying its own commit is reported as merged before it was")
+	}
+	if !after {
+		t.Error("a branch that was merged is not reported as merged")
+	}
+}
+
+func TestBranchIsInCountsABranchThatAddedNothing(t *testing.T) {
+	dir := newRepo(t)
+	run(t, dir, "branch", "owl/job-1")
+	commit(t, dir, "later.txt", "the base branch moved on\n")
+
+	// A branch with no commits of its own is already contained in the base
+	// branch: there is nothing on it that the base does not have.
+	got, err := git.BranchIsIn(dir, "owl/job-1", "main")
+
+	if err != nil {
+		t.Fatalf("BranchIsIn: %v", err)
+	}
+	if !got {
+		t.Error("a branch carrying nothing of its own is reported as not merged")
+	}
+}
+
+func TestBranchIsInReportsABranchThatIsNotThere(t *testing.T) {
+	dir := newRepo(t)
+
+	_, err := git.BranchIsIn(dir, "owl/gone", "main")
+
+	if err == nil {
+		t.Fatal("BranchIsIn on a branch that is not there = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "owl/gone") {
+		t.Errorf("the error %q does not name the branch", err)
+	}
+}
+
+func TestBranchIsInReportsABaseBranchThatIsNotThere(t *testing.T) {
+	dir := newRepo(t)
+	run(t, dir, "branch", "owl/job-1")
+
+	_, err := git.BranchIsIn(dir, "owl/job-1", "nowhere")
+
+	if err == nil {
+		t.Fatal("BranchIsIn against a base that is not there = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "nowhere") {
+		t.Errorf("the error %q does not name the base branch", err)
+	}
+}
+
+func TestWorktreePathsListsWhatGitIsCounting(t *testing.T) {
+	dir := newRepo(t)
+	first := filepath.Join(t.TempDir(), "job-1")
+	second := filepath.Join(t.TempDir(), "job-2")
+	if err := git.AddWorktree(dir, first, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	if err := git.AddWorktree(dir, second, "owl/job-2", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+
+	got, err := git.WorktreePaths(dir)
+
+	if err != nil {
+		t.Fatalf("WorktreePaths: %v", err)
+	}
+	// The repository's own checkout is a worktree too, and is not one of the
+	// Job worktrees a caller is asking about.
+	for _, want := range []string{first, second} {
+		if !hasPath(got, want) {
+			t.Errorf("WorktreePaths = %v, want it to hold %s", got, want)
+		}
+	}
+	if hasPath(got, dir) {
+		t.Errorf("WorktreePaths = %v, want the repository's own checkout left out", got)
+	}
+}
+
+// hasPath reports whether paths holds one naming the same directory, through
+// symlinks: a temporary directory on macOS is reached by two names.
+func hasPath(paths []string, want string) bool {
+	resolved, err := filepath.EvalSymlinks(want)
+	if err != nil {
+		resolved = want
+	}
+	for _, p := range paths {
+		if p == want || p == resolved {
+			return true
+		}
+	}
+	return false
+}

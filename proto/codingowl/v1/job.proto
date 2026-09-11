@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package codingowl.v1;
 
+import "codingowl/v1/gc.proto";
 import "google/protobuf/timestamp.proto";
 
 // JobService queues work against a Project and controls the order it will run
@@ -325,4 +326,8 @@ message GetOverviewResponse {
   // Exhausted is the Jobs that have run out of attempts. Nothing is wrong with
   // them; they want more attempts or a decision (ADR-0025).
   repeated Job exhausted = 5;
+  // Unfinished is what garbage collection found and would not touch: a
+  // worktree holding changes nobody committed, a Job waiting too long for a
+  // decision, a Job left active by a daemon that died (ADR-0015).
+  repeated Unfinished unfinished = 6;
 }

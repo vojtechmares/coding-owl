@@ -204,3 +204,47 @@ func TestParseRefusesACheckOwlCouldNotRunOrJudge(t *testing.T) {
 		})
 	}
 }
+
+func TestParseGlobalReadsTheGarbageCollectionBlock(t *testing.T) {
+	got, err := config.ParseGlobal("config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\ngarbageCollection:\n  interval: 15m\n  reviewAfter: 48h\n"))
+
+	if err != nil {
+		t.Fatalf("ParseGlobal: %v", err)
+	}
+	if got.GarbageCollection.Interval != 15*time.Minute {
+		t.Errorf("interval = %s, want 15m", got.GarbageCollection.Interval)
+	}
+	if got.GarbageCollection.ReviewAfter != 48*time.Hour {
+		t.Errorf("reviewAfter = %s, want 48h", got.GarbageCollection.ReviewAfter)
+	}
+}
+
+func TestParseGlobalLeavesGarbageCollectionToOwlWhenUnset(t *testing.T) {
+	got, err := config.ParseGlobal("config.yaml", []byte("apiVersion: codingowl.dev/v1\n"))
+
+	if err != nil {
+		t.Fatalf("ParseGlobal: %v", err)
+	}
+	if got.GarbageCollection.Interval != 0 || got.GarbageCollection.ReviewAfter != 0 {
+		t.Errorf("garbageCollection = %+v, want nothing set", got.GarbageCollection)
+	}
+}
+
+func TestParseGlobalRefusesAGarbageCollectionDurationItCannotActOn(t *testing.T) {
+	for _, body := range []string{
+		"apiVersion: codingowl.dev/v1\ngarbageCollection:\n  interval: soon\n",
+		"apiVersion: codingowl.dev/v1\ngarbageCollection:\n  interval: 0s\n",
+		"apiVersion: codingowl.dev/v1\ngarbageCollection:\n  reviewAfter: -1h\n",
+	} {
+		_, err := config.ParseGlobal("config.yaml", []byte(body))
+
+		if err == nil {
+			t.Errorf("ParseGlobal(%q) = nil, want it refused", body)
+			continue
+		}
+		if !strings.Contains(err.Error(), "garbageCollection") {
+			t.Errorf("the error %q does not name the setting", err)
+		}
+	}
+}

@@ -248,11 +248,14 @@ type Overview struct {
 	Blocked []Job
 	// Exhausted is the Jobs that have run out of attempts.
 	Exhausted []Job
+	// Unfinished is what garbage collection found and would not touch
+	// (ADR-0015).
+	Unfinished []Unfinished
 }
 
 // Empty reports whether there is nothing at all to say.
 func (o Overview) Empty() bool {
-	return len(o.Running) == 0 && len(o.Counts) == 0
+	return len(o.Running) == 0 && len(o.Counts) == 0 && len(o.Unfinished) == 0
 }
 
 // GetOverview reports where the work stands.
@@ -283,5 +286,6 @@ func (c *Client) GetOverview(ctx context.Context) (Overview, error) {
 	for _, j := range res.Msg.GetExhausted() {
 		o.Exhausted = append(o.Exhausted, jobFromProto(j))
 	}
+	o.Unfinished = unfinishedFromProto(res.Msg.GetUnfinished())
 	return o, nil
 }

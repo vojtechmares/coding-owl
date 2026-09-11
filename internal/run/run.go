@@ -28,6 +28,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/driver"
 	"github.com/vojtechmares/coding-owl/internal/executor"
+	"github.com/vojtechmares/coding-owl/internal/gc"
 	"github.com/vojtechmares/coding-owl/internal/git"
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
@@ -145,6 +146,10 @@ type Options struct {
 	Executor executor.Executor
 	// Verifier decides whether what a Run produced is acceptable (ADR-0013).
 	Verifier verifier.Verifier
+	// Collector answers what garbage collection would report as unfinished, so
+	// that owl status can say it (ADR-0015). A Service without one reports no
+	// unfinished work.
+	Collector Collector
 	// WorktreeDir holds one worktree per Job (ADR-0014).
 	WorktreeDir string
 	// LogDir holds one captured stream per Run.
@@ -155,6 +160,12 @@ type Options struct {
 	ConfigPath string
 	// Logger receives what a background Run cannot return to a caller.
 	Logger *slog.Logger
+}
+
+// Collector answers what garbage collection would report as unfinished work,
+// without collecting anything.
+type Collector interface {
+	Unfinished(ctx context.Context) ([]gc.Unfinished, error)
 }
 
 // Service carries out Jobs.

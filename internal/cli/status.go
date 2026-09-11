@@ -23,7 +23,8 @@ func newStatusCmd(env Env) *cobra.Command {
 
 This is the morning question: what ran while you were away, what is running
 now, and what is waiting for you. Jobs in review want owl jobs accept or
-owl jobs drop; blocked Jobs say what refused them.`,
+owl jobs drop; blocked Jobs say what refused them; and unfinished work is
+what garbage collection found and would not touch.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
@@ -66,6 +67,13 @@ func printOverview(env Env, o client.Overview) {
 			_, _ = fmt.Fprintf(w, "%s\t%d\n", c.State, c.Count)
 		}
 		_ = w.Flush()
+	}
+	// Unfinished work comes first of the three lists: nothing is going to
+	// resolve it on its own, where the other two are waiting on a decision
+	// somebody can take whenever they like (ADR-0015).
+	if len(o.Unfinished) > 0 {
+		_, _ = fmt.Fprintln(env.Stdout)
+		printUnfinished(env, o.Unfinished)
 	}
 	printJobList(env, "awaiting a decision", o.Awaiting, false)
 	printJobList(env, "blocked", o.Blocked, true)
