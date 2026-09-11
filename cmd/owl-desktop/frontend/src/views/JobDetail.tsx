@@ -166,7 +166,12 @@ export function JobDetail({ id, onBack }: { id: number; onBack: () => void }) {
               </button>
             ))}
           </div>
-          {tab === "plan" ? <Doc text={data.Job.Plan} none="No plan yet: the first Run writes one." /> : null}
+          {tab === "plan" ? (
+            <Doc
+              text={data.Job.Plan}
+              none={data.Job.Planned ? "No plan yet: the first Run writes one." : "This Job is not planned; it is carried out straight from its prompt."}
+            />
+          ) : null}
           {tab === "handoff" ? <Doc text={data.Handoff} none="No handoff on the branch yet." /> : null}
           {tab === "verification" ? <Checks d={data} /> : null}
           {tab === "diff" ? <Diff d={data} /> : null}
