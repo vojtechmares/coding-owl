@@ -7,3 +7,10 @@
 
 # agent worktrees
 .claude/worktrees/
+
+# desktop app: the frontend's dependencies and build, and the app bundle
+cmd/owl-desktop/frontend/node_modules/
+cmd/owl-desktop/frontend/dist/*
+!cmd/owl-desktop/frontend/dist/.gitkeep
+cmd/owl-desktop/build/bin/
+cmd/owl-desktop/frontend/package.json.md5
