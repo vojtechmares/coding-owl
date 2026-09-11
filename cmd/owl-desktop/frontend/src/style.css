@@ -336,6 +336,9 @@ td.faint,
 .pill.blocked { color: var(--color-state-blocked); border-color: var(--color-state-blocked); }
 .pill.cancelled { color: var(--color-state-cancelled); }
 .pill.exhausted { color: var(--color-state-exhausted); }
+/* A Skill is pinned unless it was declared to move on its own (ADR-0024). */
+.pill.pinned { color: var(--color-state-done); }
+.pill.tracking { color: var(--color-state-active); border-color: var(--color-state-active); }
 .pill.pass { color: var(--color-pass); background: var(--color-pass-bg); }
 .pill.fail { color: var(--color-fail); background: var(--color-fail-bg); }
 

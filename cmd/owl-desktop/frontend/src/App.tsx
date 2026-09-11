@@ -5,15 +5,17 @@ import { useState } from "react";
 import { api, usePoll } from "./lib/api";
 import { Overview } from "./views/Overview";
 import { Projects } from "./views/Projects";
+import { Skills } from "./views/Skills";
 import { Queue } from "./views/Queue";
 import { Jobs } from "./views/Jobs";
 import { JobDetail } from "./views/JobDetail";
 
-type View = "overview" | "projects" | "queue" | "jobs";
+type View = "overview" | "projects" | "skills" | "queue" | "jobs";
 
 const views: { key: View; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "projects", label: "Projects" },
+  { key: "skills", label: "Skills" },
   { key: "queue", label: "Queue" },
   { key: "jobs", label: "Jobs" },
 ];
@@ -87,6 +89,8 @@ export default function App() {
             <Overview data={overview.data} error={down ? undefined : overview.error} refresh={overview.refresh} onOpen={open} />
           ) : view === "projects" ? (
             <Projects />
+          ) : view === "skills" ? (
+            <Skills />
           ) : view === "queue" ? (
             <Queue onOpen={open} />
           ) : (

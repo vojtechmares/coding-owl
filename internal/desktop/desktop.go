@@ -105,6 +105,14 @@ func (a *App) call() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(a.ctx, callTimeout)
 }
 
+// fetchTimeout bounds a request that fetches somebody else's repository, which
+// is not a request to the daemon so much as one through it (ADR-0033).
+const fetchTimeout = 5 * time.Minute
+
+func (a *App) fetch() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(a.ctx, fetchTimeout)
+}
+
 // Status asks the daemon about itself. It never fails: a daemon that does not
 // answer is a state to show, not an error to handle.
 func (a *App) Status() Status {
@@ -173,6 +181,35 @@ func (a *App) Drop(id int64, force bool) (client.Job, error) {
 	ctx, cancel := a.call()
 	defer cancel()
 	return a.client.DropJob(ctx, id, force)
+}
+
+// SkillUpdate is what updating a Project's Skills did: the ones that moved,
+// every one the Project declares afterwards, and the files the user has to
+// commit for a Project configured in its own repository (ADR-0014).
+type SkillUpdate struct {
+	Updated []client.Skill    `json:"updated"`
+	All     []client.Skill    `json:"all"`
+	Files   client.SkillFiles `json:"files"`
+}
+
+// Skills lists what a Project declares, with what each resolved to.
+func (a *App) Skills(project string) ([]client.Skill, error) {
+	ctx, cancel := a.call()
+	defer cancel()
+	skills, _, err := a.client.ListSkills(ctx, client.SkillRequest{Project: project})
+	return skills, err
+}
+
+// UpdateSkills re-resolves a Project's Skills: with no names, the ones
+// declared to move on their own; with names, those, pinned or not (ADR-0024).
+func (a *App) UpdateSkills(project string, names []string) (SkillUpdate, error) {
+	ctx, cancel := a.fetch()
+	defer cancel()
+	updated, all, files, err := a.client.UpdateSkills(ctx, client.SkillRequest{Project: project}, names)
+	if err != nil {
+		return SkillUpdate{}, err
+	}
+	return SkillUpdate{Updated: updated, All: all, Files: files}, nil
 }
 
 // follow is one log being followed: how to stop it, and whether the

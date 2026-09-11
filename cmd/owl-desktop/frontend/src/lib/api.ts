@@ -14,6 +14,8 @@ export type Project = client.Project;
 export type Overview = client.Overview;
 export type Status = desktop.Status;
 export type StartResult = desktop.StartResult;
+export type Skill = client.Skill;
+export type SkillUpdate = desktop.SkillUpdate;
 
 // Go marshals a nil slice as null, so every list that crosses the bindings
 // is made an array here, once, and the views never have to ask.
@@ -49,6 +51,13 @@ export const api = {
   start: (): Promise<StartResult> => App.Start(),
   accept: (id: number, force: boolean): Promise<Job> => App.Accept(id, force),
   drop: (id: number, force: boolean): Promise<Job> => App.Drop(id, force),
+  skills: (project: string): Promise<Skill[]> => App.Skills(project).then(list),
+  updateSkills: (project: string, names: string[]): Promise<SkillUpdate> =>
+    App.UpdateSkills(project, names).then((u) => {
+      u.updated = list(u.updated);
+      u.all = list(u.all);
+      return u;
+    }),
   followLog: (runId: number): Promise<void> => App.FollowLog(runId),
   stopLog: (runId: number): Promise<void> => App.StopLog(runId),
 };

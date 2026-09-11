@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/vojtechmares/coding-owl/internal/client"
 )
 
 // skillsPath is where the Claude Code Driver reads Skills from, inside the
@@ -790,6 +792,107 @@ func TestS20SkillsReportsAStoppedDaemon(t *testing.T) {
 	for _, want := range []string{"not running", l.socket()} {
 		if !strings.Contains(res.stderr, want) {
 			t.Errorf("stderr does not say %q:\n%s", want, res.stderr)
+		}
+	}
+}
+
+// skillsByName is what the desktop app reported, keyed by Skill.
+func skillsByName(skills []client.Skill) map[string]client.Skill {
+	out := map[string]client.Skill{}
+	for _, s := range skills {
+		out[s.Name] = s
+	}
+	return out
+}
+
+func TestS23TheDesktopAppListsASkillsOfAProject(t *testing.T) {
+	l, r, src := skillLayout(t)
+	other := newSource(t, l, "house-style")
+	addSkill(t, l, r.dir, src.path(), "--ref", "v1.0.0")
+	addSkill(t, l, r.dir, other.path(), "--auto-update")
+	app, _ := desktopApp(t, l)
+
+	got, err := app.Skills(filepath.Base(r.dir))
+
+	if err != nil {
+		t.Fatalf("the app could not list the project's skills: %v", err)
+	}
+	byName := skillsByName(got)
+	if len(byName) != 2 {
+		t.Fatalf("the app reports %+v, want both skills", got)
+	}
+	pinned := byName["go-review"]
+	if pinned.Source != src.path() || pinned.Ref != "v1.0.0" ||
+		pinned.Commit != src.commit("v1.0.0") || pinned.AutoUpdate {
+		t.Errorf("go-review is %+v, want it pinned at v1.0.0 and the commit that resolves to", pinned)
+	}
+	tracking := byName["house-style"]
+	if tracking.Source != other.path() || tracking.Ref != "main" ||
+		tracking.Commit != other.commit("main") || !tracking.AutoUpdate {
+		t.Errorf("house-style is %+v, want it tracking main and the commit that resolves to", tracking)
+	}
+	if _, err := app.Skills("not-a-project"); err == nil {
+		t.Error("the app listed the skills of a project that is not registered")
+	}
+}
+
+func TestS24TheDesktopAppUpdatesSkills(t *testing.T) {
+	l, r, src := skillLayout(t)
+	other := newSource(t, l, "house-style")
+	addSkill(t, l, r.dir, src.path(), "--ref", "v1.0.0")
+	addSkill(t, l, r.dir, other.path(), "--auto-update")
+	app, _ := desktopApp(t, l)
+	other.write("In our house.\n")
+	moved := other.commit("main")
+
+	got, err := app.UpdateSkills(filepath.Base(r.dir), nil)
+
+	if err != nil {
+		t.Fatalf("the app could not update the project's skills: %v", err)
+	}
+	updated := skillsByName(got.Updated)
+	if len(updated) != 1 || updated["house-style"].Commit != moved {
+		t.Fatalf("the app reports %+v updated, want house-style at %s", got.Updated, moved)
+	}
+	if all := skillsByName(got.All); all["go-review"].Commit != src.commit("v1.0.0") {
+		t.Errorf("the app reports go-review at %+v, want its pinned commit", all["go-review"])
+	}
+	rows := skillRows(t, l, r.dir)
+	var seen bool
+	for _, row := range rows {
+		if row.name == "house-style" && strings.HasPrefix(moved, row.commit) {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Errorf("owl skills list does not report the commit the app resolved:\n%+v", rows)
+	}
+	if !got.Files.InRepo || !strings.Contains(got.Files.Lock, lockName) {
+		t.Errorf("the app reports %+v, want the files the project has to commit", got.Files)
+	}
+	if _, err := app.UpdateSkills(filepath.Base(r.dir), []string{"nothing"}); err == nil {
+		t.Error("the app updated a skill the project does not have")
+	}
+}
+
+func TestS25TheAppsWindowOffersTheSkillsView(t *testing.T) {
+	// The app cannot be driven without a display, so what the frontend is made
+	// of is checked on disk, as issue #9 checks its theme.
+	src := filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src")
+	for path, wants := range map[string][]string{
+		filepath.Join("views", "Skills.tsx"): {"api.skills(", "api.updateSkills("},
+		filepath.Join("lib", "api.ts"):       {"App.Skills(", "App.UpdateSkills("},
+		"App.tsx":                            {"views/Skills", "<Skills", "label: \"Skills\""},
+	} {
+		body := readFile(t, filepath.Join(src, path))
+		if body == "" {
+			t.Errorf("%s is not there", path)
+			continue
+		}
+		for _, want := range wants {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s does not carry %q", path, want)
+			}
 		}
 	}
 }

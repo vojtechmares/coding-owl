@@ -4,7 +4,10 @@ All scenarios drive the built `owl` binary from the outside against a running
 daemon, with the stub agent of issue #5 first on its `PATH` in place of Claude
 Code. The XDG layout, the temporary repository, the stub and the harness
 Account are as `tests/behavior/issue-5.md` and `tests/behavior/issue-14.md`
-describe them.
+describe them. The last two drive the desktop app's Go side in-process, as
+`tests/behavior/issue-9.md` describes: "the app" means an
+`internal/desktop.App` created for the layout's socket, exactly as
+`cmd/owl-desktop` creates it.
 
 A Skill is reusable instruction a Project gives every Agent that works in it
 (ADR-0024). Owl fetches it itself, in Go, into a content-addressed cache and
@@ -162,3 +165,24 @@ When `owl start` runs
 Then it exits with a non-zero code
 And stderr names the Skill, both refs, and says to run `owl skills update`
 And the Job is still pending with no Run
+
+### S23 - the desktop app lists a Project's Skills
+Given a running daemon and a Project with `go-review` pinned at `v1.0.0` and `house-style` tracking `main`
+When the app is asked for that Project's Skills
+Then it reports both, with their sources, their refs and the commits they resolved to
+And says which of them may move on its own
+And asking for a Project that is not registered is an error, not an empty list
+
+### S24 - the desktop app can trigger an update
+Given the Project of S23, and a new commit on `house-style`'s source
+When the app is asked to update that Project's Skills
+Then it reports `house-style` as updated, at the new commit
+And `owl skills list` in the Project reports that commit too
+And it says which files the Project has to commit
+And asking it to update a Skill the Project does not have is an error
+
+### S25 - the app's window offers the Skills view
+Given the frontend sources under `cmd/owl-desktop/frontend/src`
+When they are scanned
+Then a Skills view calls the app's Skills and UpdateSkills bindings through the shared api module
+And the window's navigation offers that view
