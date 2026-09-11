@@ -19,8 +19,12 @@ export function Projects():Promise<Array<client.Project>>;
 
 export function Shutdown():Promise<void>;
 
+export function Skills(arg1:string):Promise<Array<client.Skill>>;
+
 export function Start():Promise<desktop.StartResult>;
 
 export function Status():Promise<desktop.Status>;
 
 export function StopLog(arg1:number):Promise<void>;
+
+export function UpdateSkills(arg1:string,arg2:Array<string>):Promise<desktop.SkillUpdate>;

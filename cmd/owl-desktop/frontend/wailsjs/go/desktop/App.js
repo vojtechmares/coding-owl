@@ -34,6 +34,10 @@ export function Shutdown() {
   return window['go']['desktop']['App']['Shutdown']();
 }
 
+export function Skills(arg1) {
+  return window['go']['desktop']['App']['Skills'](arg1);
+}
+
 export function Start() {
   return window['go']['desktop']['App']['Start']();
 }
@@ -44,4 +48,8 @@ export function Status() {
 
 export function StopLog(arg1) {
   return window['go']['desktop']['App']['StopLog'](arg1);
+}
+
+export function UpdateSkills(arg1, arg2) {
+  return window['go']['desktop']['App']['UpdateSkills'](arg1, arg2);
 }
