@@ -146,6 +146,8 @@ func (p *fakeProcess) Stdout() io.Reader { return strings.NewReader(p.out) }
 
 func (*fakeProcess) Signal(os.Signal) error { return nil }
 
+func (*fakeProcess) SignalGroup(os.Signal) error { return nil }
+
 func (p *fakeProcess) Wait() (int, error) {
 	if p.wait {
 		<-p.ctx.Done()
