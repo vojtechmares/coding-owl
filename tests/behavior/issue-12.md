@@ -136,3 +136,11 @@ Then it exits with a non-zero code
 And `owl jobs show <job>` reports the Job as `blocked`, saying the worktree is not one git can work in
 And a second `owl start` runs the next Job in the queue rather than failing on the same one
 
+### S20 - a worktree of some other repository is not rebased
+Given a Job whose worktree path now holds a worktree of a different repository
+When `owl start` runs for it
+Then it exits with a non-zero code
+And `owl jobs show <job>` reports the Job as `blocked`, saying the worktree belongs to another repository
+And that other repository's branch is exactly where it was
+And a second `owl start` runs the next Job in the queue rather than failing on the same one
+

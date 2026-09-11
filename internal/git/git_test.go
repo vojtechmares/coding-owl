@@ -1452,3 +1452,39 @@ func refusing(t *testing.T, dir string, n int) {
 	run(t, dir, "config", "filter.owlstop.smudge", path)
 	run(t, dir, "config", "filter.owlstop.required", "true")
 }
+
+func TestWorktreeBelongsToTellsOneRepositorysWorktreeFromAnothers(t *testing.T) {
+	mine := newRepo(t)
+	theirs := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job")
+	if err := git.AddWorktree(theirs, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	own := filepath.Join(t.TempDir(), "own")
+	if err := git.AddWorktree(mine, own, "owl/job-2", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+
+	foreign, err := git.WorktreeBelongsTo(worktree, mine)
+	if err != nil {
+		t.Fatalf("WorktreeBelongsTo: %v", err)
+	}
+	ours, err := git.WorktreeBelongsTo(own, mine)
+	if err != nil {
+		t.Fatalf("WorktreeBelongsTo: %v", err)
+	}
+	itself, err := git.WorktreeBelongsTo(mine, mine)
+	if err != nil {
+		t.Fatalf("WorktreeBelongsTo: %v", err)
+	}
+
+	if foreign {
+		t.Error("another repository's worktree is reported as this one's")
+	}
+	if !ours {
+		t.Error("this repository's own worktree is reported as somebody else's")
+	}
+	if !itself {
+		t.Error("the repository's main worktree is reported as somebody else's")
+	}
+}

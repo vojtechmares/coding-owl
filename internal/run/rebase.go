@@ -28,6 +28,31 @@ func (s *Service) rebase(ctx context.Context, j store.Job, details project.Detai
 			"%s is not a worktree git can work in any more, so this job cannot be carried out where it was", j.Worktree))
 	}
 
+	// And a worktree of the Project's own repository: a directory git can
+	// work in at that path could be anybody's checkout put there since the
+	// Job's was removed, and replaying what is checked out in it would be
+	// rewriting a branch of some other repository (ADR-0016).
+	ours, err := git.WorktreeBelongsTo(j.Worktree, details.Path)
+	if err != nil {
+		return err
+	}
+	if !ours {
+		return s.blocked(j, fmt.Sprintf(
+			"%s belongs to another repository, not to project %s at %s, so this job cannot be carried out there",
+			j.Worktree, details.Name, details.Path))
+	}
+
+	// What the remote knows is worth having before the branch is replayed, but
+	// a remote that cannot be reached is not a reason to leave a Job unstarted:
+	// the rebase is onto the Project's own base branch either way, and nothing
+	// the user has is moved by a fetch. It comes before the worktree is looked
+	// at: a fetch can take minutes, and what is checked out is read as close
+	// to the rebase as it can be, so nothing has room to change in between.
+	if err := git.FetchBase(ctx, details.Path, details.BaseBranch); err != nil {
+		s.opts.Logger.Warn("fetching the base branch",
+			"project", details.Name, "branch", details.BaseBranch, "error", err)
+	}
+
 	// A worktree somebody left mid-rebase is not Owl's to finish or throw
 	// away. Saying so is the honest answer; reconciling it belongs to garbage
 	// collection (ADR-0015, ADR-0016). It is asked first: a rebase leaves HEAD
@@ -55,15 +80,6 @@ func (s *Service) rebase(ctx context.Context, j store.Job, details project.Detai
 		return s.blocked(j, fmt.Sprintf(
 			"the worktree %s is on %s and not on the job's own branch %s, so there is nothing here to rebase",
 			j.Worktree, describe(on), j.Branch))
-	}
-
-	// What the remote knows is worth having before the branch is replayed, but
-	// a remote that cannot be reached is not a reason to leave a Job unstarted:
-	// the rebase is onto the Project's own base branch either way, and nothing
-	// the user has is moved by a fetch.
-	if err := git.FetchBase(ctx, details.Path, details.BaseBranch); err != nil {
-		s.opts.Logger.Warn("fetching the base branch",
-			"project", details.Name, "branch", details.BaseBranch, "error", err)
 	}
 
 	// Nothing runs in the worktree between Runs, so a lock on its index is one
