@@ -12,6 +12,7 @@ export type JobDetails = client.JobDetails;
 export type Run = client.Run;
 export type Project = client.Project;
 export type Overview = client.Overview;
+export type Machine = client.Machine;
 export type Status = desktop.Status;
 export type StartResult = desktop.StartResult;
 export type Skill = client.Skill;

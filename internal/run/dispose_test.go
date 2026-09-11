@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/queue"
+	"github.com/vojtechmares/coding-owl/internal/run"
 	"github.com/vojtechmares/coding-owl/internal/store"
 )
 
@@ -210,12 +211,12 @@ func TestOverviewCountsAJobInAStateItDoesNotKnow(t *testing.T) {
 func TestPauseAndResumeRefuseWhenThereIsNoRunToActOn(t *testing.T) {
 	svc, _, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{})
 
-	if _, err := svc.Pause(context.Background()); err == nil {
+	if _, err := svc.Pause(context.Background(), run.ByUser); err == nil {
 		t.Error("Pause reported success with nothing running")
 	} else if !strings.Contains(err.Error(), "no run in progress") {
 		t.Errorf("Pause error = %q, want it to say there is nothing running", err)
 	}
-	if _, err := svc.Resume(context.Background()); err == nil {
+	if _, err := svc.Resume(context.Background(), run.ByUser); err == nil {
 		t.Error("Resume reported success with nothing running")
 	} else if !strings.Contains(err.Error(), "no run in progress") {
 		t.Errorf("Resume error = %q, want it to say there is nothing running", err)
@@ -271,7 +272,7 @@ func TestPauseIsRefusedOnceTheDaemonIsStopping(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	_, err := svc.Pause(context.Background())
+	_, err := svc.Pause(context.Background(), run.ByUser)
 
 	// Freezing an Agent that has just been asked to stop would leave it unable
 	// to hear that, and the daemon waiting out the kill delay on it.

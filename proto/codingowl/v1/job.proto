@@ -4,6 +4,7 @@ package codingowl.v1;
 
 import "codingowl/v1/gc.proto";
 import "codingowl/v1/skill.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 // JobService queues work against a Project and controls the order it will run
@@ -385,4 +386,23 @@ message GetOverviewResponse {
   // worktree holding changes nobody committed, a Job waiting too long for a
   // decision, a Job left active by a daemon that died (ADR-0015).
   repeated Unfinished unfinished = 6;
+  // Machine is what the daemon last read about the machine it runs on, which
+  // is why work is or is not happening (ADR-0011).
+  Machine machine = 7;
+}
+
+// Machine is the machine Owl runs on, as the daemon last read it (ADR-0011).
+message Machine {
+  // Read is whether it could be read at all. Everything else here is worth
+  // nothing when it is false.
+  bool read = 1;
+  // Idle is whether it is a machine Owl may work on, under the policy.
+  bool idle = 2;
+  // Since is how long it has been since any keyboard or mouse input.
+  google.protobuf.Duration since = 3;
+  // OnPower is whether it is drawing from AC power.
+  bool on_power = 4;
+  // Detail is why it is not a machine Owl may work on, or why it could not be
+  // read. Empty when it is Idle.
+  string detail = 5;
 }

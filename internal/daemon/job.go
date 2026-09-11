@@ -11,6 +11,7 @@ import (
 	"github.com/vojtechmares/coding-owl/gen/codingowl/v1/codingowlv1connect"
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/run"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // jobService exposes the queue and the Runs it produces over ConnectRPC. It
@@ -178,11 +179,18 @@ func (s *jobService) GetOverview(ctx context.Context, _ *connect.Request[codingo
 		res.Exhausted = append(res.Exhausted, toJobProto(j))
 	}
 	res.Unfinished = toUnfinishedProto(o.Unfinished)
+	res.Machine = &codingowlv1.Machine{
+		Read:    o.Machine.Read,
+		Idle:    o.Machine.Idle,
+		Since:   durationpb.New(o.Machine.Since),
+		OnPower: o.Machine.OnPower,
+		Detail:  o.Machine.Detail,
+	}
 	return connect.NewResponse(res), nil
 }
 
 func (s *jobService) PauseRun(ctx context.Context, _ *connect.Request[codingowlv1.PauseRunRequest]) (*connect.Response[codingowlv1.PauseRunResponse], error) {
-	r, err := s.runs.Pause(ctx)
+	r, err := s.runs.Pause(ctx, run.ByUser)
 	if err != nil {
 		return nil, rpcError(err)
 	}
@@ -190,7 +198,7 @@ func (s *jobService) PauseRun(ctx context.Context, _ *connect.Request[codingowlv
 }
 
 func (s *jobService) ResumeRun(ctx context.Context, _ *connect.Request[codingowlv1.ResumeRunRequest]) (*connect.Response[codingowlv1.ResumeRunResponse], error) {
-	r, err := s.runs.Resume(ctx)
+	r, err := s.runs.Resume(ctx, run.ByUser)
 	if err != nil {
 		return nil, rpcError(err)
 	}

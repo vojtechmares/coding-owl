@@ -23,12 +23,26 @@ const expiredReason = "the grace window passed while this run was paused"
 // ever, with no verb that reaches it.
 const killAfterTerm = 5 * time.Second
 
+// Freezer is who asked for a Run to be frozen, which decides who may continue
+// it: the machine going idle again continues what the machine froze, and what
+// the user froze is the user's to continue (ADR-0011).
+type Freezer string
+
+const (
+	// ByUser is `owl pause` and `owl resume`.
+	ByUser Freezer = "user"
+	// ByMachine is somebody coming back to the machine, and leaving again.
+	ByMachine Freezer = "machine"
+)
+
 // live is a Run this daemon can still reach: the Agent it started, and whether
 // it is frozen.
 type live struct {
 	proc   agent.Process
 	jobID  int64
 	paused bool
+	// by is who froze it, and is meaningless while it is not frozen.
+	by Freezer
 	// window ends a Run that stays frozen. It runs only while paused.
 	window *time.Timer
 	// expired is set when the grace window ended the Run, which is what makes
@@ -62,7 +76,7 @@ func (s *Service) interrupted(runID int64) bool {
 // Pause freezes the Run in progress and everything its Agent started, and
 // starts the grace window. The machine is the user's again the moment this
 // returns (ADR-0011).
-func (s *Service) Pause(ctx context.Context) (Run, error) {
+func (s *Service) Pause(ctx context.Context, by Freezer) (Run, error) {
 	// How long the Run may stay frozen is read before anything is signalled:
 	// a configuration nobody can read is the caller's mistake, not a reason to
 	// freeze a Run that nothing will then release.
@@ -95,15 +109,15 @@ func (s *Service) Pause(ctx context.Context) (Run, error) {
 		s.opts.Logger.Warn("a run could not be paused", "run", runID, "error", err)
 		return Run{}, refused("run %d ended before it could be paused", runID)
 	}
-	l.paused = true
+	l.paused, l.by = true, by
 	l.window = time.AfterFunc(window, func() { s.expire(runID) })
-	s.opts.Logger.Info("run paused", "run", runID, "job", l.jobID, "grace", window)
+	s.opts.Logger.Info("run paused", "run", runID, "job", l.jobID, "grace", window, "by", by)
 	return s.runOf(ctx, runID)
 }
 
 // Resume continues a frozen Run where it was, in the same Run: what an Agent
 // was in the middle of survives, because nothing was ended.
-func (s *Service) Resume(ctx context.Context) (Run, error) {
+func (s *Service) Resume(ctx context.Context, by Freezer) (Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	runID, l, err := s.onlyLive(ctx, "resumed")
@@ -116,13 +130,19 @@ func (s *Service) Resume(ctx context.Context) (Run, error) {
 	if !l.paused {
 		return Run{}, refused("run %d is not paused", runID)
 	}
+	// The machine going idle again continues what the machine froze. A Run the
+	// user paused stays paused until the user says otherwise: a decision
+	// somebody took deliberately is not the machine's to reverse.
+	if by == ByMachine && l.by == ByUser {
+		return Run{}, refused("run %d was paused with owl pause; owl resume continues it", runID)
+	}
 	if err := l.proc.SignalGroup(syscall.SIGCONT); err != nil {
 		s.opts.Logger.Warn("a run could not be resumed", "run", runID, "error", err)
 		l.release()
 		return Run{}, refused("run %d ended while it was paused", runID)
 	}
 	l.release()
-	s.opts.Logger.Info("run resumed", "run", runID, "job", l.jobID)
+	s.opts.Logger.Info("run resumed", "run", runID, "job", l.jobID, "by", by)
 	return s.runOf(ctx, runID)
 }
 

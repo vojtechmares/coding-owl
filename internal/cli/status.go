@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -43,6 +44,13 @@ what garbage collection found and would not touch.`,
 // happening now, then how the Jobs stand, then the two lists that want a
 // person - what awaits a decision, and what is stuck.
 func printOverview(env Env, o client.Overview) {
+	// The machine comes first, because it is the answer to why the rest of
+	// this report says what it says (ADR-0011).
+	_, _ = fmt.Fprintln(env.Stdout, machineLine(o.Machine))
+	if why := heldBy(o); why != "" {
+		_, _ = fmt.Fprintf(env.Stdout, "nothing is running: %s\n", why)
+	}
+	_, _ = fmt.Fprintln(env.Stdout)
 	if o.Empty() {
 		_, _ = fmt.Fprintln(env.Stdout, nothingToReport)
 		return
@@ -103,4 +111,64 @@ func printJobList(env Env, heading string, jobs []client.Job, reason bool) {
 		_, _ = fmt.Fprintln(w, row)
 	}
 	_ = w.Flush()
+}
+
+// machineLine says what the machine is doing, in the terms the policy is in:
+// how long it has been since anybody touched it, and what it is drawing from.
+func machineLine(m client.Machine) string {
+	if !m.Read {
+		return "machine: unknown - " + orUnsaid(m.Detail)
+	}
+	power := "on battery"
+	if m.OnPower {
+		power = "on AC power"
+	}
+	if m.Idle {
+		return fmt.Sprintf("machine: idle - no input for %s, %s", since(m.Since), power)
+	}
+	return fmt.Sprintf("machine: in use - input %s ago, %s", since(m.Since), power)
+}
+
+// since is a length of time as a person reads it, without the false precision
+// of the milliseconds a machine keeps it in.
+func since(d time.Duration) string {
+	if d < time.Second {
+		return d.Truncate(time.Millisecond).String()
+	}
+	return d.Truncate(time.Second).String()
+}
+
+// heldBy is why nothing is running, empty when something is or when nothing is
+// holding the work back.
+func heldBy(o client.Overview) string {
+	if len(o.Running) > 0 {
+		return ""
+	}
+	switch {
+	case !o.Machine.Read:
+		return orUnsaid(o.Machine.Detail)
+	case !o.Machine.Idle:
+		return orUnsaid(o.Machine.Detail)
+	case !pending(o):
+		return "nothing is queued"
+	}
+	return ""
+}
+
+// pending reports whether any Job is waiting to run.
+func pending(o client.Overview) bool {
+	for _, c := range o.Counts {
+		if c.State == "pending" && c.Count > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// orUnsaid is a reason, or the plainest thing that can be said without one.
+func orUnsaid(detail string) string {
+	if strings.TrimSpace(detail) == "" {
+		return "the machine could not be read"
+	}
+	return detail
 }

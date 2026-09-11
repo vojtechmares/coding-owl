@@ -251,6 +251,25 @@ type Overview struct {
 	// Unfinished is what garbage collection found and would not touch
 	// (ADR-0015).
 	Unfinished []Unfinished
+	// Machine is what the daemon last read about the machine it runs on, which
+	// is why work is or is not happening (ADR-0011).
+	Machine Machine
+}
+
+// Machine is the machine Owl runs on, as the daemon last read it (ADR-0011).
+type Machine struct {
+	// Read is whether it could be read at all. Everything else here is worth
+	// nothing when it is false.
+	Read bool
+	// Idle is whether it is a machine Owl may work on, under the policy.
+	Idle bool
+	// Since is how long it has been since any keyboard or mouse input.
+	Since time.Duration
+	// OnPower is whether it is drawing from AC power.
+	OnPower bool
+	// Detail is why it is not a machine Owl may work on, or why it could not
+	// be read. Empty when it is Idle.
+	Detail string
 }
 
 // Empty reports whether there is nothing at all to say.
@@ -287,5 +306,14 @@ func (c *Client) GetOverview(ctx context.Context) (Overview, error) {
 		o.Exhausted = append(o.Exhausted, jobFromProto(j))
 	}
 	o.Unfinished = unfinishedFromProto(res.Msg.GetUnfinished())
+	if m := res.Msg.GetMachine(); m != nil {
+		o.Machine = Machine{
+			Read:    m.GetRead(),
+			Idle:    m.GetIdle(),
+			Since:   m.GetSince().AsDuration(),
+			OnPower: m.GetOnPower(),
+			Detail:  m.GetDetail(),
+		}
+	}
 	return o, nil
 }
