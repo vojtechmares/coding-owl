@@ -153,3 +153,30 @@ func TestStartRefusesAnAgentWithNoWorkingDirectory(t *testing.T) {
 		t.Errorf("error %q does not say what is missing", err)
 	}
 }
+
+func TestStartLetsTheInvocationOverrideWhatTheDaemonInherited(t *testing.T) {
+	t.Setenv("OWL_TEST_VALUE", "the daemon's own")
+
+	p, err := host.New().Start(context.Background(), agent.Invocation{
+		Path: script(t, "echo $OWL_TEST_VALUE\n"),
+		Dir:  t.TempDir(),
+		Env:  []string{"OWL_TEST_VALUE=the account's"},
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	out, err := io.ReadAll(p.Stdout())
+	if err != nil {
+		t.Fatalf("reading stdout: %v", err)
+	}
+	if _, err := p.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	// An Account's configuration directory and token are added to an
+	// environment that may already carry the user's own (ADR-0019), so the
+	// invocation has to win.
+	if got := strings.TrimSpace(string(out)); got != "the account's" {
+		t.Errorf("the agent saw %q, want what the invocation set", got)
+	}
+}

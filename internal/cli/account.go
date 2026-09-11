@@ -74,6 +74,14 @@ input instead, for a machine that has one already.`,
 			if !ok {
 				return drivers.Unknown(driverName)
 			}
+			// The tool's own setup is a browser round trip the user does by
+			// hand, so a daemon that is not there is worth finding out about
+			// before it rather than after.
+			if !tokenStdin {
+				if err := daemonReachable(cmd, env); err != nil {
+					return err
+				}
+			}
 			token, err := accountToken(cmd, env, d.SetupToken, account.DirFor(env.Paths.DataDir, name), tokenStdin)
 			if err != nil {
 				return err
@@ -99,6 +107,14 @@ input instead, for a machine that has one already.`,
 	cmd.Flags().BoolVar(&failover, "failover", false, "record that work may fail over to another Account (recorded and unused)")
 	cmd.Flags().BoolVar(&tokenStdin, "token-stdin", false, "read the token from standard input instead of running the tool's setup")
 	return cmd
+}
+
+// daemonReachable reports whether the daemon is there to record an Account.
+func daemonReachable(cmd *cobra.Command, env Env) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), statusTimeout)
+	defer cancel()
+	_, err := client.New(env.Paths.SocketPath).DaemonStatus(ctx)
+	return err
 }
 
 // setupCommand builds the tool's own token setup for an Account's directory.
