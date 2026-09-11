@@ -138,6 +138,10 @@ func TestAddProviderRefusesWhatOwlCannotUse(t *testing.T) {
 			_, err := f.chat.AddProvider(ctx, "anthropic", "k", "https://models.test/v1#s3cr3t", nil)
 			return err
 		},
+		"a base url ending in a question mark": func() error {
+			_, err := f.chat.AddProvider(ctx, "anthropic", "k", "https://models.test/v1?", nil)
+			return err
+		},
 		"a model name Owl cannot use": func() error {
 			_, err := f.chat.AddProvider(ctx, "openrouter", "k", "", []string{"--upload-pack=evil"})
 			return err
@@ -833,9 +837,50 @@ func TestAMessageForAModelAProviderDoesNotOfferIsRefused(t *testing.T) {
 			t.Errorf("the refusal is %q, want it to carry %q", err, want)
 		}
 	}
-	// The one that does offer it was not asked instead: a message names a
-	// provider so that it goes there and nowhere else.
+	// And the provider it named was not asked anyway: a message that names one
+	// is refused by it rather than carried to it.
 	if got := openrouter.asked(); got != 0 {
 		t.Errorf("the provider was asked %d times for a model it does not offer", got)
+	}
+}
+
+// refusingStore is a credential store that will not take one secret back,
+// which is what a rotation's rollback has to say something about.
+type refusingStore struct {
+	credential.Store
+	refuses string
+}
+
+func (s refusingStore) Set(ctx context.Context, ref, secret string) error {
+	if secret == s.refuses {
+		return errors.New("the credential store would not take it back")
+	}
+	return s.Store.Set(ctx, ref, secret)
+}
+
+func TestARotationThatCannotPutBackTheKeyItReplacesSaysSo(t *testing.T) {
+	f := newFixture(t)
+	broken := &breakingStore{Store: f.store}
+	if _, err := chat.NewService(broken, f.creds, chat.NewTools(f.view)).
+		AddProvider(ctx, "anthropic", "sk-ant-first", "", nil); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+
+	broken.broken = true
+	stubborn := chat.NewService(broken, refusingStore{Store: f.creds, refuses: "sk-ant-first"},
+		chat.NewTools(f.view))
+	_, err := stubborn.AddProvider(ctx, "anthropic", "sk-ant-second", "", nil)
+
+	if err == nil {
+		t.Fatal("the rotation was reported as done though the row could not be written")
+	}
+	// The provider is left reaching models with a key nobody meant to
+	// configure, which is a thing to be told rather than to find out.
+	if !strings.Contains(err.Error(), "new key") {
+		t.Errorf("the failure is %q, want it to say which key the provider is left with", err)
+	}
+	key, err := f.creds.Get(ctx, "chat/anthropic")
+	if err != nil || key != "sk-ant-second" {
+		t.Errorf("the credential store holds %q, %v; want what the error says it does", key, err)
 	}
 }

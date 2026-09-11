@@ -34,21 +34,28 @@ func TestOpenAIMessagesCarriesWhatATurnSaidBesideItsResults(t *testing.T) {
 		}},
 	})
 
-	var said, results int
-	for _, m := range got {
-		switch m["role"] {
-		case "tool":
-			results++
-		case RoleUser:
-			if m["content"] == "and what did it print" {
-				said++
-			}
+	var results, said, calls int
+	results, said, calls = -1, -1, -1
+	for at, m := range got {
+		switch {
+		case m["role"] == "tool":
+			results = at
+		case m["tool_calls"] != nil:
+			calls = at
+		case m["role"] == RoleUser && m["content"] == "and what did it print":
+			said = at
 		}
 	}
-	if results != 1 {
-		t.Errorf("the request carries %d tool results, want the one that was answered: %+v", results, got)
+	if results < 0 {
+		t.Fatalf("the request carries no tool result: %+v", got)
 	}
-	if said != 1 {
-		t.Errorf("what the user said beside the result is not carried: %+v", got)
+	if said < 0 {
+		t.Fatalf("what the user said beside the result is not carried: %+v", got)
+	}
+	// That API takes a tool's answer straight after the turn that asked for
+	// it, so what was said beside it comes after, not between.
+	if calls+1 != results || results >= said {
+		t.Errorf("the turns go call=%d result=%d said=%d, want the result straight after the call: %+v",
+			calls, results, said, got)
 	}
 }
