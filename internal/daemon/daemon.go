@@ -256,9 +256,14 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	log.Info("daemon stopping")
-	// Runs are stopped first: an owl logs -f is an ordinary request that only
-	// ends when the Run it follows does, so shutting the server down first
-	// would wait for a Run rather than for a request.
+	// Watching stops before the Runs do, so that nothing starts or is frozen
+	// while they are being ended, and the ordinary refusals of a daemon on its
+	// way out are never reported as anything happening.
+	stopWatching()
+	<-watching
+	// Runs are stopped first of the rest: an owl logs -f is an ordinary
+	// request that only ends when the Run it follows does, so shutting the
+	// server down first would wait for a Run rather than for a request.
 	if err := runs.Close(); err != nil {
 		log.Error("stopping the runs in progress", "error", err)
 	}

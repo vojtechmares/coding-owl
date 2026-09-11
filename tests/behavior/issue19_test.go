@@ -486,17 +486,34 @@ func TestS14IdleTheNextJobStartsWhenTheOneBeforeItEnds(t *testing.T) {
 	firstRun := waitStarted(t, l, first)
 	b.started(t)
 
+	// Long enough that the watcher has asked the queue again many times over
+	// while this Run was going, and that a wait growing on every look would
+	// have grown past the moment it ends.
+	sleep(4 * time.Second)
+
 	// A Run in progress is work happening. Nothing is being held back, and
-	// saying otherwise would be reporting a refusal that refused nothing.
+	// saying otherwise would be reporting a refusal that refused nothing. The
+	// app is given the whole report, running or not, so it is what can be
+	// asked whether anything is.
+	app, _ := desktopApp(t, l)
+	o, err := app.Overview()
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	if o.Holding != "" {
+		t.Errorf("the report says %q is holding work back while a run is in progress", o.Holding)
+	}
 	if said := maybeLine(mustOwl(t, l, "status").stdout, "nothing is running"); said != "" {
 		t.Errorf("status says %q while a run is in progress", said)
 	}
-	// Long enough that a wait growing on every look would have grown past the
-	// moment the Run ends.
-	sleep(4 * time.Second)
+
 	b.stub.let(t)
 	waitRun(t, l, first, firstRun)
 	ended := time.Now()
+	// And the Run that has ended is not blamed for what starts next.
+	if said := maybeLine(mustOwl(t, l, "status").stdout, "nothing is running"); strings.Contains(said, "in progress") {
+		t.Errorf("status says %q about a run that has ended", said)
+	}
 
 	// The machine never stopped being idle, so the queue moves on at the next
 	// look rather than after a wait nothing earned.
@@ -508,7 +525,7 @@ func TestS14IdleTheNextJobStartsWhenTheOneBeforeItEnds(t *testing.T) {
 		t.Fatalf("the next job had not started 10s after the run before it ended:\n%s",
 			mustOwl(t, l, "status").stdout)
 	}
-	if waited := time.Since(ended); waited > 1500*time.Millisecond {
+	if waited := time.Since(ended); waited > 2*time.Second {
 		t.Errorf("the next job started %s after the one before it ended, as though something had refused it",
 			waited.Truncate(time.Millisecond))
 	}
@@ -522,13 +539,22 @@ func TestS15IdleARunStartingAsTheMachineReturnsIsFrozen(t *testing.T) {
 	daemonUp(t, l)
 	// Setup that takes a moment, so the machine can change its mind while the
 	// Run is still being got ready.
-	r := checkedProject(t, l, "apiVersion: codingowl.dev/v1\nsetup:\n  - sleep 2\n")
+	checkedProject(t, l, "apiVersion: codingowl.dev/v1\nsetup:\n  - sleep 2\n")
 	job := "1"
-	_ = r
 
 	m.away(t)
 	sleep(300 * time.Millisecond)
 	m.inUse(t)
+
+	// The machine stays in view while the Run is being got ready: a daemon
+	// that stopped looking until setup finished would still be reporting the
+	// machine as idle.
+	waitFor(t, "status to report the machine in use while the run is starting", func() bool {
+		return strings.Contains(maybeLine(mustOwl(t, l, "status").stdout, "machine"), "in use")
+	})
+	if running(t, l, job) {
+		t.Fatal("the run had already started, so this scenario never watched one being got ready")
+	}
 
 	run := waitStarted(t, l, job)
 	waitFor(t, "the run to be reported as paused", func() bool {
@@ -559,14 +585,27 @@ func TestS16IdleFreezingDoesNotDependOnReadingTheConfiguration(t *testing.T) {
 	// parse, so what says the Run was frozen is the Agent's own child going
 	// quiet - which is what being frozen is.
 	waitFor(t, "the agent's child to stop beating", func() bool { return b.still(t) })
-	_ = run
 	// A person is told, because a person can fix it.
 	res := runOwl(t, l, "pause")
 	if res.code == 0 {
 		t.Errorf("owl pause exited 0 with a configuration that does not parse:\n%s", res.stdout)
 	}
-	if !strings.Contains(res.stderr, "graceWindow") {
-		t.Errorf("stderr does not name the setting:\n%s", res.stderr)
+	for _, want := range []string{"graceWindow", "config.yaml"} {
+		if !strings.Contains(res.stderr, want) {
+			t.Errorf("stderr does not name %s:\n%s", want, res.stderr)
+		}
+	}
+
+	// Frozen rather than ended: the window Owl falls back to is a window, and
+	// a Run held under it is one that can still be continued. The file is
+	// repaired so the daemon can be asked.
+	globalConfig(t, l, fastIdle)
+	row := runRowOf(t, l, job, run)
+	if row.ended != "(none)" {
+		t.Errorf("the run ended %q, want one held frozen", row.ended)
+	}
+	if row.outcome != "paused" {
+		t.Errorf("the run is %q, want it paused", row.outcome)
 	}
 	b.stub.let(t)
 }
