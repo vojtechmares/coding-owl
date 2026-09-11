@@ -293,7 +293,7 @@ func TestExtendJobAddsToWhatIsLeft(t *testing.T) {
 	s := jobStore(t)
 	j := jobWithAttempts(t, s, "a", 2)
 
-	got, err := s.ExtendJob(ctx, j.ID, 5, "exhausted", "pending")
+	got, err := s.ExtendJob(ctx, j.ID, 5, "pending", "exhausted")
 
 	if err != nil {
 		t.Fatalf("ExtendJob: %v", err)
@@ -314,7 +314,7 @@ func TestExtendJobReturnsAnExhaustedJobToTheQueue(t *testing.T) {
 		t.Fatalf("SetJobState: %v", err)
 	}
 
-	got, err := s.ExtendJob(ctx, j.ID, 10, "exhausted", "pending")
+	got, err := s.ExtendJob(ctx, j.ID, 10, "pending", "exhausted")
 
 	if err != nil {
 		t.Fatalf("ExtendJob: %v", err)
@@ -335,7 +335,7 @@ func TestExtendJobLeavesAJobThatIsNotExhaustedWhereItIs(t *testing.T) {
 		t.Fatalf("DequeueJob: %v", err)
 	}
 
-	got, err := s.ExtendJob(ctx, j.ID, 3, "exhausted", "pending")
+	got, err := s.ExtendJob(ctx, j.ID, 3, "pending", "exhausted")
 
 	if err != nil {
 		t.Fatalf("ExtendJob: %v", err)
@@ -349,7 +349,7 @@ func TestExtendJobLeavesAJobThatIsNotExhaustedWhereItIs(t *testing.T) {
 }
 
 func TestExtendJobReportsAJobThatIsNotThere(t *testing.T) {
-	_, err := jobStore(t).ExtendJob(context.Background(), 999, 10, "exhausted", "pending")
+	_, err := jobStore(t).ExtendJob(context.Background(), 999, 10, "pending", "exhausted")
 
 	if !errors.Is(err, store.ErrJobNotFound) {
 		t.Errorf("ExtendJob on an unknown job = %v, want ErrJobNotFound", err)
