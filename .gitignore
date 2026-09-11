@@ -4,3 +4,6 @@
 
 # local agent state
 .claude/*.local.md
+
+# agent worktrees
+.claude/worktrees/

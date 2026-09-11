@@ -135,10 +135,13 @@ type Service struct {
 	opts Options
 	now  func() time.Time
 	// interleave runs between reading the worktree directory and reading the
-	// database. It is the seam the tests use to put a Run's worktree exactly
-	// where a collection must not see it, which is the only way to exercise
-	// the ordering those two reads depend on. It is nil in a real Service.
-	interleave func()
+	// database, and beforeDeciding between reading the database and deciding
+	// what to do. They are the seams the tests use to put a Run's worktree, or
+	// somebody else's decision, exactly where a collection must cope with it -
+	// which is the only way to exercise what the ordering and the locking are
+	// for. Both are nil in a real Service.
+	interleave     func()
+	beforeDeciding func()
 }
 
 // NewService returns a Service that collects over opts.
@@ -183,6 +186,10 @@ func (s *Service) Collect(ctx context.Context) (Report, error) {
 	jobs, running, err := s.opts.Store.JobsAndRunsInProgress(ctx)
 	if err != nil {
 		return Report{}, err
+	}
+
+	if s.beforeDeciding != nil {
+		s.beforeDeciding()
 	}
 
 	var report Report
@@ -463,7 +470,7 @@ func (s *Service) report(ctx context.Context, jobs []store.Job, running []store.
 			// A Job enters review when its Run ends (ADR-0013), so that is
 			// when it started waiting for a decision - not when it was
 			// produced, which may have been weeks of queueing earlier.
-			if waited := s.waiting(ctx, j, now); waited >= s.opts.ReviewAfter {
+			if waited := s.waitingForADecision(ctx, j, now); waited >= s.opts.ReviewAfter {
 				report.Unfinished = append(report.Unfinished, Unfinished{
 					Job: j.ID, Project: j.Project, Reason: ReasonWaiting, Since: waited,
 				})
@@ -478,7 +485,7 @@ func (s *Service) report(ctx context.Context, jobs []store.Job, running []store.
 			if !inProgress[j.ID] && !s.carrying(j.ID) {
 				report.Unfinished = append(report.Unfinished, Unfinished{
 					Job: j.ID, Project: j.Project, Reason: ReasonAbandoned,
-					Since: s.waiting(ctx, j, now),
+					Since: s.abandonedFor(ctx, j, now),
 				})
 			}
 		}
@@ -488,18 +495,38 @@ func (s *Service) report(ctx context.Context, jobs []store.Job, running []store.
 	})
 }
 
-// waiting is how long a Job has been where it is: since its most recent Run
-// ended, and since it was produced for a Job that has never run.
-func (s *Service) waiting(ctx context.Context, j store.Job, now time.Time) time.Duration {
-	ended, ok, err := s.opts.Store.LatestRunEnd(ctx, j.ID)
-	if err != nil {
-		s.opts.Logger.Warn("reading when a job's last run ended", "job", j.ID, "error", err)
+// waitingForADecision is how long a Job has been in review: since its most
+// recent Run ended, which is when it got there (ADR-0013).
+func (s *Service) waitingForADecision(ctx context.Context, j store.Job, now time.Time) time.Duration {
+	r, ok := s.latestRun(ctx, j)
+	if !ok || r.Ended.IsZero() {
 		return now.Sub(j.Created)
 	}
+	return now.Sub(r.Ended)
+}
+
+// abandonedFor is how long nothing has been running a Job: since its most
+// recent Run started. Its end time is no use here - a Run left open by a dead
+// daemon is ended by the next daemon that starts, so reading that would say
+// the Job was abandoned a moment ago every time Owl is restarted.
+func (s *Service) abandonedFor(ctx context.Context, j store.Job, now time.Time) time.Duration {
+	r, ok := s.latestRun(ctx, j)
 	if !ok {
 		return now.Sub(j.Created)
 	}
-	return now.Sub(ended)
+	return now.Sub(r.Started)
+}
+
+// latestRun is a Job's most recent Run. A Run nobody can read is no Run: the
+// report is about the Job, and saying nothing about its clock is better than
+// not reporting it at all.
+func (s *Service) latestRun(ctx context.Context, j store.Job) (store.Run, bool) {
+	r, ok, err := s.opts.Store.LatestRun(ctx, j.ID)
+	if err != nil {
+		s.opts.Logger.Warn("reading a job's most recent run", "job", j.ID, "error", err)
+		return store.Run{}, false
+	}
+	return r, ok
 }
 
 // carrying reports whether the daemon has a Run going for that Job.

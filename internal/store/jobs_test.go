@@ -381,3 +381,64 @@ func TestSetJobAccountReportsAJobThatIsNotThere(t *testing.T) {
 		t.Errorf("SetJobAccount on an unknown job = %v, want ErrJobNotFound", err)
 	}
 }
+
+func TestMoveJobStateMovesAJobThatIsWhereItSaid(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := queuedJob(t, s, "work", "a")
+	if err := s.SetJobState(ctx, j.ID, "review"); err != nil {
+		t.Fatalf("SetJobState: %v", err)
+	}
+
+	moved, err := s.MoveJobState(ctx, j.ID, "review", "done")
+
+	if err != nil {
+		t.Fatalf("MoveJobState: %v", err)
+	}
+	if !moved {
+		t.Error("MoveJobState = false, want the job moved")
+	}
+	got, err := s.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if got.State != "done" {
+		t.Errorf("state = %q, want done", got.State)
+	}
+}
+
+func TestMoveJobStateLeavesAJobThatMovedOn(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := queuedJob(t, s, "work", "a")
+	if err := s.SetJobState(ctx, j.ID, "cancelled"); err != nil {
+		t.Fatalf("SetJobState: %v", err)
+	}
+
+	moved, err := s.MoveJobState(ctx, j.ID, "review", "done")
+
+	if err != nil {
+		t.Fatalf("MoveJobState: %v", err)
+	}
+	if moved {
+		t.Error("MoveJobState = true for a job that was not in review")
+	}
+	got, err := s.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if got.State != "cancelled" {
+		t.Errorf("state = %q, want the state somebody else decided on", got.State)
+	}
+}
+
+func TestMoveJobStateLeavesAJobThatIsNotThere(t *testing.T) {
+	moved, err := jobStore(t).MoveJobState(context.Background(), 999, "review", "done")
+
+	if err != nil {
+		t.Fatalf("MoveJobState: %v", err)
+	}
+	if moved {
+		t.Error("MoveJobState = true for a job that is not there")
+	}
+}

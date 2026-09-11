@@ -441,3 +441,58 @@ func TestJobsAndRunsInProgressReadsBothTogether(t *testing.T) {
 		t.Errorf("runs = %+v, want only the run that has not ended", runs)
 	}
 }
+
+func TestLatestRunIsTheMostRecentOneWhateverTheClockSays(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := queuedJob(t, s, "work", "a")
+	// Times are stored as text, and RFC 3339 trims the trailing zeros of a
+	// fraction: ".5Z" sorts after ".55Z" as a string. The later Run here is
+	// the one whose time would compare as earlier.
+	first, err := s.StartRun(ctx, store.Run{
+		JobID: j.ID, Started: time.Date(2026, 9, 11, 10, 0, 0, 550000000, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if err := s.FinishRun(ctx, first.ID,
+		time.Date(2026, 9, 11, 10, 0, 0, 550000000, time.UTC), "failed", "", 1); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+	second, err := s.StartRun(ctx, store.Run{
+		JobID: j.ID, Started: time.Date(2026, 9, 11, 11, 0, 0, 500000000, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if err := s.FinishRun(ctx, second.ID,
+		time.Date(2026, 9, 11, 11, 0, 0, 500000000, time.UTC), "succeeded", "", 0); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+
+	got, ok, err := s.LatestRun(ctx, j.ID)
+
+	if err != nil {
+		t.Fatalf("LatestRun: %v", err)
+	}
+	if !ok || got.ID != second.ID {
+		t.Errorf("LatestRun = %+v (found %v), want the run that started later", got, ok)
+	}
+	if got.Outcome != "succeeded" {
+		t.Errorf("outcome = %q, want the later run's", got.Outcome)
+	}
+}
+
+func TestLatestRunReportsAJobThatHasNeverRun(t *testing.T) {
+	s := jobStore(t)
+	j := queuedJob(t, s, "work", "a")
+
+	_, ok, err := s.LatestRun(context.Background(), j.ID)
+
+	if err != nil {
+		t.Fatalf("LatestRun: %v", err)
+	}
+	if ok {
+		t.Error("LatestRun found a run for a job that has never run")
+	}
+}

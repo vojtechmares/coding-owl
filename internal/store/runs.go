@@ -178,22 +178,22 @@ func (s *Store) InterruptRunsInProgress(ctx context.Context, at time.Time, outco
 	return int(n), err
 }
 
-// LatestRunEnd is when a Job's most recent Run ended, and false when it has no
-// Run that has. A Job reaches review when its Run ends (ADR-0013), so this is
-// when it started waiting for a decision.
-func (s *Store) LatestRunEnd(ctx context.Context, jobID int64) (time.Time, bool, error) {
-	var ended sql.NullString
-	err := s.db.QueryRowContext(ctx,
-		`SELECT MAX(ended) FROM runs WHERE job_id = ? AND ended != ''`, jobID).Scan(&ended)
-	if err != nil || !ended.Valid || ended.String == "" {
-		return time.Time{}, false, err
+// LatestRun is a Job's most recent Run, and false when it has none. Runs are
+// ordered by their id rather than by their times: a time is stored as text,
+// and RFC 3339 trims the trailing zeros of a fraction, so "10:00:00.5Z" sorts
+// after "10:00:00.55Z" as a string. Ids count up in the order Runs started,
+// which is the order asked for here anyway.
+func (s *Store) LatestRun(ctx context.Context, jobID int64) (Run, bool, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+runColumns+` FROM runs WHERE job_id = ? ORDER BY id DESC LIMIT 1`, jobID)
+	r, err := scanRun(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Run{}, false, nil
 	}
-	t, err := time.Parse(timeFormat, ended.String)
 	if err != nil {
-		return time.Time{}, false, fmt.Errorf("job %d has a run with an unreadable end time %q: %w",
-			jobID, ended.String, err)
+		return Run{}, false, err
 	}
-	return t, true, nil
+	return r, true, nil
 }
 
 // RunInProgress returns the Run that has not ended yet, if there is one. Only
@@ -212,9 +212,13 @@ func (s *Store) RunInProgress(ctx context.Context) (Run, bool, error) {
 }
 
 // JobsAndRunsInProgress returns every Job and every Run that has not ended,
-// read together. The two are read under one transaction because a caller that
-// reads them apart can see a Job between its Run ending and the Job being
-// moved on, and conclude that nothing is running it (ADR-0015).
+// read together, so that a caller sees one state of the world rather than two.
+//
+// It does not make a Job that is between its Run ending and the Job being
+// moved on look busy: those are two writes, so the database really does hold
+// an active Job with no Run in progress for as long as the bookkeeping takes.
+// Telling that apart from a Job a dead daemon left behind is the daemon's to
+// answer, not this read's (ADR-0015).
 func (s *Store) JobsAndRunsInProgress(ctx context.Context) ([]Job, []Run, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
