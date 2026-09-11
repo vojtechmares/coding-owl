@@ -22,6 +22,9 @@ type Project struct {
 type ProjectConfig struct {
 	Source       string
 	BranchPrefix string
+	// Account names the Account every Job in the Project runs on (ADR-0023),
+	// empty for a Project that names none.
+	Account string
 }
 
 // ProjectDetails is what owl project show reports.
@@ -66,6 +69,7 @@ func (c *Client) GetProject(ctx context.Context, name string) (ProjectDetails, e
 		Config: ProjectConfig{
 			Source:       res.Msg.GetConfig().GetSource(),
 			BranchPrefix: res.Msg.GetConfig().GetBranchPrefix(),
+			Account:      res.Msg.GetConfig().GetAccount(),
 		},
 	}, nil
 }

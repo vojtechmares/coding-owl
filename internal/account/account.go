@@ -124,9 +124,15 @@ type AddRequest struct {
 }
 
 // Add records an Account, makes its configuration directory and puts its token
-// in the credential store. Nothing is left behind by a request that is
-// refused: the name is checked, then the directory is made, then the secret is
-// written, and the row is what makes the Account real.
+// in the credential store.
+//
+// The row goes in before the secret, so that a name is claimed by the database
+// rather than by a check: two callers adding the same name at once would
+// otherwise both pass the check, and the one that lost would take the winner's
+// secret back out of the keychain on its way to reporting the collision.
+// Nothing is left behind by a request that is refused, and an Account whose
+// secret could not be written is taken out again rather than left unable to
+// run.
 func (s *Service) Add(ctx context.Context, req AddRequest) (Account, error) {
 	if err := CheckName(req.Name); err != nil {
 		return Account{}, err
@@ -141,25 +147,8 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Account, error) {
 	if strings.TrimSpace(req.Token) == "" {
 		return Account{}, invalid("account %s has no token; run the tool's own token setup and paste what it prints", req.Name)
 	}
-	if _, err := s.store.GetAccount(ctx, req.Name); err == nil {
-		return Account{}, fmt.Errorf("%w: %s", store.ErrNameTaken, req.Name)
-	} else if !errors.Is(err, store.ErrAccountNotFound) {
-		return Account{}, err
-	}
-
 	dir := DirFor(s.dataDir, req.Name)
-	if err := os.MkdirAll(dir, dirMode); err != nil {
-		return Account{}, fmt.Errorf("making the account's configuration directory: %w", err)
-	}
-	// MkdirAll leaves a directory that was already there as it was, and this
-	// one holds a tool's credentials.
-	if err := os.Chmod(dir, dirMode); err != nil {
-		return Account{}, fmt.Errorf("securing the account's configuration directory: %w", err)
-	}
 	ref := RefFor(req.Name)
-	if err := s.creds.Set(ctx, ref, req.Token); err != nil {
-		return Account{}, err
-	}
 	row := store.Account{
 		Name:            req.Name,
 		Driver:          name,
@@ -169,16 +158,49 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Account, error) {
 		Created:         s.now().UTC(),
 	}
 	if err := s.store.AddAccount(ctx, row); err != nil {
-		// The secret was written for an Account that does not exist, so it is
-		// taken back rather than left in the keychain under a name nothing
-		// refers to.
-		_ = s.creds.Delete(ctx, ref)
+		return Account{}, err
+	}
+	if err := ensureDir(dir); err != nil {
+		_ = s.store.DeleteAccount(ctx, req.Name)
+		return Account{}, err
+	}
+	if err := s.creds.Set(ctx, ref, req.Token); err != nil {
+		// An Account with no secret can run nothing, so it is taken out again
+		// rather than left for the user to find at the next Run.
+		_ = s.store.DeleteAccount(ctx, req.Name)
 		return Account{}, err
 	}
 	return Account{
 		Name: row.Name, Driver: row.Driver, ConfigDir: row.ConfigDir,
 		HasCredential: true, FailoverAllowed: row.FailoverAllowed, Created: row.Created,
 	}, nil
+}
+
+// ensureDir makes an Account's configuration directory, readable by nobody but
+// its owner: it holds a coding tool's whole credential state. It is exported
+// through EnsureDir because the command that walks a user through the tool's
+// token setup has to make it before the tool writes into it, which is before
+// the daemon has heard of the Account.
+func ensureDir(dir string) error {
+	if err := os.MkdirAll(dir, dirMode); err != nil {
+		return fmt.Errorf("making the account's configuration directory: %w", err)
+	}
+	// MkdirAll leaves a directory that was already there as it was.
+	if err := os.Chmod(dir, dirMode); err != nil {
+		return fmt.Errorf("securing the account's configuration directory: %w", err)
+	}
+	return nil
+}
+
+// EnsureDir makes the configuration directory of the Account that will be
+// called name under dataDir, and secures it. The tool's own token setup writes
+// its credential state there before there is an Account to record, so the
+// directory has to exist, and be the user's alone, before it runs.
+func EnsureDir(dataDir, name string) error {
+	if err := CheckName(name); err != nil {
+		return err
+	}
+	return ensureDir(DirFor(dataDir, name))
 }
 
 // List returns every Account, oldest first, and says of each whether the
@@ -217,21 +239,29 @@ func (s *Service) Remove(ctx context.Context, name string) (Account, error) {
 	if err != nil {
 		return Account{}, err
 	}
-	jobs, err := s.store.CountJobsOnAccount(ctx, name)
+	// The count is against the name as it is recorded, not as it was asked
+	// for: an Account can be named in any case, and a Job records the one the
+	// Account carries.
+	jobs, err := s.store.CountJobsOnAccount(ctx, row.Name)
 	if err != nil {
 		return Account{}, err
 	}
 	if jobs > 0 {
 		return Account{}, &InUseError{Err: fmt.Errorf(
 			"account %s is what %s ran on; removing it would leave them naming an account that is not there",
-			name, plural(jobs, "job"))}
+			row.Name, plural(jobs, "job"))}
 	}
-	if err := s.store.DeleteAccount(ctx, name); err != nil {
+	if err := s.store.DeleteAccount(ctx, row.Name); err != nil {
 		return Account{}, err
 	}
-	// The row is gone, so the secret has nothing left referring to it.
+	// The row is gone, so the secret has nothing left referring to it. The
+	// Account is removed either way, which the message has to say: leaving a
+	// caller to think it is still there would be worse than the secret that is
+	// still in the store.
 	if err := s.creds.Delete(ctx, row.CredentialRef); err != nil {
-		return Account{}, err
+		return Account{}, fmt.Errorf(
+			"account %s was removed, but its credential is still in %s and has to be taken out by hand: %w",
+			row.Name, s.creds.Name(), err)
 	}
 	return Account{
 		Name: row.Name, Driver: row.Driver, ConfigDir: row.ConfigDir,

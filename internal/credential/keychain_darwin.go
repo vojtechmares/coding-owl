@@ -47,16 +47,18 @@ func (k *Keychain) Name() string {
 
 // Set writes a secret under ref, replacing one already there.
 //
-// Three things about this call are deliberate. The item already there is
-// removed rather than updated in place: `security add-generic-password -U`
-// asks the keychain for permission to change an item it did not create, which
-// on an unattended daemon means a dialog nobody will ever answer. The secret
-// is an argument, which is how every tool that drives `security` passes one,
-// and is visible to another process of the same user for as long as the call
-// takes - a user who can read that can read the item out of the keychain
-// anyway. And -A lets any application read the item without the keychain
-// asking, for the same reason as the first: an item the daemon cannot read
-// without someone approving a dialog is an item it cannot read at all.
+// Two things about this call are deliberate. The item already there is removed
+// rather than updated in place: `security add-generic-password -U` asks the
+// keychain for permission to change an item it did not create, which on an
+// unattended daemon means a dialog nobody will ever answer. And the secret is
+// an argument, which is how every tool that drives `security` passes one, and
+// is visible to another process of the same user for as long as the call takes
+// - a user who can read that can read the item out of the keychain anyway.
+//
+// The item is written with the ordinary access list rather than -A, so what
+// may read it is `security` itself rather than every application. That is what
+// Owl always reads it through, so the daemon is never asked to approve
+// anything.
 func (k *Keychain) Set(ctx context.Context, ref, secret string) error {
 	if err := checkRef(ref); err != nil {
 		return err
@@ -64,7 +66,7 @@ func (k *Keychain) Set(ctx context.Context, ref, secret string) error {
 	if err := k.Delete(ctx, ref); err != nil {
 		return err
 	}
-	args := []string{"add-generic-password", "-A", "-s", service, "-a", ref, "-w", secret}
+	args := []string{"add-generic-password", "-s", service, "-a", ref, "-w", secret}
 	if _, err := k.run(ctx, args); err != nil {
 		return fmt.Errorf("writing the credential %s to the keychain: %w", ref, err)
 	}

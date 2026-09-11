@@ -41,6 +41,21 @@ keychain holds the secret.
 An Account also carries a `failover_allowed` flag. It is recorded and unused:
 failover to another Account, Driver or model is out of MVP scope.
 
+### Where the secret goes when there is no keychain
+
+Owl is a macOS program (ADR-0002, ADR-0010), and on macOS the keychain is where
+an Account's secret lives. Everywhere else - a Linux continuous integration
+runner, a developer running the test suite - there is no keychain Owl drives,
+and it keeps the secret in a file under the data home that only its owner can
+read, saying so in its log at startup.
+
+The daemon's own configuration chooses with `credentialStore: keychain` or
+`credentialStore: file`, defaulting to the keychain where there is one. The
+knob exists because the behaviour suite must be able to run without putting a
+test token in anybody's real keychain, and because a user running the daemon
+somewhere without one deserves a working Owl rather than a refusal. A file is
+weaker than a keychain and is not the default anywhere a keychain exists.
+
 ## Consequences
 
 - Rate-limit budgets attach where the limit exists (ADR-0020).

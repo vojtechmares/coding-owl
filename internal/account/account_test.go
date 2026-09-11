@@ -100,13 +100,65 @@ func TestAddRefusesANameThatIsTaken(t *testing.T) {
 
 	_, err := f.svc.Add(context.Background(), account.AddRequest{Name: "work", Token: "another"})
 
-	if !errors.Is(err, store.ErrNameTaken) {
-		t.Fatalf("adding an account twice = %v, want ErrNameTaken", err)
+	if !errors.Is(err, store.ErrAccountNameTaken) {
+		t.Fatalf("adding an account twice = %v, want ErrAccountNameTaken", err)
+	}
+	if !strings.Contains(err.Error(), "account") {
+		t.Errorf("the error %q does not say what was already there", err)
 	}
 	if got, err := f.creds.Get(context.Background(), account.RefFor("work")); err != nil {
 		t.Fatalf("the first account lost its credential: %v", err)
 	} else if got != "sk-ant-oat01-work" {
 		t.Errorf("the credential store holds %q, want the first account's token", got)
+	}
+}
+
+func TestAddDoesNotTakeTheSecretOfTheAccountThatIsAlreadyThere(t *testing.T) {
+	f := newFixture(t)
+	f.added(t, "work")
+
+	// The second add replaces the secret before the name collides, so an
+	// Account that refuses to be added twice must not take the first one's
+	// credential with it.
+	_, _ = f.svc.Add(context.Background(), account.AddRequest{Name: "work", Token: "another"})
+
+	got, err := f.creds.Get(context.Background(), account.RefFor("work"))
+	if err != nil {
+		t.Fatalf("the account that was already there lost its credential: %v", err)
+	}
+	if got != "sk-ant-oat01-work" {
+		t.Errorf("the credential store holds %q, want the first account's token", got)
+	}
+}
+
+func TestRemoveFindsTheAccountWhateverTheCase(t *testing.T) {
+	f := newFixture(t)
+	f.added(t, "work")
+	ctx := context.Background()
+	if err := f.store.AddProject(ctx, store.Project{
+		Name: "api", Path: "/repos/api", BaseBranch: "main", Registered: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("AddProject: %v", err)
+	}
+	j, err := f.store.UpsertJob(ctx, store.Job{
+		Source: "local", SourceRef: "a", Project: "api", Prompt: "work",
+		State: "pending", TTL: 10, Created: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	if err := f.store.SetJobAccount(ctx, j.ID, "work"); err != nil {
+		t.Fatalf("SetJobAccount: %v", err)
+	}
+
+	_, err = f.svc.Remove(ctx, "WORK")
+
+	// The Jobs are counted against the name the Account carries, not the one
+	// the caller typed, or a differently-cased name would remove an Account
+	// Jobs still name.
+	var inUse *account.InUseError
+	if !errors.As(err, &inUse) {
+		t.Fatalf("removing WORK, which a job ran on as work = %v, want it refused", err)
 	}
 }
 

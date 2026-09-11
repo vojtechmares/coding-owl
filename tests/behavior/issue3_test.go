@@ -170,10 +170,22 @@ func wantNames(t *testing.T, l *layout, want ...string) {
 // Accounts registers its Projects itself.
 func addProject(t *testing.T, l *layout, r *repo, flags ...string) {
 	t.Helper()
-	mustOwl(t, l, append([]string{"project", "add", r.dir}, flags...)...)
+	res := mustOwl(t, l, append([]string{"project", "add", r.dir}, flags...)...)
 	if l.agent {
-		runsOn(t, l, r)
+		runsOn(t, l, r, registeredName(t, res.stdout))
 	}
+}
+
+var registeredRE = regexp.MustCompile(`registered (\S+) at `)
+
+// registeredName is the name owl project add gave the Project it registered.
+func registeredName(t *testing.T, out string) string {
+	t.Helper()
+	m := registeredRE.FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("owl project add did not say what it registered:\n%s", out)
+	}
+	return m[1]
 }
 
 // wantLine fails unless the key line of out has the wanted value.
