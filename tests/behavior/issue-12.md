@@ -144,3 +144,7 @@ And `owl jobs show <job>` reports the Job as `blocked`, saying the worktree belo
 And that other repository's branch is exactly where it was
 And a second `owl start` runs the next Job in the queue rather than failing on the same one
 
+### S21 - the desktop app shows the conflict as the block reason
+Given a Job whose rebase conflicted, and the desktop app bound to the daemon
+When the app reads the Job, and the overview
+Then the Job is `blocked` with a reason naming the conflicting path in both, read from the daemon and nothing else
