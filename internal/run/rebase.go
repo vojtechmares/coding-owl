@@ -66,6 +66,18 @@ func (s *Service) rebase(ctx context.Context, j store.Job, details project.Detai
 			"project", details.Name, "branch", details.BaseBranch, "error", err)
 	}
 
+	// Nothing runs in the worktree between Runs, so a lock on its index is one
+	// a killed git left - an Agent ended by SIGKILL in the middle of a commit
+	// (ADR-0034), or a rebase the daemon stopped. It is cleared rather than
+	// letting it block the Job for good, and said so in the log.
+	cleared, err := git.ClearStaleLocks(j.Worktree)
+	if err != nil {
+		return err
+	}
+	for _, lock := range cleared {
+		s.opts.Logger.Warn("cleared a lock a killed git left in a worktree", "job", j.ID, "path", lock)
+	}
+
 	// Not under the caller's context: a client that hangs up would otherwise
 	// kill git in the middle of rewriting the branch, and what it leaves
 	// behind is the one state a Run must never begin on top of (ADR-0016).
