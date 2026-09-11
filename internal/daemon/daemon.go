@@ -29,6 +29,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/gc"
 	"github.com/vojtechmares/coding-owl/internal/git"
 	"github.com/vojtechmares/coding-owl/internal/idle"
+	"github.com/vojtechmares/coding-owl/internal/idle/system"
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/run"
@@ -231,16 +232,13 @@ func Run(ctx context.Context, opts Options) error {
 	// in view, starts work when it is Idle, and gives it back the moment
 	// somebody returns (ADR-0011). It is stopped on the way out for the same
 	// reason garbage collection is.
-	detector := idle.New()
-	policy := idlePolicy(global.Idle)
-	log.Info("watching the machine",
-		"detector", detector.Name(), "after", policy.After,
-		"requirePower", policy.RequirePower, "every", idleInterval(global.Idle))
+	detector := system.New()
+	log.Info("watching the machine", "detector", detector.Name(), "every", idleInterval(global.Idle))
 	watchCtx, stopWatching := context.WithCancel(ctx)
 	watching := make(chan struct{})
 	go func() {
 		defer close(watching)
-		runs.Watch(watchCtx, detector, policy, idleInterval(global.Idle))
+		runs.Watch(watchCtx, detector, idleInterval(global.Idle))
 	}()
 	defer func() {
 		stopWatching()
@@ -354,20 +352,8 @@ func (s *daemonService) GetStatus(context.Context, *connect.Request[codingowlv1.
 	}), nil
 }
 
-// idlePolicy is what the daemon's configuration says about when Owl may work,
-// with Owl's own answer where it says nothing (ADR-0011).
-func idlePolicy(cfg config.Idle) idle.Policy {
-	p := idle.DefaultPolicy()
-	if cfg.After > 0 {
-		p.After = cfg.After
-	}
-	if cfg.RequirePower != nil {
-		p.RequirePower = *cfg.RequirePower
-	}
-	return p
-}
-
-// idleInterval is how often the machine is looked at.
+// idleInterval is how often the machine is looked at. Unlike what counts as
+// Idle, which is read on every look, this is the daemon's for its lifetime.
 func idleInterval(cfg config.Idle) time.Duration {
 	if cfg.Interval > 0 {
 		return cfg.Interval

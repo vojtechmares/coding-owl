@@ -1,6 +1,10 @@
 //go:build darwin
 
-package idle
+// Package system reads the machine Owl runs on through the tools its operating
+// system ships with: the idle Detector of ADR-0005, in its own package as
+// every implementation of an extension point is, chosen by build tag because
+// nothing about reading a machine is portable.
+package system
 
 import (
 	"bytes"
@@ -12,10 +16,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vojtechmares/coding-owl/internal/idle"
 )
 
 // New is the Detector for this platform.
-func New() Detector { return darwin{} }
+func New() idle.Detector { return darwin{} }
 
 // readTimeout bounds one reading. The tools that answer are the system's own
 // and answer in milliseconds; one that does not must not stall the daemon's
@@ -29,24 +35,34 @@ const maxOutput = 256 << 10
 // darwin reads the machine through the tools macOS ships with, rather than
 // through cgo: `ioreg` for how long it has been since any input, and `pmset`
 // for what the machine is drawing from.
+//
+// Both are looked up on PATH, where `security` is pinned to its absolute path
+// (internal/credential/keychain_darwin.go). The difference is what is at stake:
+// the keychain is handed every Account's token, and these two are handed
+// nothing and asked a question. An Agent that could put its own `ioreg` on the
+// daemon's PATH runs unsandboxed as the same user already (ADR-0006), so it
+// could as easily write `idle: {after: 0s}` into the configuration; what it
+// would gain is a lie about the machine, not a secret and not a privilege. In
+// return, the tools being found the ordinary way is what lets the behaviour
+// suite put a machine of its own in front of them and step away from it.
 type darwin struct{}
 
 func (darwin) Name() string { return "darwin" }
 
 // Read is the machine now. Both halves are read, because a policy may hold
 // either against it.
-func (d darwin) Read(ctx context.Context) (State, error) {
+func (d darwin) Read(ctx context.Context) (idle.State, error) {
 	ctx, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
 	since, err := inputIdle(ctx)
 	if err != nil {
-		return State{}, err
+		return idle.State{}, err
 	}
 	power, err := onPower(ctx)
 	if err != nil {
-		return State{}, err
+		return idle.State{}, err
 	}
-	return State{Since: since, OnPower: power}, nil
+	return idle.State{Since: since, OnPower: power}, nil
 }
 
 // idleTimeRE is how ioreg prints the nanoseconds since the last input event.

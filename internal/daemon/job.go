@@ -186,6 +186,7 @@ func (s *jobService) GetOverview(ctx context.Context, _ *connect.Request[codingo
 		OnPower: o.Machine.OnPower,
 		Detail:  o.Machine.Detail,
 	}
+	res.Holding = o.Holding
 	return connect.NewResponse(res), nil
 }
 

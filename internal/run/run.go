@@ -257,8 +257,10 @@ type Service struct {
 	// stages is where each Run in progress is once its Agent has exited; a
 	// Run in live is at its Agent, and one in neither is starting.
 	stages map[int64]Stage
-	// machine is what the last look at the machine said (ADR-0011).
+	// machine is what the last look at the machine said, and holding is what
+	// refused to start work on it (ADR-0011).
 	machine Machine
+	holding string
 
 	// carrying is the Jobs this daemon has a Run going for, which is what
 	// makes "no daemon is running it" a question somebody can answer rather

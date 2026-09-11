@@ -71,6 +71,7 @@ Given a Run the user paused with `owl pause`, on a machine in use
 When the machine goes idle again
 Then the Run is still paused, because the user's decision is not the machine's to reverse
 And `owl resume` continues it
+And a Run the machine froze, which the user then asked to pause as well, is not continued either
 
 ### S10 - `owl status` reports the machine as the system reports it
 Given a machine idle for twelve minutes on AC power
@@ -83,6 +84,7 @@ Given a queued Job and a machine in use
 When `owl status` is run
 Then it says nothing is running because the machine is in use
 And with the machine idle and nothing queued it says nothing is running because nothing is queued
+And with the machine idle and a Job that cannot run, it says what refused it rather than blaming the machine
 
 ### S12 - a machine Owl cannot read starts nothing, and says so
 Given a queued Job and a machine whose idleness cannot be read
@@ -90,7 +92,12 @@ When the daemon has had time to look at the machine several times
 Then no Run has started, and `owl status` says the machine could not be read
 And a Run already in flight is left alone rather than frozen on a reading nobody got
 
-### S13 - the app shows whether the machine is idle
+### S13 - a policy changed while the daemon is running is the one it holds the machine to
+Given a running daemon, a queued Job, and a machine idle for two seconds on battery, which the default policy refuses
+When the global configuration is given an `idle` policy that machine satisfies
+Then a Run starts without the daemon being restarted, as a changed grace window takes effect without one
+
+### S14 - the app shows whether the machine is idle
 Given the desktop app on a daemon whose machine is idle
 When the app is asked for the overview
 Then it carries the machine's idle state, how long it has been without input, and its power state
