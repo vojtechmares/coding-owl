@@ -194,7 +194,33 @@ func (s *Service) open(ctx context.Context, req SendRequest, text string) (int64
 		carried += len(m.Text)
 		history = append([]Turn{{Role: m.Role, Text: m.Text}}, history...)
 	}
-	return id, history, nil
+	return id, shaped(history), nil
+}
+
+// shaped is a conversation a provider will take: it starts with what the user
+// said, and two turns of one role are one turn.
+//
+// A conversation cut to its most recent turns can start with an answer, and an
+// answer that never arrived - one rate limit is enough - leaves two questions
+// in a row. The Anthropic API refuses both, and a conversation that carries one
+// would be refused every time it was opened again. Neither is the user's doing,
+// so neither is theirs to live with.
+//
+// These are the turns as the conversation kept them, which are text and nothing
+// else: no tool call is ever left without the turn that asked for it.
+func shaped(turns []Turn) []Turn {
+	out := make([]Turn, 0, len(turns))
+	for _, t := range turns {
+		if len(out) == 0 && t.Role != RoleUser {
+			continue
+		}
+		if last := len(out) - 1; last >= 0 && out[last].Role == t.Role {
+			out[last].Text = strings.TrimSpace(out[last].Text + "\n\n" + t.Text)
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 // errTooLong stops a provider that will not stop talking. It is Owl's own, so

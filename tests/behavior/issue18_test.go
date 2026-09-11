@@ -141,18 +141,6 @@ func anthropicToolUse(id, name string, input map[string]any) string {
 	return b.String()
 }
 
-// openAIText is what an OpenAI-compatible stream looks like, which is what
-// OpenRouter speaks.
-func openAIText(pieces ...string) string {
-	var b strings.Builder
-	for _, piece := range pieces {
-		delta, _ := json.Marshal(piece)
-		fmt.Fprintf(&b, "data: {\"choices\":[{\"delta\":{\"content\":%s}}]}\n\n", delta)
-	}
-	b.WriteString("data: [DONE]\n\n")
-	return b.String()
-}
-
 // chatLayout is a layout with a daemon and one provider configured against a
 // fake, which is what every chat scenario starts from.
 func chatLayout(t *testing.T, replies ...string) (*layout, *fakeProvider) {
@@ -463,7 +451,7 @@ func TestS9ChatTheToolsOfferedOnlyRead(t *testing.T) {
 }
 
 func TestS10ChatAQuestionAboutOwlsStateIsAnsweredFromIt(t *testing.T) {
-	l, s := agentLayout(t, agentScript, 0)
+	l, _ := agentLayout(t, agentScript, 0)
 	daemonUp(t, l)
 	// The check is named something that is not a word of what it prints, so
 	// "the check that failed" is checked apart from "what it printed".
@@ -476,7 +464,6 @@ checks:
 	if got := line(t, out, "state"); got != "blocked" {
 		t.Fatalf("the job is %q, want blocked so there is something to ask about", got)
 	}
-	_ = s
 	p := newFakeProvider(t,
 		anthropicToolUse("call-1", "get_job", map[string]any{"id": id(t, job)}),
 		anthropicText("It was the gauntlet check."))
@@ -492,6 +479,18 @@ checks:
 	for _, want := range []string{"gauntlet: failed", "the tests are unhappy"} {
 		if !strings.Contains(second, want) {
 			t.Errorf("the tool result does not carry %q:\n%s", want, second)
+		}
+	}
+	// The call the result answers goes back with it, or there is nothing for
+	// the provider to attach the answer to.
+	raw, err := json.Marshal(p.asked(t, 1)["messages"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"type":"tool_use"`, `"call-1"`} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("the tool result is carried back without %s, so there is no call to attach it to:\n%s",
+				want, raw)
 		}
 	}
 	if answer := strings.Join(got.deltas, ""); !strings.Contains(answer, "It was the gauntlet check.") {

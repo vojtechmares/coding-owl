@@ -126,6 +126,10 @@ func TestAddProviderRefusesWhatOwlCannotUse(t *testing.T) {
 			_, err := f.chat.AddProvider(ctx, "anthropic", "k", "ftp://models", nil)
 			return err
 		},
+		"a base url carrying a credential": func() error {
+			_, err := f.chat.AddProvider(ctx, "anthropic", "k", "https://someone:s3cr3t@models.test", nil)
+			return err
+		},
 		"a model name Owl cannot use": func() error {
 			_, err := f.chat.AddProvider(ctx, "openrouter", "k", "", []string{"--upload-pack=evil"})
 			return err
@@ -418,18 +422,39 @@ func (r *recording) roles(t *testing.T) ([]string, string) {
 
 // alternating fails when a conversation is not one the Anthropic API takes:
 // it starts with the user, and no two turns in a row are the same role.
-func alternating(t *testing.T, roles []string, what string) {
+func alternating(t *testing.T, roles []string, said string) {
 	t.Helper()
+	// A conversation is both sides of it: turns merged away until one is left
+	// would satisfy everything below and carry nothing back.
+	if len(roles) < 2 {
+		t.Errorf("the conversation went as %v, want the turns it was made of\n%s", roles, tailOf(said))
+		return
+	}
+	var user, assistant bool
+	for _, role := range roles {
+		user = user || role == "user"
+		assistant = assistant || role == "assistant"
+	}
+	if !user || !assistant {
+		t.Errorf("the conversation went as %v, want both sides of it\n%s", roles, tailOf(said))
+	}
 	if roles[0] != "user" {
-		t.Errorf("the conversation starts with %q, want the user: %v", roles[0], roles)
+		t.Errorf("the conversation starts with %q, want the user: %v\n%s", roles[0], roles, tailOf(said))
 	}
 	for at := 1; at < len(roles); at++ {
 		if roles[at] == roles[at-1] {
-			t.Errorf("two %s turns in a row at %d: %v", roles[at], at, roles)
+			t.Errorf("two %s turns in a row at %d: %v\n%s", roles[at], at, roles, tailOf(said))
 			break
 		}
 	}
-	_ = what
+}
+
+// tailOf is the end of what was sent, for a report a person reads.
+func tailOf(said string) string {
+	if len(said) <= 800 {
+		return said
+	}
+	return "..." + said[len(said)-800:]
 }
 
 func TestAnAnswerThatNeverArrivedDoesNotSpoilTheNextOne(t *testing.T) {
@@ -448,21 +473,29 @@ func TestAnAnswerThatNeverArrivedDoesNotSpoilTheNextOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartConversation: %v", err)
 	}
-	if _, err := f.store.AddChatMessage(ctx, store.ChatMessage{
-		ConversationID: c.ID, Role: "user", Text: "the first question", Created: now,
-	}); err != nil {
-		t.Fatalf("AddChatMessage: %v", err)
+	for at, turn := range []struct{ role, text string }{
+		{"user", "the first question"},
+		{"assistant", "the first answer"},
+		// This one nothing ever answered.
+		{"user", "the second question"},
+	} {
+		if _, err := f.store.AddChatMessage(ctx, store.ChatMessage{
+			ConversationID: c.ID, Role: turn.role, Text: turn.text,
+			Created: now.Add(time.Duration(at) * time.Second),
+		}); err != nil {
+			t.Fatalf("AddChatMessage: %v", err)
+		}
 	}
 
 	if _, err := f.chat.Send(ctx, chat.SendRequest{
-		Conversation: c.ID, Model: "claude-opus-5", Text: "the second question",
+		Conversation: c.ID, Model: "claude-opus-5", Text: "the third question",
 	}, nil); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
 	roles, said := p.roles(t)
 	alternating(t, roles, said)
-	for _, want := range []string{"the first question", "the second question"} {
+	for _, want := range []string{"the first question", "the first answer", "the second question", "the third question"} {
 		if !strings.Contains(said, want) {
 			t.Errorf("what was sent does not carry %q:\n%s", want, said)
 		}
@@ -518,3 +551,86 @@ func TestAConversationCutToItsRecentTurnsStillStartsWithTheUser(t *testing.T) {
 // maxCarried is what a request may carry of a conversation, with room for the
 // turn markers around the text itself.
 const maxCarried = 160 << 10
+
+// recordingOpenRouter is a provider that speaks the OpenAI shape OpenRouter
+// speaks, and keeps what it was asked.
+func recordingOpenRouter(t *testing.T, text string) *recording {
+	t.Helper()
+	piece, err := json.Marshal(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &recording{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		r.mu.Lock()
+		r.sent = append(r.sent, body)
+		r.mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%s}}]}\n\n", piece)
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	t.Cleanup(srv.Close)
+	r.url = srv.URL
+	return r
+}
+
+func TestEveryProviderIsSentAConversationInTheSameShape(t *testing.T) {
+	f := newFixture(t)
+	p := recordingOpenRouter(t, "this one answers")
+	if _, err := f.chat.AddProvider(ctx, "openrouter", "sk-or-secret",
+		p.url, []string{"anthropic/claude-sonnet-4.5"}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+	// The same conversation that would be refused: a question nothing
+	// answered, asked again. What a model behind OpenRouter makes of it is
+	// OpenRouter's business, and it is sent the shape every model takes.
+	now := time.Now().UTC()
+	c, err := f.store.StartConversation(ctx, store.Conversation{
+		Title: "the first question", Model: "anthropic/claude-sonnet-4.5", Created: now, Updated: now,
+	})
+	if err != nil {
+		t.Fatalf("StartConversation: %v", err)
+	}
+	for at, turn := range []struct{ role, text string }{
+		// An answer with nothing before it, as a conversation cut to its most
+		// recent turns begins.
+		{"assistant", "an answer to something older"},
+		{"user", "the first question"},
+		{"assistant", "the first answer"},
+		{"user", "the second question"},
+	} {
+		if _, err := f.store.AddChatMessage(ctx, store.ChatMessage{
+			ConversationID: c.ID, Role: turn.role, Text: turn.text,
+			Created: now.Add(time.Duration(at) * time.Second),
+		}); err != nil {
+			t.Fatalf("AddChatMessage: %v", err)
+		}
+	}
+
+	if _, err := f.chat.Send(ctx, chat.SendRequest{
+		Conversation: c.ID, Model: "anthropic/claude-sonnet-4.5", Text: "the third question",
+	}, nil); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	roles, said := p.roles(t)
+	// What that provider is told it is comes first, and is not a turn of the
+	// conversation.
+	if roles[0] != "system" {
+		t.Fatalf("the request starts with %q, want what the model is told it is: %v", roles[0], roles)
+	}
+	alternating(t, roles[1:], said)
+	if strings.Contains(said, "an answer to something older") {
+		t.Errorf("the turn the conversation could not start with was carried anyway:\n%s", tailOf(said))
+	}
+	for _, want := range []string{"the first question", "the second question", "the third question"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("what was sent does not carry %q:\n%s", want, tailOf(said))
+		}
+	}
+}
