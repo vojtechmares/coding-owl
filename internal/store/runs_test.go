@@ -411,3 +411,33 @@ func TestReturnJobToQueueReportsAJobThatIsNotThere(t *testing.T) {
 		t.Errorf("ReturnJobToQueue on an unknown job = %v, want ErrJobNotFound", err)
 	}
 }
+
+func TestJobsAndRunsInProgressReadsBothTogether(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	running := queuedJob(t, s, "running", "a")
+	idle := queuedJob(t, s, "idle", "b")
+	r, err := s.StartRun(ctx, store.Run{JobID: running.ID, Started: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	ended, err := s.StartRun(ctx, store.Run{JobID: idle.ID, Started: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if err := s.FinishRun(ctx, ended.ID, time.Now().UTC(), "succeeded", "", 0); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+
+	jobs, runs, err := s.JobsAndRunsInProgress(ctx)
+
+	if err != nil {
+		t.Fatalf("JobsAndRunsInProgress: %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Errorf("jobs = %+v, want both", jobs)
+	}
+	if len(runs) != 1 || runs[0].ID != r.ID {
+		t.Errorf("runs = %+v, want only the run that has not ended", runs)
+	}
+}

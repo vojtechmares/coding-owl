@@ -526,3 +526,28 @@ func TestCollectLeavesAWorktreeNamedAfterAJobThatHasNotRecordedItYet(t *testing.
 		t.Errorf("reclaimed = %+v, want nothing", report.Reclaimed)
 	}
 }
+
+func TestCollectLeavesAWorktreeMadeWhileItWasThinking(t *testing.T) {
+	f := newFixture(t, func(o *gc.Options) { o.ReviewAfter = time.Hour })
+	if err := os.MkdirAll(f.worktreeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stray := filepath.Join(f.worktreeDir, "1")
+	// A Run creates its worktree after the collection has read the worktree
+	// directory and before it reads the database. Nothing the collection did
+	// not see is its business, however little the database says about it.
+	f.svc.Interleave(func() {
+		if err := git.AddWorktree(f.repo, stray, "owl/job-1", "main"); err != nil {
+			t.Errorf("AddWorktree: %v", err)
+		}
+	})
+
+	report := f.collect(t)
+
+	if !there(stray) {
+		t.Error("a collection took a worktree that was made while it was thinking")
+	}
+	if len(report.Reclaimed) != 0 {
+		t.Errorf("reclaimed = %+v, want nothing", report.Reclaimed)
+	}
+}

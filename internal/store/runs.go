@@ -193,10 +193,38 @@ func (s *Store) RunInProgress(ctx context.Context) (Run, bool, error) {
 	return r, true, nil
 }
 
+// JobsAndRunsInProgress returns every Job and every Run that has not ended,
+// read together. The two are read under one transaction because a caller that
+// reads them apart can see a Job between its Run ending and the Job being
+// moved on, and conclude that nothing is running it (ADR-0015).
+func (s *Store) JobsAndRunsInProgress(ctx context.Context) ([]Job, []Run, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	jobs, err := scanJobs(tx.QueryContext(ctx,
+		`SELECT `+jobColumns+` FROM jobs ORDER BY position IS NULL, position, id`))
+	if err != nil {
+		return nil, nil, err
+	}
+	runs, err := scanRuns(tx.QueryContext(ctx,
+		`SELECT `+runColumns+` FROM runs WHERE outcome = '' ORDER BY id`))
+	if err != nil {
+		return nil, nil, err
+	}
+	return jobs, runs, tx.Commit()
+}
+
 // ListRunsInProgress returns every Run that has not ended, oldest first.
 func (s *Store) ListRunsInProgress(ctx context.Context) ([]Run, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+runColumns+` FROM runs WHERE outcome = '' ORDER BY id`)
+	return scanRuns(s.db.QueryContext(ctx,
+		`SELECT `+runColumns+` FROM runs WHERE outcome = '' ORDER BY id`))
+}
+
+// scanRuns reads a query's Runs, taking the query's own error so that a caller
+// can hand it straight through.
+func scanRuns(rows *sql.Rows, err error) ([]Run, error) {
 	if err != nil {
 		return nil, err
 	}
