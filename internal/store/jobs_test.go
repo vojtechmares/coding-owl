@@ -355,3 +355,29 @@ func TestExtendJobReportsAJobThatIsNotThere(t *testing.T) {
 		t.Errorf("ExtendJob on an unknown job = %v, want ErrJobNotFound", err)
 	}
 }
+
+func TestSetJobAccountRecordsWhatItRanOn(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := queuedJob(t, s, "work", "a")
+
+	if err := s.SetJobAccount(ctx, j.ID, "work-account"); err != nil {
+		t.Fatalf("SetJobAccount: %v", err)
+	}
+
+	got, err := s.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if got.Account != "work-account" {
+		t.Errorf("the job records account %q, want the one it ran on", got.Account)
+	}
+}
+
+func TestSetJobAccountReportsAJobThatIsNotThere(t *testing.T) {
+	err := jobStore(t).SetJobAccount(context.Background(), 999, "work")
+
+	if !errors.Is(err, store.ErrJobNotFound) {
+		t.Errorf("SetJobAccount on an unknown job = %v, want ErrJobNotFound", err)
+	}
+}
