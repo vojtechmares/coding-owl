@@ -170,6 +170,29 @@ func TestCollectReclaimsTheWorktreeOfAFinishedJob(t *testing.T) {
 	}
 }
 
+func TestCollectReclaimsWhatWasKeptBesideTheWorktree(t *testing.T) {
+	// Owl keeps the exclude file that hides a Job's Skills outside the
+	// worktree, one directory per Job (ADR-0033). It has nothing left to hide
+	// once the worktree is gone.
+	root := t.TempDir()
+	beside := filepath.Join(root, "worktree-config")
+	f := newFixture(t, func(o *gc.Options) { o.WorktreeConfigDir = beside })
+	j := f.job(t, "a", string(queue.StateDone), true)
+	owned := filepath.Join(beside, strconv.FormatInt(j.ID, 10))
+	if err := os.MkdirAll(owned, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(owned, "excludes"), []byte("/.claude/skills/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	f.collect(t)
+
+	if there(owned) {
+		t.Errorf("%s is still there after the worktree it belonged to went", owned)
+	}
+}
+
 func TestCollectLeavesTheWorktreeOfAJobThatIsNotFinished(t *testing.T) {
 	for _, state := range []queue.State{queue.StatePending, queue.StateActive, queue.StateReview, queue.StateBlocked} {
 		t.Run(string(state), func(t *testing.T) {

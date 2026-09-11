@@ -25,6 +25,12 @@ type Source struct {
 // shorthandRE is the `owner/repo` form: two path elements and nothing else.
 var shorthandRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
+// hostPathRE is the `host/owner/repo` form, which is what a browser's address
+// bar gives and what ADR-0024's own example declares. The first element has to
+// look like a hostname, which is what tells it apart from a relative path.
+var hostPathRE = regexp.MustCompile(
+	`^(?:[A-Za-z0-9][A-Za-z0-9-]*\.)+[A-Za-z]{2,}(?::[0-9]+)?(?:/[A-Za-z0-9][A-Za-z0-9._-]*){2,}$`)
+
 // scpRE is the `git@host:owner/repo` form git accepts, which is not a URL.
 var scpRE = regexp.MustCompile(`^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:[^\s]+$`)
 
@@ -46,11 +52,18 @@ func ParseSource(declared string) (Source, error) {
 	if s == "" {
 		return Source{}, invalid("a skill needs a source: a repository to fetch it from")
 	}
+	if err := CheckText("source", s); err != nil {
+		return Source{}, err
+	}
 	switch {
 	case filepath.IsAbs(s):
 		return Source{Declared: declared, URL: s, Local: true}, nil
 	case shorthandRE.MatchString(s):
 		return Source{Declared: declared, URL: defaultHost + s + ".git"}, nil
+	case hostPathRE.MatchString(s):
+		// Owl fetches it over https, which is what a host and a path without a
+		// scheme means everywhere else in the ecosystem.
+		return Source{Declared: declared, URL: "https://" + withGit(s)}, nil
 	case scpRE.MatchString(s):
 		return Source{Declared: declared, URL: s}, nil
 	case hasScheme(s, schemes):
@@ -81,6 +94,15 @@ func (s Source) Name() string { return NameOf(s.URL) }
 func (s Source) mirrorName() string {
 	sum := sha256.Sum256([]byte(s.URL))
 	return hex.EncodeToString(sum[:])
+}
+
+// withGit is a path with the suffix git repositories are served under, unless
+// it already carries one.
+func withGit(s string) string {
+	if strings.HasSuffix(s, ".git") {
+		return s
+	}
+	return s + ".git"
 }
 
 func hasScheme(s string, schemes []string) bool {

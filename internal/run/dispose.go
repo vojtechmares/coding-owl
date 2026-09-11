@@ -87,6 +87,9 @@ func (s *Service) dispose(ctx context.Context, id int64, force bool, to queue.St
 		if err := s.reclaim(j.Worktree, p.Path, force); err != nil {
 			return queue.Job{}, err
 		}
+		// What Owl kept beside that worktree - the exclude file hiding the
+		// Skills it placed - has nothing left to hide (ADR-0033).
+		s.forgetWorktreeConfig(j.ID)
 	}
 	if deleteBranch && j.Branch != "" {
 		if err := git.DeleteBranch(p.Path, j.Branch); err != nil {

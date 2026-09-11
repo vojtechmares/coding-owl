@@ -87,8 +87,14 @@ func (c *Cache) at(source string) (string, error) {
 	return mirror, nil
 }
 
-// sourcesDir holds one bare mirror per remote source, under the cache.
-const sourcesDir = "sources"
+// sourcesDir holds one bare mirror per remote source, and contentDir holds the
+// fetched Skills themselves. They are kept apart so that neither can name a
+// directory of the other: a digest is `<algorithm>/<hex>`, and `sources` is a
+// name an algorithm could have.
+const (
+	sourcesDir = "sources"
+	contentDir = "content"
+)
 
 // Fetch puts a source's commit in the cache and returns it, resolved. A commit
 // already cached under the digest recorded for it is not fetched again.
@@ -232,7 +238,7 @@ func (c *Cache) pathFor(digest string) string {
 	if !ok {
 		return ""
 	}
-	return filepath.Join(c.dir, algorithm, hex)
+	return filepath.Join(c.dir, contentDir, algorithm, hex)
 }
 
 func alreadyThere(path string) bool {

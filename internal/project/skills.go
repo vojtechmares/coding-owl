@@ -201,6 +201,16 @@ func (s *SkillService) declared(ctx context.Context, name string) ([]skill.Decla
 		return nil, Files{}, err
 	}
 	if declared == nil {
+		if files.InRepo {
+			// The Project is configured in its own repository and that file is
+			// not in the checkout: another branch, a rebase in flight, or a
+			// deletion. Writing one here would be a manifest carrying the
+			// skills and none of the checks, setup or account the Project has.
+			return nil, Files{}, &InvalidError{Err: fmt.Errorf(
+				"%s configures project %s, and it is not in your checkout; "+
+					"check out the branch that carries it, or restore it, and run this again",
+				files.Manifest, name)}
+		}
 		declared = skill.Declare(d.Config)
 	}
 	return declared, files, nil

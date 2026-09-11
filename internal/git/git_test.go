@@ -820,6 +820,46 @@ func TestGlobalExcludesFindsTheFileGitWouldHaveRead(t *testing.T) {
 	}
 }
 
+func TestReadExcludesRefusesWhatIsNotAnOrdinaryFile(t *testing.T) {
+	// core.excludesFile is whatever a repository says, and a repository is not
+	// always the user's own: /dev/zero or a fifo there is the daemon's memory
+	// or the daemon's life.
+	theirs := t.TempDir()
+
+	got, err := git.ReadExcludes(theirs)
+
+	if err == nil {
+		t.Fatalf("ReadExcludes of a directory = %q, want it refused", got)
+	}
+	if !strings.Contains(err.Error(), "ordinary file") {
+		t.Errorf("the error %q does not say why", err)
+	}
+}
+
+func TestReadExcludesRefusesAFileLargerThanItWillCarry(t *testing.T) {
+	theirs := filepath.Join(t.TempDir(), "excludes")
+	if err := os.WriteFile(theirs, make([]byte, (1<<20)+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := git.ReadExcludes(theirs)
+
+	if err == nil {
+		t.Fatalf("ReadExcludes of an oversized file = %d bytes, want it refused", len(got))
+	}
+}
+
+func TestReadExcludesIsEmptyForAFileThatIsNotThere(t *testing.T) {
+	got, err := git.ReadExcludes(filepath.Join(t.TempDir(), "nothing"))
+
+	if err != nil {
+		t.Fatalf("ReadExcludes of a file that is not there: %v", err)
+	}
+	if got != "" {
+		t.Errorf("ReadExcludes = %q, want nothing", got)
+	}
+}
+
 func TestGlobalExcludesExpandsAHomeRelativePath(t *testing.T) {
 	// The canonical snippet is `core.excludesfile = ~/.gitignore_global`, and
 	// a caller reading that path literally finds nothing.

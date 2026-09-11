@@ -95,6 +95,26 @@ func TestUntarRefusesAFileLargerThanASkillsMayBe(t *testing.T) {
 	}
 }
 
+func TestUntarRefusesAnArchiveLargerThanASkillMayBe(t *testing.T) {
+	// A file each within the per-file bound, adding up to more than the
+	// archive may be: without a total, the per-file bound multiplies by the
+	// entry count.
+	defer func(was int64) { maxTotal = was }(maxTotal)
+	maxTotal = 8
+
+	err := untar(openArchive(t, archiveOf(t,
+		&tar.Header{Name: "a", Typeflag: tar.TypeReg, Size: 5},
+		&tar.Header{Name: "b", Typeflag: tar.TypeReg, Size: 5},
+	)), t.TempDir())
+
+	if err == nil {
+		t.Fatal("untar of an archive larger than the bound = nil, want it refused")
+	}
+	if !strings.Contains(err.Error(), "not a skill") {
+		t.Errorf("the error %q does not say why", err)
+	}
+}
+
 func TestUntarWritesFilesOnlyItsOwnerCanRead(t *testing.T) {
 	into := t.TempDir()
 

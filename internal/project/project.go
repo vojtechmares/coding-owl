@@ -170,38 +170,46 @@ func (s *Service) Show(ctx context.Context, name string) (Details, error) {
 	if err != nil {
 		return Details{}, err
 	}
-	lock, err := s.lock(Project(p))
+	lock, err := s.lock(Project(p), source)
 	if err != nil {
 		return Details{}, err
 	}
 	return Details{Project: Project(p), ConfigSource: source, Config: cfg, Lock: lock}, nil
 }
 
-// lock reads the Project's lockfile from its base branch, in the same
-// discovery order as its configuration, and falls back to the config home
-// (ADR-0033). A Project with no lockfile has no Skills locked, which is not a
+// lock reads the Project's lockfile from beside the configuration that was
+// actually chosen: in the repository, off the base branch, for a Project
+// configured there, and under the config home otherwise (ADR-0033). Looking
+// anywhere else would let `owl skills` write one file while a Run reads
+// another, and a Run that finds no entry resolves afresh - the opposite of
+// pinning. A Project with no lockfile has no Skills locked, which is not a
 // failure.
-func (s *Service) lock(p Project) (skill.Lock, error) {
-	for _, dir := range lockDirs {
-		data, found, err := git.ShowFileOnBranch(p.Path, p.BaseBranch, path.Join(dir, skill.LockName))
-		if err != nil {
-			return skill.Lock{}, &InvalidError{Err: err}
-		}
-		if !found {
-			continue
-		}
-		lock, err := skill.ParseLock(p.BaseBranch+":"+path.Join(dir, skill.LockName), data)
-		if err != nil {
-			return skill.Lock{}, &InvalidError{Err: err}
-		}
-		return lock, nil
+func (s *Service) lock(p Project, source string) (skill.Lock, error) {
+	inRepo, ok := inRepoConfig(p.BaseBranch, source)
+	if !ok {
+		return skill.ReadLock(s.lockPath(p.Name))
 	}
-	return skill.ReadLock(s.lockPath(p.Name))
+	name := path.Join(path.Dir(inRepo), skill.LockName)
+	data, found, err := git.ShowFileOnBranch(p.Path, p.BaseBranch, name)
+	if err != nil {
+		return skill.Lock{}, &InvalidError{Err: err}
+	}
+	if !found {
+		return skill.Lock{}, nil
+	}
+	lock, err := skill.ParseLock(p.BaseBranch+":"+name, data)
+	if err != nil {
+		return skill.Lock{}, &InvalidError{Err: err}
+	}
+	return lock, nil
 }
 
-// lockDirs is where a lockfile is looked for inside a repository, in the same
-// order as the configuration's own in-repo forms (ADR-0033).
-var lockDirs = []string{".", ".config", ".meta"}
+// inRepoConfig is the path of a configuration that was read from the Project's
+// own base branch, and reports whether it was.
+func inRepoConfig(baseBranch, source string) (string, bool) {
+	branch, file, ok := strings.Cut(source, ":")
+	return file, ok && branch == baseBranch
+}
 
 // lockPath is the per-Project fallback lockfile, beside the fallback
 // configuration.
@@ -218,8 +226,7 @@ func (s *Service) FilesFor(ctx context.Context, name string) (Files, error) {
 	if err != nil {
 		return Files{}, err
 	}
-	branch, inRepo, ok := strings.Cut(d.ConfigSource, ":")
-	if ok && branch == d.BaseBranch {
+	if inRepo, ok := inRepoConfig(d.BaseBranch, d.ConfigSource); ok {
 		dir := path.Dir(inRepo)
 		return Files{
 			Manifest: filepath.Join(d.Path, filepath.FromSlash(inRepo)),

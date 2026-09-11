@@ -342,6 +342,9 @@ func TestParseSourceReadsTheEcosystemsShorthands(t *testing.T) {
 		local bool
 	}{
 		{in: "x/go-review", url: "https://github.com/x/go-review.git"},
+		// What ADR-0024's example declares, and what an address bar gives.
+		{in: "github.com/x/go-review", url: "https://github.com/x/go-review.git"},
+		{in: "gitlab.com/group/sub/go-review.git", url: "https://gitlab.com/group/sub/go-review.git"},
 		{in: "https://github.com/x/go-review.git", url: "https://github.com/x/go-review.git"},
 		{in: "ssh://git@github.com/x/go-review.git", url: "ssh://git@github.com/x/go-review.git"},
 		{in: "git@github.com:x/go-review.git", url: "git@github.com:x/go-review.git"},
@@ -374,11 +377,37 @@ func TestParseSourceRefusesWhatGitWouldRunAProgramFor(t *testing.T) {
 		"   ",
 		"./relative/path",
 		"relative/path/deeper",
+		// A source is printed back to a terminal by owl skills list, and comes
+		// out of a file a merged pull request can change.
+		"x/go-review\x1b]0;pwned\x07",
+		"x/go\nreview",
 	} {
 		_, err := skill.ParseSource(source)
 
 		if err == nil {
 			t.Errorf("ParseSource(%q) = nil, want it refused", source)
+		}
+	}
+}
+
+func TestParseLockRefusesWhatOwlWouldNotHaveWritten(t *testing.T) {
+	// A lockfile reaches the daemon from a base branch, which a merged pull
+	// request writes. What it records is passed to git and printed back.
+	const digest = "sha256:ab1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd"
+	for what, entry := range map[string]string{
+		"a commit that is not an object name": "commit: --upload-pack=touch\n    digest: " + digest,
+		"a digest Owl did not write":          "commit: 0123456789abcdef\n    digest: nonsense",
+		"a source that would rewrite the terminal": "commit: 0123456789abcdef\n    digest: " + digest +
+			"\n    source: \"x/go-review\\e]0;pwned\\a\"",
+		"a ref that would rewrite the terminal": "commit: 0123456789abcdef\n    digest: " + digest +
+			"\n    ref: \"main\\e]0;pwned\\a\"",
+	} {
+		lock := "apiVersion: codingowl.dev/v1\nskills:\n  go-review:\n    source: x/go-review\n    " + entry + "\n"
+
+		_, err := skill.ParseLock("lock.yaml", []byte(lock))
+
+		if err == nil {
+			t.Errorf("ParseLock with %s = nil, want it refused:\n%s", what, lock)
 		}
 	}
 }
