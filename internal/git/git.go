@@ -768,25 +768,39 @@ func abortRebase(ctx context.Context, path, branch string) error {
 	// The abort's own reset can refuse - over a file the rebase wrote that
 	// the index does not know about, say. A worktree nobody can use is worse
 	// than files nobody asked to keep, so the rebase is dropped and the branch
-	// put back by force. Anything that was not committed is in the stash,
-	// where the autostash left it.
+	// put back by force.
 	aborted := message(stderr)
-	if _, quitErr, quitCode, err := runContext(ctx, path, "rebase", "--quit"); err != nil {
-		return err
-	} else if quitCode != 0 {
-		return fmt.Errorf("aborting the rebase in %s (%s), and dropping it: %s", path, aborted, message(quitErr))
-	}
 	if branch == "" {
 		return fmt.Errorf("aborting the rebase in %s: %s; it was on no branch to put back", path, aborted)
 	}
-	if _, backErr, backCode, err := runContext(ctx, path, "checkout", "--force", "--", branch); err != nil {
-		return err
-	} else if backCode != 0 {
-		return fmt.Errorf("aborting the rebase in %s (%s), and putting %s back: %s",
-			path, aborted, branch, message(backErr))
+	if err := forceBack(ctx, path, branch); err != nil {
+		return fmt.Errorf("aborting the rebase in %s (%s), and putting it back: %w", path, aborted, err)
 	}
 	return fmt.Errorf("the rebase in %s could not be undone cleanly (%s), so %s was put back by force; anything that was not committed is in the repository's stash",
 		path, aborted, branch)
+}
+
+// forceBack drops whatever rebase a worktree is in the middle of and puts it
+// on branch again, discarding what stands in the way. It is the last resort of
+// abortRebase: a worktree nobody can use is worse than files nobody asked to
+// keep, and the autostash keeps what was not committed.
+func forceBack(ctx context.Context, path, branch string) error {
+	if _, stderr, code, err := runContext(ctx, path, "rebase", "--quit"); err != nil {
+		return err
+	} else if code != 0 {
+		return fmt.Errorf("dropping the rebase: %s", message(stderr))
+	}
+	// --end-of-options rather than --: after --, git reads the name as a path
+	// and never as a branch, which is how a checkout meant to switch branches
+	// quietly becomes one that restores a file of that name.
+	_, stderr, code, err := runContext(ctx, path, "checkout", "--force", "--end-of-options", branch, "--")
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("checking out %s: %s", branch, message(stderr))
+	}
+	return nil
 }
 
 // unmergedPaths are the paths a rebase left with conflicts to resolve.
