@@ -133,6 +133,22 @@ type Global struct {
 	// rather than leave a stopped process holding its sockets (ADR-0011). Zero
 	// means whatever the daemon defaults to.
 	GraceWindow time.Duration
+	// Idle is when Owl may work: what counts as a machine nobody is at, and
+	// how often it is looked at (ADR-0011).
+	Idle Idle
+}
+
+// Idle is what the daemon's configuration says about when Owl may work
+// (ADR-0011). A field this file does not set is left to Owl.
+type Idle struct {
+	// After is how long the machine must have been without input. Zero leaves
+	// it to Owl.
+	After time.Duration
+	// RequirePower is whether the machine must be on AC power. Nil leaves it
+	// to Owl, which requires it: unattended work on a battery flattens it.
+	RequirePower *bool
+	// Interval is how often the machine is looked at. Zero leaves it to Owl.
+	Interval time.Duration
 }
 
 // GarbageCollection is what the daemon's configuration says about the task
@@ -170,6 +186,14 @@ type file struct {
 	CredentialStore   string           `yaml:"credentialStore"`
 	GarbageCollection *garbage         `yaml:"garbageCollection"`
 	GraceWindow       string           `yaml:"graceWindow"`
+	Idle              *idlePolicy      `yaml:"idle"`
+}
+
+// idlePolicy is the on-disk shape of the `idle` block.
+type idlePolicy struct {
+	After        string `yaml:"after"`
+	RequirePower *bool  `yaml:"requirePower"`
+	Interval     string `yaml:"interval"`
 }
 
 // verification is the on-disk shape of the `verification` block.
@@ -419,12 +443,50 @@ func ParseGlobal(source string, data []byte) (Global, error) {
 	if err != nil {
 		return Global{}, err
 	}
+	when, err := parseIdle(source, f.Idle)
+	if err != nil {
+		return Global{}, err
+	}
 	return Global{
 		Phases:            phases,
 		CredentialStore:   strings.TrimSpace(f.CredentialStore),
 		GarbageCollection: collection,
 		GraceWindow:       grace,
+		Idle:              when,
 	}, nil
+}
+
+// parseIdle reads the `idle` block: when the machine counts as one nobody is
+// at, and how often Owl looks. A policy that cannot be read is refused rather
+// than quietly replaced with the default, which would have Owl working at a
+// time nobody asked for.
+func parseIdle(source string, p *idlePolicy) (Idle, error) {
+	if p == nil {
+		return Idle{}, nil
+	}
+	out := Idle{RequirePower: p.RequirePower}
+	for what, field := range map[string]struct {
+		value string
+		into  *time.Duration
+	}{
+		"after":    {p.After, &out.After},
+		"interval": {p.Interval, &out.Interval},
+	} {
+		if strings.TrimSpace(field.value) == "" {
+			continue
+		}
+		d, err := time.ParseDuration(field.value)
+		if err != nil {
+			return Idle{}, fmt.Errorf("%s: idle.%s: %q is not a duration like 10m", source, what, field.value)
+		}
+		if d <= 0 {
+			return Idle{}, fmt.Errorf(
+				"%s: idle.%s: %s is not a length of time Owl can wait; leave it out for the default",
+				source, what, field.value)
+		}
+		*field.into = d
+	}
+	return out, nil
 }
 
 // parseGarbageCollection reads the `garbageCollection` block, refusing a

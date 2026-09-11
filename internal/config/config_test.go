@@ -415,3 +415,54 @@ func TestParseGlobalRefusesAGraceWindowThatIsNotOne(t *testing.T) {
 		}
 	}
 }
+
+func TestParseGlobalReadsTheIdlePolicy(t *testing.T) {
+	cfg, err := config.ParseGlobal("config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\nidle:\n  after: 20m\n  requirePower: false\n  interval: 2s\n"))
+
+	if err != nil {
+		t.Fatalf("ParseGlobal: %v", err)
+	}
+	if got, want := cfg.Idle.After, 20*time.Minute; got != want {
+		t.Errorf("idle.after = %s, want %s", got, want)
+	}
+	if got, want := cfg.Idle.Interval, 2*time.Second; got != want {
+		t.Errorf("idle.interval = %s, want %s", got, want)
+	}
+	// Turning the power requirement off has to be tellable from not saying
+	// anything about it, because the two mean opposite things.
+	if cfg.Idle.RequirePower == nil || *cfg.Idle.RequirePower {
+		t.Errorf("idle.requirePower = %v, want it read as off", cfg.Idle.RequirePower)
+	}
+	unset, err := config.ParseGlobal("config.yaml", []byte("apiVersion: codingowl.dev/v1\n"))
+	if err != nil {
+		t.Fatalf("ParseGlobal: %v", err)
+	}
+	if unset.Idle.RequirePower != nil || unset.Idle.After != 0 || unset.Idle.Interval != 0 {
+		t.Errorf("an unset idle policy = %+v, want nothing said", unset.Idle)
+	}
+}
+
+func TestParseGlobalRefusesAnIdlePolicyThatIsNotOne(t *testing.T) {
+	for _, body := range []string{
+		"idle:\n  after: soon\n",
+		"idle:\n  after: 10\n",
+		"idle:\n  after: -1m\n",
+		"idle:\n  after: 0s\n",
+		"idle:\n  interval: never\n",
+		"idle:\n  interval: 0s\n",
+	} {
+		_, err := config.ParseGlobal("/somewhere/config.yaml", []byte(
+			"apiVersion: codingowl.dev/v1\n"+body))
+
+		if err == nil {
+			t.Errorf("ParseGlobal accepted %q", body)
+			continue
+		}
+		for _, want := range []string{"/somewhere/config.yaml", "idle."} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the error for %q does not name %q: %v", body, want, err)
+			}
+		}
+	}
+}

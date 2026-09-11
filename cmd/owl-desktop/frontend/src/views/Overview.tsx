@@ -2,7 +2,16 @@
 // waiting for a decision.
 
 import { useState } from "react";
-import { api, ago, errorText, runOutcome, runPill, type Job, type Overview as OverviewData } from "../lib/api";
+import {
+  api,
+  ago,
+  errorText,
+  runOutcome,
+  runPill,
+  type Job,
+  type Machine,
+  type Overview as OverviewData,
+} from "../lib/api";
 import { Banner, Button, Empty, Panel, StatePill, Tile } from "../components/ui";
 import { JobsTable } from "./JobsTable";
 
@@ -83,6 +92,15 @@ export function Overview({
       </div>
       {error ? <Banner>{error}</Banner> : null}
       {note ? <Banner>{note}</Banner> : null}
+
+      <Panel title="Machine">
+        <div className="tiles">
+          <Tile label="State" value={<StatePill state={machinePill(data?.Machine)} />} />
+          <Tile label="Last input" value={data?.Machine?.Read ? sinceInput(data.Machine.Since) : "-"} />
+          <Tile label="Power" value={powerLabel(data?.Machine)} />
+        </div>
+        {machineDetail(data?.Machine) ? <div className="dim">{machineDetail(data?.Machine)}</div> : null}
+      </Panel>
 
       <Panel title="Running">
         {!data || data.Running.length === 0 ? (
@@ -190,4 +208,33 @@ export function Overview({
       ) : null}
     </>
   );
+}
+
+// machinePill is whether Owl may work: Idle is the state the whole product
+// waits for (ADR-0011), so it is said in the same words the CLI says it in.
+function machinePill(m: Machine | undefined): string {
+  if (!m || !m.Read) return "unknown";
+  return m.Idle ? "Idle" : "In use";
+}
+
+// machineDetail is why the machine is not one Owl may work on, or why it could
+// not be read.
+function machineDetail(m: Machine | undefined): string {
+  if (!m) return "";
+  return m.Read ? (m.Idle ? "" : m.Detail) : m.Detail || "The machine could not be read.";
+}
+
+function powerLabel(m: Machine | undefined): string {
+  if (!m || !m.Read) return "-";
+  return m.OnPower ? "AC power" : "Battery";
+}
+
+// sinceInput is how long it has been since anybody touched the machine. Go
+// keeps a duration in nanoseconds, and a person reads seconds and minutes.
+function sinceInput(ns: number): string {
+  const seconds = Math.floor(ns / 1e9);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }

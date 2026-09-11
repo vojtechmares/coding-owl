@@ -36,6 +36,9 @@ type Overview struct {
 	// collected here rather than stored, so that owl status reports what is
 	// true now rather than what was true at the last collection.
 	Unfinished []gc.Unfinished
+	// Machine is what the last look at the machine said, which is why work is
+	// or is not happening (ADR-0011).
+	Machine Machine
 }
 
 // DisposalLock is the lock that serialises deciding a Job's fate. Garbage
@@ -155,9 +158,10 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	if err != nil {
 		return Overview{}, err
 	}
+	machine := s.MachineState()
 	byID := make(map[int64]store.Job, len(jobs))
 	counts := map[queue.State]int{}
-	var out Overview
+	out := Overview{Machine: machine}
 	for _, j := range jobs {
 		byID[j.ID] = j
 		state := queue.State(j.State)

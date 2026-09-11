@@ -35,7 +35,10 @@ var (
 	// fakeClaudeDir holds the stub agent, built as `claude`, for the daemon's
 	// PATH in the issue #5 scenarios.
 	fakeClaudeDir string
-	repoDir       string
+	// fakeMachineDir holds the stub machine, built as `ioreg` and `pmset`, for
+	// the daemon's PATH in the issue #19 scenarios.
+	fakeMachineDir string
+	repoDir        string
 )
 
 func TestMain(m *testing.M) {
@@ -79,6 +82,30 @@ func TestMain(m *testing.M) {
 	stub.Stderr = os.Stderr
 	if err := stub.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "building the stub agent:", err)
+		_ = os.RemoveAll(tmp)
+		os.Exit(1)
+	}
+
+	// The stub machine goes in a directory of its own too, and under both the
+	// names the system's own tools have: what stands in front of them is
+	// being first on the daemon's PATH (issue #19).
+	fakeMachineDir = filepath.Join(tmp, "machine")
+	if err := os.MkdirAll(fakeMachineDir, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		_ = os.RemoveAll(tmp)
+		os.Exit(1)
+	}
+	machine := exec.Command("go", "build", "-o", filepath.Join(fakeMachineDir, "ioreg"), "./tests/behavior/fakemachine")
+	machine.Dir = repoDir
+	machine.Stdout = os.Stderr
+	machine.Stderr = os.Stderr
+	if err := machine.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "building the stub machine:", err)
+		_ = os.RemoveAll(tmp)
+		os.Exit(1)
+	}
+	if err := os.Link(filepath.Join(fakeMachineDir, "ioreg"), filepath.Join(fakeMachineDir, "pmset")); err != nil {
+		fmt.Fprintln(os.Stderr, "naming the stub machine pmset:", err)
 		_ = os.RemoveAll(tmp)
 		os.Exit(1)
 	}
@@ -141,8 +168,17 @@ func newLayout(t *testing.T) *layout {
 			t.Fatal(err)
 		}
 	}
+	// The machine every scenario runs against is the stub one, saying somebody
+	// is at it, so that nothing starts by itself except where a scenario says
+	// the user has gone (issue #19). Reading the developer's own machine would
+	// make every scenario depend on whether they had touched it.
+	machineState := filepath.Join(l.root, "machine")
+	if err := os.WriteFile(machineState, []byte("30 ac\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	l.env = []string{
-		"PATH=" + os.Getenv("PATH"),
+		"PATH=" + fakeMachineDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"OWL_FAKE_MACHINE=" + machineState,
 		"HOME=" + l.home,
 		"XDG_CONFIG_HOME=" + l.config,
 		"XDG_DATA_HOME=" + l.data,

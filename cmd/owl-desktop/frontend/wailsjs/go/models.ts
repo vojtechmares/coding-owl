@@ -396,6 +396,26 @@ export namespace client {
 		    return a;
 		}
 	}
+	export class Machine {
+	    Read: boolean;
+	    Idle: boolean;
+	    Since: number;
+	    OnPower: boolean;
+	    Detail: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Machine(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Read = source["Read"];
+	        this.Idle = source["Idle"];
+	        this.Since = source["Since"];
+	        this.OnPower = source["OnPower"];
+	        this.Detail = source["Detail"];
+	    }
+	}
 	export class Unfinished {
 	    Job: number;
 	    Project: string;
@@ -469,6 +489,7 @@ export namespace client {
 	    Blocked: Job[];
 	    Exhausted: Job[];
 	    Unfinished: Unfinished[];
+	    Machine: Machine;
 	
 	    static createFrom(source: any = {}) {
 	        return new Overview(source);
@@ -482,6 +503,7 @@ export namespace client {
 	        this.Blocked = this.convertValues(source["Blocked"], Job);
 	        this.Exhausted = this.convertValues(source["Exhausted"], Job);
 	        this.Unfinished = this.convertValues(source["Unfinished"], Unfinished);
+	        this.Machine = this.convertValues(source["Machine"], Machine);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -79,7 +79,8 @@ func agentLayoutVersion(t *testing.T, script []string, exitCode int, version str
 		t.Fatal(err)
 	}
 	env := []string{
-		"PATH=" + fakeClaudeDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"PATH=" + fakeClaudeDir + string(os.PathListSeparator) +
+			fakeMachineDir + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"OWL_FAKE_CLAUDE_SCRIPT=" + s.script,
 		"OWL_FAKE_CLAUDE_ARGV=" + s.argv,
 		"OWL_FAKE_CLAUDE_WAIT=" + s.release,
