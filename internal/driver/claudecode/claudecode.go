@@ -22,6 +22,14 @@ import (
 // program is the Claude Code binary, found on PATH like any other tool.
 const program = "claude"
 
+// configDirEnv relocates Claude Code's entire configuration and credential
+// state, which is what gives an Account a setup of its own (ADR-0019).
+const configDirEnv = "CLAUDE_CONFIG_DIR"
+
+// tokenEnv is the long-lived token `claude setup-token` prints, which is how
+// Claude Code authenticates without a browser.
+const tokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
+
 // MinVersion is the oldest Claude Code Owl drives, and NextMajor the release
 // it stops at. The flags below are a CLI contract rather than an API, so the
 // range is pinned and checked before every Run (ADR-0012).
@@ -120,7 +128,45 @@ func (d *Driver) Command(req driver.Request) (agent.Invocation, error) {
 	// The prompt is the user's text and may begin with a dash, so options end
 	// before it.
 	args = append(args, "--", req.Prompt)
-	return agent.Invocation{Path: path, Args: args, Dir: req.WorkingDir}, nil
+	env, err := accountEnv(req.ConfigDir, req.Token)
+	if err != nil {
+		return agent.Invocation{}, err
+	}
+	return agent.Invocation{Path: path, Args: args, Dir: req.WorkingDir, Env: env}, nil
+}
+
+// SetupToken builds `claude setup-token`, which walks the user through
+// authorising a subscription and prints a long-lived token. It runs against
+// the Account's own configuration directory, so the flow never touches the
+// user's own (ADR-0019).
+func (d *Driver) SetupToken(configDir string) (agent.Invocation, error) {
+	path, err := lookPath()
+	if err != nil {
+		return agent.Invocation{}, err
+	}
+	env, err := accountEnv(configDir, "")
+	if err != nil {
+		return agent.Invocation{}, err
+	}
+	return agent.Invocation{Path: path, Args: []string{"setup-token"}, Env: env}, nil
+}
+
+// accountEnv is what an Account adds to the environment an Agent runs in: the
+// configuration directory that keeps it apart from every other Account, and
+// the token it draws on. An empty token is left out rather than set empty,
+// which the tool would read as an account with no subscription.
+func accountEnv(configDir, token string) ([]string, error) {
+	if configDir == "" {
+		return nil, errors.New("a run needs an account's configuration directory")
+	}
+	if strings.ContainsAny(configDir, "\x00\n") || strings.ContainsAny(token, "\x00\n") {
+		return nil, errors.New("an account's directory and token may not hold a newline or a null")
+	}
+	env := []string{configDirEnv + "=" + configDir}
+	if token != "" {
+		env = append(env, tokenEnv+"="+token)
+	}
+	return env, nil
 }
 
 // lookPath finds Claude Code, and says so plainly when it is not there.

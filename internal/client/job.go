@@ -42,6 +42,9 @@ type Job struct {
 	// every Run whatever its outcome, and a Job with none left is exhausted
 	// (ADR-0025).
 	TTL int
+	// Account is the Account the Job ran on, empty until it has run
+	// (ADR-0023).
+	Account string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -195,6 +198,7 @@ func jobFromProto(j *codingowlv1.Job) Job {
 		Plan:      j.GetPlan(),
 		Reason:    j.GetReason(),
 		TTL:       int(j.GetTtl()),
+		Account:   j.GetAccount(),
 		Position:  int(j.GetPosition()),
 		Created:   j.GetCreated().AsTime(),
 	}

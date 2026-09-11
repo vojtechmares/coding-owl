@@ -97,9 +97,14 @@ func prompt(t *testing.T, inv invocation) string {
 	return inv.Argv[len(inv.Argv)-1]
 }
 
-// globalConfig writes the daemon's own configuration file (ADR-0014).
+// globalConfig writes the daemon's own configuration file (ADR-0014). The
+// credential store is added to whatever the caller wrote unless they named
+// one: no test may put a secret in a real keychain (ADR-0019).
 func globalConfig(t *testing.T, l *layout, body string) {
 	t.Helper()
+	if !strings.Contains(body, "credentialStore:") {
+		body = strings.TrimRight(body, "\n") + "\ncredentialStore: file\n"
+	}
 	dir := filepath.Join(l.config, "coding-owl")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)

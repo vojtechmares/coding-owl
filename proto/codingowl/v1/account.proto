@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package codingowl.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// AccountService keeps the subscriptions Owl runs work on. An Account has a
+// tool configuration directory of its own, so that a night of Owl's work never
+// disturbs the user's own setup, and a secret that lives in the OS keychain
+// rather than in the database (ADR-0019).
+service AccountService {
+  // AddAccount records an Account, makes its configuration directory and puts
+  // its token in the credential store.
+  rpc AddAccount(AddAccountRequest) returns (AddAccountResponse) {}
+  // ListAccounts returns every Account, oldest first.
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse) {}
+  // RemoveAccount takes an Account and its secret away. It is refused while
+  // any Job records having run on it (ADR-0023).
+  rpc RemoveAccount(RemoveAccountRequest) returns (RemoveAccountResponse) {}
+}
+
+// Account is a subscription Owl runs work on.
+message Account {
+  // Name identifies the Account, and is what a Project's configuration names.
+  string name = 1;
+  // Driver is the coding tool it belongs to (ADR-0018).
+  string driver = 2;
+  // ConfigDir is the Account's own tool configuration directory.
+  string config_dir = 3;
+  // HasCredential is whether the credential store still holds its secret.
+  bool has_credential = 4;
+  // FailoverAllowed is recorded and unused: failing over to another Account is
+  // out of scope for the MVP (ADR-0019).
+  bool failover_allowed = 5;
+  // Created is when the Account was added.
+  google.protobuf.Timestamp created = 6;
+}
+
+message AddAccountRequest {
+  // Name is what the Account is called.
+  string name = 1;
+  // Driver is the coding tool it belongs to. Empty is the default one.
+  string driver = 2;
+  // Token is the long-lived token the tool's own setup printed. It is written
+  // to the credential store and never to the database.
+  string token = 3;
+  // FailoverAllowed is recorded and unused.
+  bool failover_allowed = 4;
+}
+
+message AddAccountResponse {
+  Account account = 1;
+}
+
+message ListAccountsRequest {}
+
+message ListAccountsResponse {
+  repeated Account accounts = 1;
+}
+
+message RemoveAccountRequest {
+  string name = 1;
+}
+
+message RemoveAccountResponse {
+  // Account is the Account as it last stood, so the caller can say where the
+  // configuration directory it left behind is.
+  Account account = 1;
+}

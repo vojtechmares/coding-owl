@@ -93,6 +93,10 @@ func TestMain(m *testing.M) {
 type layout struct {
 	root, home, config, data, state string
 	env                             []string
+	// agent is whether this layout's daemon can run an Agent at all, which is
+	// what tells addProject to give a Project an Account to run on. A layout
+	// without the stub agent runs nothing, so it needs none.
+	agent bool
 }
 
 func shortTempDir(t *testing.T) string {
@@ -119,6 +123,16 @@ func newLayout(t *testing.T) *layout {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// Every daemon these tests start keeps credentials in a file of its own
+	// under the layout: no test may put a secret in a real keychain
+	// (ADR-0019).
+	if err := os.MkdirAll(filepath.Join(l.config, "coding-owl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(l.config, "coding-owl", "config.yaml"),
+		[]byte("apiVersion: codingowl.dev/v1\ncredentialStore: file\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	l.env = []string{
 		"PATH=" + os.Getenv("PATH"),

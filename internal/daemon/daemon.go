@@ -20,6 +20,9 @@ import (
 
 	codingowlv1 "github.com/vojtechmares/coding-owl/gen/codingowl/v1"
 	"github.com/vojtechmares/coding-owl/gen/codingowl/v1/codingowlv1connect"
+	"github.com/vojtechmares/coding-owl/internal/account"
+	"github.com/vojtechmares/coding-owl/internal/config"
+	"github.com/vojtechmares/coding-owl/internal/credential"
 	"github.com/vojtechmares/coding-owl/internal/driver/claudecode"
 	"github.com/vojtechmares/coding-owl/internal/executor/host"
 	"github.com/vojtechmares/coding-owl/internal/project"
@@ -35,9 +38,12 @@ import (
 // (ADR-0014).
 const (
 	databaseName = "owl.db"
-	worktreesDir = "worktrees"
-	logsDir      = "logs"
-	configName   = "config.yaml"
+	// credentialsName is the file a credential store keeps secrets in, where
+	// the platform has no keychain to keep them in instead (ADR-0019).
+	credentialsName = "credentials.json"
+	worktreesDir    = "worktrees"
+	logsDir         = "logs"
+	configName      = "config.yaml"
 )
 
 // ErrAlreadyListening is returned by Run when another daemon answers on the
@@ -94,16 +100,36 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	started := time.Now()
 
+	// Where an Account's secret is kept is settled once, at startup: a Run
+	// that cannot read a credential is not the moment to discover that the
+	// daemon's configuration changed under it (ADR-0019).
+	configPath := filepath.Join(opts.Paths.ConfigDir, configName)
+	global, _, err := config.LoadGlobal(configPath)
+	if err != nil {
+		return err
+	}
+	kind, err := credential.ParseKind(global.CredentialStore)
+	if err != nil {
+		return err
+	}
+	creds, err := credential.Open(kind, filepath.Join(opts.Paths.DataDir, credentialsName))
+	if err != nil {
+		return err
+	}
+	log.Info("credentials", "store", creds.Name())
+
 	projects := project.NewService(db, opts.Paths.ConfigDir)
+	accounts := account.NewService(db, creds, opts.Paths.DataDir)
 	runs := run.NewService(run.Options{
 		Store:       db,
 		Projects:    projects,
+		Accounts:    accounts,
 		Driver:      claudecode.New(),
 		Executor:    host.New(),
 		Verifier:    command.New(),
 		WorktreeDir: filepath.Join(opts.Paths.DataDir, worktreesDir),
 		LogDir:      filepath.Join(opts.Paths.StateDir, logsDir),
-		ConfigPath:  filepath.Join(opts.Paths.ConfigDir, configName),
+		ConfigPath:  configPath,
 		Logger:      log,
 	})
 	// Agents outlive the request that started them, so they are stopped when
@@ -121,6 +147,9 @@ func Run(ctx context.Context, opts Options) error {
 	}))
 	mux.Handle(codingowlv1connect.NewProjectServiceHandler(&projectService{
 		projects: projects,
+	}))
+	mux.Handle(codingowlv1connect.NewAccountServiceHandler(&accountService{
+		accounts: accounts,
 	}))
 	mux.Handle(codingowlv1connect.NewJobServiceHandler(&jobService{
 		jobs: queue.NewService(db, queue.Local{}),

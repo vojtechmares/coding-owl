@@ -249,6 +249,7 @@ func printJob(env Env, d client.JobDetails) {
 		{"project", d.Job.Project},
 		{"state", d.Job.State},
 		{"attempts", strconv.Itoa(d.Job.TTL) + " left"},
+		{"account", orNone(d.Job.Account)},
 		{"prompt", d.Job.Prompt},
 		{"branch", orNone(d.Job.Branch)},
 		{"worktree", orNone(d.Job.Worktree)},

@@ -90,6 +90,28 @@ func credentials(t *testing.T, l *layout) map[string]string {
 	return out
 }
 
+// database is everything the database holds, its write-ahead log included:
+// a row written a moment ago may still be only in the log.
+func database(t *testing.T, l *layout) []byte {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(l.data, "coding-owl", "owl.db*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("the daemon wrote no database")
+	}
+	var all []byte
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		all = append(all, data...)
+	}
+	return all
+}
+
 // accountRow is one row of owl account list.
 type accountRow struct{ name, driver, credential, failover, dir string }
 
@@ -100,7 +122,8 @@ func accountRows(t *testing.T, l *layout) []accountRow {
 	var rows []accountRow
 	for _, ln := range strings.Split(strings.TrimSpace(out), "\n") {
 		f := strings.Fields(ln)
-		if len(f) < 5 || f[0] == "NAME" {
+		// The header, and the line that says there are none, are not rows.
+		if len(f) != 5 || f[0] == "NAME" {
 			continue
 		}
 		rows = append(rows, accountRow{name: f[0], driver: f[1], credential: f[2], failover: f[3], dir: f[4]})
@@ -116,7 +139,9 @@ func accountProject(t *testing.T, l *layout, name, config string) *repo {
 	if config != "" {
 		r.commit(".coding-owl.yaml", config, "configure owl")
 	}
-	addProject(t, l, r)
+	// Registered rather than added through the harness helper: these scenarios
+	// are about which Account a Project names, so nothing may name one for it.
+	mustOwl(t, l, "project", "add", r.dir)
 	addJob(t, l, r.dir, "do the thing", "--no-plan")
 	return r
 }
@@ -158,10 +183,7 @@ func TestS2TheSecretIsInNeitherTheDatabaseNorTheLog(t *testing.T) {
 
 	addAccount(t, l, "work", testToken)
 
-	db, err := os.ReadFile(filepath.Join(l.data, "coding-owl", "owl.db"))
-	if err != nil {
-		t.Fatalf("reading the database: %v", err)
-	}
+	db := database(t, l)
 	if bytes.Contains(db, []byte(testToken)) {
 		t.Error("the database holds the token itself, not a reference to it")
 	}
@@ -443,4 +465,57 @@ func TestS16AnAccountRecordsWhetherFailoverIsAllowed(t *testing.T) {
 	if rows[1].failover != "no" {
 		t.Errorf("owl account list reports failover %q for an account added without it, want no", rows[1].failover)
 	}
+}
+
+// harnessAccount is the Account every Project the harness registers runs on.
+// Since issue #14 a Job runs on its Project's Account (ADR-0023), so a
+// scenario that is not about Accounts is given one rather than having to say
+// so.
+const harnessAccount = "owl"
+
+// runsOn gives a Project an Account to run on: the harness Account, added to
+// the layout if it is not there yet, and named in the Project's configuration
+// on its base branch. A Project whose configuration already names one is left
+// alone.
+func runsOn(t *testing.T, l *layout, r *repo) {
+	t.Helper()
+	if !hasAccount(t, l, harnessAccount) {
+		addAccount(t, l, harnessAccount, testToken)
+	}
+	body := baseConfig(r)
+	for _, ln := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(ln), "account:") {
+			return
+		}
+	}
+	if strings.TrimSpace(body) == "" {
+		body = "apiVersion: codingowl.dev/v1\n"
+	}
+	r.commit(".coding-owl.yaml", strings.TrimRight(body, "\n")+"\naccount: "+harnessAccount+"\n",
+		"run on the "+harnessAccount+" account")
+}
+
+// hasAccount reports whether the layout already has that Account.
+func hasAccount(t *testing.T, l *layout, name string) bool {
+	t.Helper()
+	for _, row := range accountRows(t, l) {
+		if row.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// baseConfig is the Project configuration as it stands on the repository's
+// current branch, empty when there is none.
+func baseConfig(r *repo) string {
+	r.t.Helper()
+	cmd := exec.Command("git", "show", "HEAD:.coding-owl.yaml")
+	cmd.Dir = r.dir
+	cmd.Env = r.env
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }

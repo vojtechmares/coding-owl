@@ -105,6 +105,9 @@ type Job struct {
 	Reason string
 	// TTL is how many Runs the Job may still take (ADR-0025).
 	TTL int
+	// Account is the Account the Job ran on, empty until it has run
+	// (ADR-0023).
+	Account string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -297,6 +300,7 @@ func FromStore(j store.Job) Job {
 		Effort:    j.Effort,
 		Reason:    j.Reason,
 		TTL:       j.TTL,
+		Account:   j.Account,
 		Position:  j.Position,
 		Created:   j.Created,
 	}

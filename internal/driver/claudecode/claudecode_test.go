@@ -74,6 +74,7 @@ func TestCommandIsPrintModeWithStructuredOutputAndNoPrompts(t *testing.T) {
 		Prompt:       "fix the flaky test",
 		SystemPrompt: "you are running unattended",
 		WorkingDir:   "/worktrees/1",
+		ConfigDir:    "/accounts/work",
 	})
 
 	if err != nil {
@@ -109,11 +110,11 @@ func TestCommandCapsSpendOnlyWhenAsked(t *testing.T) {
 	stubClaude(t, "2.1.267 (Claude Code)")
 	d := claudecode.New()
 
-	capped, err := d.Command(driver.Request{Prompt: "work", BudgetUSD: 5})
+	capped, err := d.Command(driver.Request{Prompt: "work", BudgetUSD: 5, ConfigDir: "/accounts/work"})
 	if err != nil {
 		t.Fatalf("Command: %v", err)
 	}
-	uncapped, err := d.Command(driver.Request{Prompt: "work"})
+	uncapped, err := d.Command(driver.Request{Prompt: "work", ConfigDir: "/accounts/work"})
 	if err != nil {
 		t.Fatalf("Command: %v", err)
 	}
@@ -124,6 +125,75 @@ func TestCommandCapsSpendOnlyWhenAsked(t *testing.T) {
 	if got := strings.Join(uncapped.Args, " "); strings.Contains(got, "--max-budget-usd") {
 		t.Errorf("args %q cap the spend of a run that asked for no cap", got)
 	}
+}
+
+func TestCommandCarriesTheAccountsDirectoryAndToken(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+
+	inv, err := claudecode.New().Command(driver.Request{
+		Prompt: "work", WorkingDir: "/worktrees/1",
+		ConfigDir: "/accounts/work", Token: "sk-ant-oat01-one",
+	})
+
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	want := map[string]string{
+		"CLAUDE_CONFIG_DIR":       "/accounts/work",
+		"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-one",
+	}
+	got := environment(inv.Env)
+	for name, value := range want {
+		if got[name] != value {
+			t.Errorf("the agent runs with %s=%q, want %q", name, got[name], value)
+		}
+	}
+	if len(inv.Env) != len(want) {
+		t.Errorf("the agent's environment is %v, want only the account's own", inv.Env)
+	}
+}
+
+func TestCommandRefusesARunWithNoAccount(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+
+	_, err := claudecode.New().Command(driver.Request{Prompt: "work", WorkingDir: "/worktrees/1"})
+
+	if err == nil {
+		t.Fatal("Command with no account = nil, want an error: a run would fall back on the user's own setup")
+	}
+}
+
+func TestSetupTokenRunsAgainstTheAccountsOwnDirectory(t *testing.T) {
+	path := stubClaude(t, "2.1.267 (Claude Code)")
+
+	inv, err := claudecode.New().SetupToken("/accounts/work")
+
+	if err != nil {
+		t.Fatalf("SetupToken: %v", err)
+	}
+	if inv.Path != path {
+		t.Errorf("path = %q, want the claude on PATH %q", inv.Path, path)
+	}
+	if strings.Join(inv.Args, " ") != "setup-token" {
+		t.Errorf("args = %v, want the tool's token setup", inv.Args)
+	}
+	got := environment(inv.Env)
+	if got["CLAUDE_CONFIG_DIR"] != "/accounts/work" {
+		t.Errorf("the setup runs with CLAUDE_CONFIG_DIR=%q, want the account's own directory", got["CLAUDE_CONFIG_DIR"])
+	}
+	if _, ok := got["CLAUDE_CODE_OAUTH_TOKEN"]; ok {
+		t.Error("the setup that makes a token was given one")
+	}
+}
+
+// environment reads an invocation's added environment.
+func environment(env []string) map[string]string {
+	out := map[string]string{}
+	for _, kv := range env {
+		name, value, _ := strings.Cut(kv, "=")
+		out[name] = value
+	}
+	return out
 }
 
 func TestCommandRefusesAnEmptyPrompt(t *testing.T) {

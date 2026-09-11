@@ -75,6 +75,9 @@ type Config struct {
 	Setup []string
 	// Checks are what Verification runs after an execution Run (ADR-0013).
 	Checks []Check
+	// Account names the Account every Job in this Project runs on (ADR-0023).
+	// Empty is a Project that names none, which cannot run until it does.
+	Account string
 }
 
 // Global is the daemon's own configuration, read from
@@ -84,6 +87,10 @@ type Global struct {
 	// Phases is what each phase runs at unless a Project or a Job says
 	// otherwise.
 	Phases map[string]Phase
+	// CredentialStore is where an Account's secret is kept: `keychain` or
+	// `file` (ADR-0019). Empty leaves it to the platform, which is the
+	// keychain where there is one.
+	CredentialStore string
 }
 
 // defaultBranchPrefix is what a Job's branch is prefixed with when no
@@ -105,6 +112,8 @@ type file struct {
 	Phases            map[string]phase `yaml:"phases"`
 	Setup             []string         `yaml:"setup"`
 	Checks            []check          `yaml:"checks"`
+	Account           string           `yaml:"account"`
+	CredentialStore   string           `yaml:"credentialStore"`
 }
 
 // check is the on-disk shape of one entry under `checks`.
@@ -161,6 +170,10 @@ func Parse(source string, data []byte) (Config, error) {
 		}
 	}
 	cfg.Setup = f.Setup
+	// Which Account a Project's work draws on is a billing and policy matter,
+	// so it is named rather than chosen (ADR-0023). Whether that Account
+	// exists is the scheduler's question, not this file's.
+	cfg.Account = strings.TrimSpace(f.Account)
 	return cfg, nil
 }
 
@@ -220,7 +233,7 @@ func ParseGlobal(source string, data []byte) (Global, error) {
 	if err != nil {
 		return Global{}, err
 	}
-	return Global{Phases: phases}, nil
+	return Global{Phases: phases, CredentialStore: strings.TrimSpace(f.CredentialStore)}, nil
 }
 
 // parsePhases reads the phases map, refusing a phase nobody runs and a value

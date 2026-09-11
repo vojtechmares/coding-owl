@@ -42,6 +42,11 @@ type Request struct {
 	// (ADR-0028). Empty leaves the tool's own default alone.
 	Model  string
 	Effort string
+	// ConfigDir is the Account's own tool configuration directory, and Token
+	// the credential to run on (ADR-0019). Every Run has both: which Account a
+	// Job runs on is its Project's to say (ADR-0023).
+	ConfigDir string
+	Token     string
 }
 
 // Driver knows one coding tool.
@@ -54,4 +59,9 @@ type Driver interface {
 	Check(ctx context.Context) error
 	// Command builds the Agent for one Run.
 	Command(req Request) (agent.Invocation, error)
+	// SetupToken builds the command that authenticates an Account: the tool's
+	// own flow, which prints a long-lived token for the user to paste
+	// (ADR-0019). It runs in the Account's own configuration directory rather
+	// than the user's.
+	SetupToken(configDir string) (agent.Invocation, error)
 }
