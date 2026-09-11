@@ -87,8 +87,9 @@ And the repository's own `core.excludesFile` is what it was
 
 ### S11 - editing the lockfile in the worktree changes nothing
 Given a Project with one Skill pinned, whose Job has run once
-When the lockfile in the Job's worktree is edited to name another commit, and the Job runs again
+When the lockfile in the Job's worktree is edited to name another commit and digest, and the Job runs again
 Then the Skill materialised for the second Run is still the commit the base branch's lockfile records
+And `owl jobs show <job>` records that commit for the second Run, not the one the worktree's lockfile names
 
 ### S12 - a Run records the Skill versions it ran with
 Given the Run of S8
@@ -103,9 +104,10 @@ And the commit for `go-review` is unchanged
 And stdout says which Skill it updated
 
 ### S14 - owl skills update takes a Skill by name, pinned or not
-Given the Project of S13
+Given the Project of S13, and the tag `v1.0.0` moved to a later commit of its source
 When `owl skills update go-review` runs
-Then the lockfile's commit for `go-review` is what `v1.0.0` resolves to, and it says so
+Then the lockfile's commit for `go-review` is what `v1.0.0` now resolves to, which is not what it was
+And stdout says it updated `go-review`
 And `house-style` is unchanged
 
 ### S15 - an auto_update Skill is re-resolved when a Run starts
@@ -115,9 +117,10 @@ Then the Skill materialised for the second Run is the new commit
 And `owl jobs show <job>` records the new commit for that Run
 
 ### S16 - a pinned Skill is not re-resolved when a Run starts
-Given a Project with a Skill pinned at `v1.0.0`, whose Job has run once, and a new commit on that source
+Given a Project with a Skill following `main` and not declared to update on its own, whose Job has run once, and a new commit on that source's `main`
 When the Job runs again
-Then the Skill materialised for the second Run is still the commit `v1.0.0` points at
+Then the Skill materialised for the second Run is still the commit the lockfile records, not the new one
+And `owl jobs show <job>` records that commit for both Runs
 
 ### S17 - Owl refuses to overwrite a skills entry it did not create
 Given a Project whose base branch carries a committed `.claude/skills/go-review` directory of its own, and a Skill named `go-review`
