@@ -161,19 +161,28 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Account, error) {
 		return Account{}, err
 	}
 	if err := ensureDir(dir); err != nil {
-		_ = s.store.DeleteAccount(ctx, req.Name)
-		return Account{}, err
+		return Account{}, s.undo(ctx, req.Name, err)
 	}
 	if err := s.creds.Set(ctx, ref, req.Token); err != nil {
 		// An Account with no secret can run nothing, so it is taken out again
 		// rather than left for the user to find at the next Run.
-		_ = s.store.DeleteAccount(ctx, req.Name)
-		return Account{}, err
+		return Account{}, s.undo(ctx, req.Name, err)
 	}
 	return Account{
 		Name: row.Name, Driver: row.Driver, ConfigDir: row.ConfigDir,
 		HasCredential: true, FailoverAllowed: row.FailoverAllowed, Created: row.Created,
 	}, nil
+}
+
+// undo takes back the row of an Account that could not be finished, and says
+// so when it cannot: an Account left behind that way can run nothing, and the
+// user has to hear about it rather than meet it at the next Run.
+func (s *Service) undo(ctx context.Context, name string, cause error) error {
+	if err := s.store.DeleteAccount(ctx, name); err != nil {
+		return fmt.Errorf("%w (and account %s could not be taken back out, so it is recorded without a credential: %v)",
+			cause, name, err)
+	}
+	return cause
 }
 
 // ensureDir makes an Account's configuration directory, readable by nobody but

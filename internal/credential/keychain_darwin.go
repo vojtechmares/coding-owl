@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// securityTool is the keychain command, named by its absolute path. An Agent
+// runs unsandboxed as the same user (ADR-0006) and could otherwise put its own
+// `security` on the daemon's PATH and be handed every Account's token.
+const securityTool = "/usr/bin/security"
+
 // service is the keychain service every Owl item is filed under, so that the
 // user can find Owl's items among their own.
 const service = "coding-owl"
@@ -110,7 +115,7 @@ func (k *Keychain) run(ctx context.Context, args []string) (string, error) {
 	if k.file != "" {
 		args = append(args, k.file)
 	}
-	cmd := exec.CommandContext(ctx, "security", args...)
+	cmd := exec.CommandContext(ctx, securityTool, args...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

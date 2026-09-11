@@ -84,11 +84,17 @@ func owlConfig(branchPrefix string) string {
 	return "apiVersion: codingowl.dev/v1\nbranchPrefix: " + branchPrefix + "\n"
 }
 
-// daemonUp starts a daemon for the layout and waits for its socket.
+// daemonUp starts a daemon for the layout and waits for its socket. It also
+// checks that the daemon is keeping credentials in a file: a test that put a
+// secret in the user's own keychain would be a bug in the harness, and this is
+// where it would be caught (ADR-0019).
 func daemonUp(t *testing.T, l *layout) *daemonProc {
 	t.Helper()
 	p := startDaemon(t, l)
 	waitForSocket(t, l.socket())
+	if !strings.Contains(p.out(), `store="file `) {
+		t.Fatalf("the daemon is not keeping credentials in a file of its own:\n%s", p.out())
+	}
 	return p
 }
 

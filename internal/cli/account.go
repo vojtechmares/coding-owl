@@ -17,6 +17,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/agent"
 	"github.com/vojtechmares/coding-owl/internal/client"
 	"github.com/vojtechmares/coding-owl/internal/drivers"
+	"github.com/vojtechmares/coding-owl/internal/store"
 )
 
 // noAccounts is what owl account list prints when there are none.
@@ -75,10 +76,13 @@ input instead, for a machine that has one already.`,
 				return drivers.Unknown(driverName)
 			}
 			// The tool's own setup is a browser round trip the user does by
-			// hand, so a daemon that is not there is worth finding out about
-			// before it rather than after.
+			// hand, and it writes into the Account's directory. A daemon that
+			// is not there, and a name that is already taken, are both worth
+			// finding out about before that rather than after it: re-running
+			// the setup for an Account that exists would authorise a
+			// subscription into its directory and then be refused.
 			if !tokenStdin {
-				if err := daemonReachable(cmd, env); err != nil {
+				if err := nameIsFree(cmd, env, name); err != nil {
 					return err
 				}
 			}
@@ -109,12 +113,23 @@ input instead, for a machine that has one already.`,
 	return cmd
 }
 
-// daemonReachable reports whether the daemon is there to record an Account.
-func daemonReachable(cmd *cobra.Command, env Env) error {
+// nameIsFree reports whether the daemon is there and has no Account of that
+// name. The daemon refuses a duplicate itself; this is what keeps the refusal
+// from arriving after the user has authorised a subscription.
+func nameIsFree(cmd *cobra.Command, env Env, name string) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), statusTimeout)
 	defer cancel()
-	_, err := client.New(env.Paths.SocketPath).DaemonStatus(ctx)
-	return err
+	accounts, err := client.New(env.Paths.SocketPath).ListAccounts(ctx)
+	if err != nil {
+		return err
+	}
+	for _, a := range accounts {
+		if strings.EqualFold(a.Name, name) {
+			return fmt.Errorf("%s: account %s is already there; remove it first, or add one under another name",
+				store.ErrAccountNameTaken, a.Name)
+		}
+	}
+	return nil
 }
 
 // setupCommand builds the tool's own token setup for an Account's directory.

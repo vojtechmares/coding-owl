@@ -476,6 +476,9 @@ func TestS16AnAccountRecordsWhetherFailoverIsAllowed(t *testing.T) {
 	}
 }
 
+// noConfigured is what owl prints for a field a Project does not have.
+const noConfigured = "(none)"
+
 // harnessAccount is the Account every Project the harness registers runs on.
 // Since issue #14 a Job runs on its Project's Account (ADR-0023), so a
 // scenario that is not about Accounts is given one rather than having to say
@@ -496,18 +499,57 @@ func runsOn(t *testing.T, l *layout, r *repo, name string) {
 	if !hasAccount(t, l, harnessAccount) {
 		addAccount(t, l, harnessAccount, testToken)
 	}
-	body := baseConfig(r)
-	for _, ln := range strings.Split(body, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(ln), "account:") {
-			return
-		}
+	// What the daemon says is in force, rather than what the repository looks
+	// like: a Project may be configured through any of the files ADR-0014
+	// looks for, and only the daemon knows which one won.
+	res := runOwl(t, l, "project", "show", name)
+	if res.code != 0 {
+		// A Project whose configuration Owl will not read runs nothing
+		// whatever account it names, and a scenario about that is entitled to
+		// its own broken file.
+		return
 	}
-	if strings.TrimSpace(body) == "" {
+	show := res.stdout
+	if line(t, show, "account") != noConfigured {
+		return
+	}
+	source := line(t, show, "config")
+	if source == noConfigured {
 		projectConfig(t, l, name, "apiVersion: codingowl.dev/v1\naccount: "+harnessAccount+"\n")
 		return
 	}
-	r.commit(".coding-owl.yaml", strings.TrimRight(body, "\n")+"\naccount: "+harnessAccount+"\n",
+	branch, path, inRepo := strings.Cut(source, ":")
+	if !inRepo {
+		// The per-Project fallback file, which is the harness's to append to.
+		appendAccount(t, source)
+		return
+	}
+	if branch != repoBranch(r) {
+		t.Fatalf("the project's configuration is on %s, which is not the branch %s is on; "+
+			"give it an account of its own", branch, r.dir)
+	}
+	r.commit(path, strings.TrimRight(baseConfig(r, path), "\n")+"\naccount: "+harnessAccount+"\n",
 		"run on the "+harnessAccount+" account")
+}
+
+// branch is the branch the repository is on.
+func repoBranch(r *repo) string {
+	r.t.Helper()
+	return strings.TrimSpace(r.git("rev-parse", "--abbrev-ref", "HEAD"))
+}
+
+// appendAccount adds the harness Account to a configuration file that is not
+// in a repository.
+func appendAccount(t *testing.T, path string) {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	body = append([]byte(strings.TrimRight(string(body), "\n")+"\n"), []byte("account: "+harnessAccount+"\n")...)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // projectConfig writes the per-Project fallback configuration file, which the
@@ -534,11 +576,11 @@ func hasAccount(t *testing.T, l *layout, name string) bool {
 	return false
 }
 
-// baseConfig is the Project configuration as it stands on the repository's
-// current branch, empty when there is none.
-func baseConfig(r *repo) string {
+// baseConfig is the configuration file at path as it stands on the
+// repository's current branch, empty when there is none.
+func baseConfig(r *repo, path string) string {
 	r.t.Helper()
-	cmd := exec.Command("git", "show", "HEAD:.coding-owl.yaml")
+	cmd := exec.Command("git", "show", "HEAD:"+path)
 	cmd.Dir = r.dir
 	cmd.Env = r.env
 	out, err := cmd.Output()
