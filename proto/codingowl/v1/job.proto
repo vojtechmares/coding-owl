@@ -95,6 +95,10 @@ message Job {
   // every Run whatever its outcome, and a Job with none left is exhausted
   // rather than pending (ADR-0025).
   int32 ttl = 14;
+  // Account is the Account the Job ran on, taken from its Project's
+  // configuration at its first Run and unchanged afterwards (ADR-0023). It is
+  // empty until the Job has run.
+  string account = 15;
 }
 
 // PlanMode is whether a Job is planned before it is executed. Planning is the

@@ -164,10 +164,16 @@ func wantNames(t *testing.T, l *layout, want ...string) {
 	}
 }
 
-// addProject registers r under the given extra flags and fails on error.
+// addProject registers r under the given extra flags and fails on error. A
+// Project whose layout can run an Agent is also given an Account to run on,
+// since every Job runs on its Project's (ADR-0023); a scenario that is about
+// Accounts registers its Projects itself.
 func addProject(t *testing.T, l *layout, r *repo, flags ...string) {
 	t.Helper()
 	mustOwl(t, l, append([]string{"project", "add", r.dir}, flags...)...)
+	if l.agent {
+		runsOn(t, l, r)
+	}
 }
 
 // wantLine fails unless the key line of out has the wanted value.

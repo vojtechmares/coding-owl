@@ -32,6 +32,9 @@ type Env struct {
 	Paths  xdg.Paths
 	Stdout io.Writer
 	Stderr io.Writer
+	// Stdin is where a command reads what only a person can give it, which is
+	// the token an Account is authenticated with. Nil asks the process.
+	Stdin io.Reader
 	// WorkingDir is the directory owl was run in, which is what tells owl add
 	// which Project it was called from. Empty asks the process.
 	WorkingDir string
@@ -49,6 +52,16 @@ func (e Env) workingDir() string {
 		return ""
 	}
 	return dir
+}
+
+// stdin is where to read from. A command that needs one and has none would
+// otherwise read from whatever the process was given, which is what a person
+// at a terminal expects.
+func (e Env) stdin() io.Reader {
+	if e.Stdin != nil {
+		return e.Stdin
+	}
+	return os.Stdin
 }
 
 // withDaemon runs fn against the daemon under the ordinary timeout, which a
@@ -95,6 +108,7 @@ func newRoot(env Env) *cobra.Command {
 		newLogsCmd(env),
 		newJobsCmd(env),
 		newStatusCmd(env),
+		newAccountCmd(env),
 	)
 	return root
 }
@@ -167,5 +181,7 @@ func Main(args []string) int {
 		fmt.Fprintf(os.Stderr, "owl: %v\n", err)
 		return 1
 	}
-	return Run(context.Background(), Env{Paths: paths, Stdout: os.Stdout, Stderr: os.Stderr}, args)
+	return Run(context.Background(), Env{
+		Paths: paths, Stdout: os.Stdout, Stderr: os.Stderr, Stdin: os.Stdin,
+	}, args)
 }

@@ -233,6 +233,7 @@ func toJobProto(j queue.Job) *codingowlv1.Job {
 		Plan:      j.Plan,
 		Reason:    j.Reason,
 		Ttl:       int32(j.TTL),
+		Account:   j.Account,
 		Position:  int32(j.Position),
 		Created:   timestamppb.New(j.Created),
 	}

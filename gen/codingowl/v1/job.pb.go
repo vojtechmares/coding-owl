@@ -242,7 +242,11 @@ type Job struct {
 	// Ttl is how many Runs the Job may still take. One is spent at the end of
 	// every Run whatever its outcome, and a Job with none left is exhausted
 	// rather than pending (ADR-0025).
-	Ttl           int32 `protobuf:"varint,14,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	Ttl int32 `protobuf:"varint,14,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	// Account is the Account the Job ran on, taken from its Project's
+	// configuration at its first Run and unchanged afterwards (ADR-0023). It is
+	// empty until the Job has run.
+	Account       string `protobuf:"bytes,15,opt,name=account,proto3" json:"account,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -373,6 +377,13 @@ func (x *Job) GetTtl() int32 {
 		return x.Ttl
 	}
 	return 0
+}
+
+func (x *Job) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
 }
 
 // CheckResult is what one Verification check said about a Run (ADR-0013).
@@ -1937,7 +1948,7 @@ var File_codingowl_v1_job_proto protoreflect.FileDescriptor
 
 const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\n" +
-	"\x16codingowl/v1/job.proto\x12\fcodingowl.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8a\x03\n" +
+	"\x16codingowl/v1/job.proto\x12\fcodingowl.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa4\x03\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12\x1d\n" +
@@ -1954,7 +1965,8 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\aplanned\x18\v \x01(\bR\aplanned\x12\x12\n" +
 	"\x04plan\x18\f \x01(\tR\x04plan\x12\x16\n" +
 	"\x06reason\x18\r \x01(\tR\x06reason\x12\x10\n" +
-	"\x03ttl\x18\x0e \x01(\x05R\x03ttl\"\xa0\x01\n" +
+	"\x03ttl\x18\x0e \x01(\x05R\x03ttl\x12\x18\n" +
+	"\aaccount\x18\x0f \x01(\tR\aaccount\"\xa0\x01\n" +
 	"\vCheckResult\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acommand\x18\x02 \x01(\tR\acommand\x12\x16\n" +

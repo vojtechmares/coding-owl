@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vojtechmares/coding-owl/internal/account"
 	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/driver"
 	"github.com/vojtechmares/coding-owl/internal/executor"
@@ -135,6 +136,9 @@ type Options struct {
 	Store *store.Store
 	// Projects answers what a Project is configured to do.
 	Projects *project.Service
+	// Accounts answers which subscription a Run draws on, and holds the
+	// credential it draws with (ADR-0019).
+	Accounts *account.Service
 	// Driver is the coding tool Agents are (ADR-0018).
 	Driver driver.Driver
 	// Executor is where they run.
@@ -286,6 +290,13 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	if err != nil {
 		return queue.Job{}, Run{}, false, &RefusedError{Err: err}
 	}
+	// Which subscription the work draws on is the Project's to say, and the
+	// Job keeps it for its whole life (ADR-0023). A Job that has no Account to
+	// run on has not failed at anything, so it stays exactly as it was.
+	acct, token, err := s.accountFor(ctx, j, details)
+	if err != nil {
+		return queue.Job{}, Run{}, false, err
+	}
 
 	if j.Branch == "" {
 		// The worktree and the branch belong to the Job, so a Job that takes
@@ -341,6 +352,14 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 	if err = s.opts.Store.SetJobState(ctx, j.ID, string(queue.StateActive)); err != nil {
 		return queue.Job{}, Run{}, false, err
 	}
+	// The Account is recorded at the Job's first Run and not touched again, so
+	// what a Job drew on stays knowable for its whole life (ADR-0023).
+	if j.Account == "" {
+		if err = s.opts.Store.SetJobAccount(ctx, j.ID, acct.Name); err != nil {
+			return queue.Job{}, Run{}, false, err
+		}
+		j.Account = acct.Name
+	}
 
 	req := driver.Request{
 		Prompt:       prompt,
@@ -349,6 +368,8 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 		BudgetUSD:    details.Config.BudgetUSD,
 		Model:        settings.Model.Value,
 		Effort:       settings.Effort.Value,
+		ConfigDir:    acct.ConfigDir,
+		Token:        token,
 	}
 	// The broker is opened here rather than in the goroutine, so a follower
 	// that arrives the instant owl start returns finds the Run rather than an
@@ -645,6 +666,33 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 			s.opts.Logger.Error("recording where a job got to", "job", r.JobID, "error", err)
 		}
 	}
+}
+
+// accountFor is the Account a Job runs on, with the credential to run it. A
+// Job that has already run keeps the Account it ran on; one that has not takes
+// the Account its Project's configuration names (ADR-0023). Neither being
+// there is a refusal rather than a failure: nothing is wrong with the work,
+// and the Job waits exactly where it was.
+func (s *Service) accountFor(ctx context.Context, j store.Job, details project.Details) (account.Account, string, error) {
+	name := j.Account
+	if name == "" {
+		name = details.Config.Account
+	}
+	if name == "" {
+		return account.Account{}, "", refused(
+			"project %s names no account to run on; put `account: <name>` in its .coding-owl.yaml on %s, and see owl account list for the accounts there are",
+			details.Name, details.BaseBranch)
+	}
+	acct, token, err := s.opts.Accounts.Credential(ctx, name)
+	if errors.Is(err, store.ErrAccountNotFound) {
+		return account.Account{}, "", refused(
+			"project %s runs on account %s, which is not there; owl account list shows the accounts there are",
+			details.Name, name)
+	}
+	if err != nil {
+		return account.Account{}, "", &RefusedError{Err: err}
+	}
+	return acct, token, nil
 }
 
 // nextRunnable takes the Job at the head of the queue, passing over one that

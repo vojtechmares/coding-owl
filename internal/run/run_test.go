@@ -13,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vojtechmares/coding-owl/internal/account"
 	"github.com/vojtechmares/coding-owl/internal/agent"
+	"github.com/vojtechmares/coding-owl/internal/credential"
 	"github.com/vojtechmares/coding-owl/internal/driver"
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
@@ -46,6 +48,12 @@ func (d *fakeDriver) Command(req driver.Request) (agent.Invocation, error) {
 		return agent.Invocation{}, d.cmdErr
 	}
 	return agent.Invocation{Path: "/fake/agent", Dir: req.WorkingDir}, nil
+}
+
+// SetupToken is the tool's own token flow, which this fake has no need of
+// beyond satisfying the Driver.
+func (d *fakeDriver) SetupToken(configDir string) (agent.Invocation, error) {
+	return agent.Invocation{Path: "/fake/agent", Args: []string{"setup-token"}, Dir: configDir}, nil
 }
 
 func (d *fakeDriver) given() driver.Request {
@@ -141,9 +149,13 @@ func newVerifiedFixture(t *testing.T, d driver.Driver, e *fakeExecutor, v verifi
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
 	gitInit(t, repo)
-	for _, body := range config {
-		commitFile(t, repo, ".coding-owl.yaml", body)
+	// Every Job runs on its Project's Account (ADR-0023), so the Project this
+	// fixture registers names one, whatever else the caller configures.
+	body := "apiVersion: codingowl.dev/v1\n"
+	for _, extra := range config {
+		body = extra
 	}
+	commitFile(t, repo, ".coding-owl.yaml", body+"\naccount: "+testAccount+"\n")
 
 	st, _, err := store.Open(filepath.Join(root, "owl.db"))
 	if err != nil {
@@ -155,9 +167,16 @@ func newVerifiedFixture(t *testing.T, d driver.Driver, e *fakeExecutor, v verifi
 	if _, err := projects.Add(context.Background(), project.AddRequest{Path: repo}); err != nil {
 		t.Fatalf("registering the project: %v", err)
 	}
+	accounts := account.NewService(st, credential.NewFile(filepath.Join(root, "credentials.json")), root)
+	if _, err := accounts.Add(context.Background(), account.AddRequest{
+		Name: testAccount, Token: testToken,
+	}); err != nil {
+		t.Fatalf("adding the account to run on: %v", err)
+	}
 	svc := run.NewService(run.Options{
 		Store:       st,
 		Projects:    projects,
+		Accounts:    accounts,
 		Driver:      d,
 		Executor:    e,
 		Verifier:    v,
@@ -205,6 +224,13 @@ func gitIn(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
+
+// testAccount is the Account the fixture's Project runs on, and testToken the
+// credential it runs with.
+const (
+	testAccount = "test"
+	testToken   = "sk-ant-oat01-fixture"
+)
 
 // queueJob puts one pending Job in the store, with the attempts a Job arrives
 // from the queue with (ADR-0025).

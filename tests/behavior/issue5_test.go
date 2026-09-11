@@ -83,7 +83,9 @@ func agentLayoutVersion(t *testing.T, script []string, exitCode int, version str
 	if version != "" {
 		env = append(env, "OWL_FAKE_CLAUDE_VERSION="+version)
 	}
-	return l.withoutEnv("PATH").withEnv(env...), s
+	out := l.withoutEnv("PATH").withEnv(env...)
+	out.agent = true
+	return out, s
 }
 
 // release lets a stub agent waiting on a `#wait` line continue.
