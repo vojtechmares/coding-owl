@@ -307,3 +307,90 @@ func TestReorderRefusesAJobThatIsNotPending(t *testing.T) {
 		t.Errorf("error %q does not say the job is not pending", err)
 	}
 }
+
+func TestAddGrantsTheDefaultAttemptsWhenTheRequestAsksForNone(t *testing.T) {
+	svc, dir := oneProject(t)
+
+	j, err := svc.Add(context.Background(), queue.AddRequest{Prompt: "work", WorkingDir: dir})
+
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if j.TTL != queue.DefaultTTL {
+		t.Errorf("a job is queued with %d attempts, want the default %d", j.TTL, queue.DefaultTTL)
+	}
+}
+
+func TestAddTakesTheAttemptsItIsAskedFor(t *testing.T) {
+	svc, dir := oneProject(t)
+
+	j, err := svc.Add(context.Background(), queue.AddRequest{Prompt: "work", WorkingDir: dir, TTL: 3})
+
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if j.TTL != 3 {
+		t.Errorf("a job queued with three attempts has %d", j.TTL)
+	}
+}
+
+func TestAddRefusesAttemptsThatAreNotANumberOfRuns(t *testing.T) {
+	svc, dir := oneProject(t)
+
+	_, err := svc.Add(context.Background(), queue.AddRequest{Prompt: "work", WorkingDir: dir, TTL: -1})
+
+	var invalid *queue.InvalidError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Add with -1 attempts = %v, want an InvalidError", err)
+	}
+	if !strings.Contains(err.Error(), "-1") {
+		t.Errorf("the error %q does not name what was asked for", err)
+	}
+}
+
+func TestExtendAddsTheDefaultAttemptsWhenNoNumberIsAskedFor(t *testing.T) {
+	svc, dir := oneProject(t)
+	queued, err := svc.Add(context.Background(), queue.AddRequest{Prompt: "work", WorkingDir: dir, TTL: 1})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	j, err := svc.Extend(context.Background(), queued.ID, 0)
+
+	if err != nil {
+		t.Fatalf("Extend: %v", err)
+	}
+	if j.TTL != 1+queue.DefaultTTL {
+		t.Errorf("the job has %d attempts, want the default %d added to the one it had", j.TTL, queue.DefaultTTL)
+	}
+}
+
+func TestExtendRefusesANumberThatIsNotAttemptsToAdd(t *testing.T) {
+	svc, dir := oneProject(t)
+	queued, err := svc.Add(context.Background(), queue.AddRequest{Prompt: "work", WorkingDir: dir, TTL: 4})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	_, err = svc.Extend(context.Background(), queued.ID, -3)
+
+	var invalid *queue.InvalidError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Extend by -3 = %v, want an InvalidError", err)
+	}
+	if j, err := svc.Extend(context.Background(), queued.ID, 0); err != nil {
+		t.Fatalf("Extend: %v", err)
+	} else if j.TTL != 4+queue.DefaultTTL {
+		t.Errorf("the job has %d attempts, want the refused extension to have changed nothing", j.TTL)
+	}
+}
+
+func TestExtendReportsAJobThatIsNotThere(t *testing.T) {
+	svc, _ := oneProject(t)
+
+	_, err := svc.Extend(context.Background(), 999, 10)
+
+	if !errors.Is(err, store.ErrJobNotFound) {
+		t.Errorf("Extend on an unknown job = %v, want ErrJobNotFound", err)
+	}
+}

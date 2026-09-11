@@ -31,6 +31,7 @@ func (s *jobService) AddJob(ctx context.Context, req *connect.Request[codingowlv
 		Planned: req.Msg.GetPlanMode() != codingowlv1.PlanMode_PLAN_MODE_NO_PLAN,
 		Model:   req.Msg.GetModel(),
 		Effort:  req.Msg.GetEffort(),
+		TTL:     int(req.Msg.GetTtl()),
 	})
 	if err != nil {
 		return nil, rpcError(err)
@@ -64,6 +65,14 @@ func (s *jobService) ReorderJob(ctx context.Context, req *connect.Request[coding
 		return nil, rpcError(err)
 	}
 	return connect.NewResponse(&codingowlv1.ReorderJobResponse{Job: toJobProto(j)}), nil
+}
+
+func (s *jobService) ExtendJob(ctx context.Context, req *connect.Request[codingowlv1.ExtendJobRequest]) (*connect.Response[codingowlv1.ExtendJobResponse], error) {
+	j, err := s.jobs.Extend(ctx, req.Msg.GetId(), int(req.Msg.GetTtl()))
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return connect.NewResponse(&codingowlv1.ExtendJobResponse{Job: toJobProto(j)}), nil
 }
 
 func (s *jobService) StartRun(ctx context.Context, _ *connect.Request[codingowlv1.StartRunRequest]) (*connect.Response[codingowlv1.StartRunResponse], error) {
@@ -152,6 +161,9 @@ func (s *jobService) GetOverview(ctx context.Context, _ *connect.Request[codingo
 	for _, j := range o.Blocked {
 		res.Blocked = append(res.Blocked, toJobProto(j))
 	}
+	for _, j := range o.Exhausted {
+		res.Exhausted = append(res.Exhausted, toJobProto(j))
+	}
 	return connect.NewResponse(res), nil
 }
 
@@ -220,6 +232,7 @@ func toJobProto(j queue.Job) *codingowlv1.Job {
 		Planned:   j.Planned,
 		Plan:      j.Plan,
 		Reason:    j.Reason,
+		Ttl:       int32(j.TTL),
 		Position:  int32(j.Position),
 		Created:   timestamppb.New(j.Created),
 	}

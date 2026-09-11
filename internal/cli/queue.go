@@ -26,6 +26,7 @@ const promptWidth = 60
 func newAddCmd(env Env) *cobra.Command {
 	var projectName, model, effort string
 	var plan, noPlan bool
+	var ttl int
 	cmd := &cobra.Command{
 		Use:   "add <prompt>",
 		Short: "Queue a Job against a Project",
@@ -38,11 +39,19 @@ how it gets ahead of them.
 
 A Job is planned before it is carried out, in a run of its own, and the
 plan becomes the handoff on the Job's branch. Pass --no-plan for work that
-needs no thinking through first.`,
+needs no thinking through first.
+
+A Job may take ten Runs before it is exhausted; --ttl says how many it
+gets, and owl jobs extend gives it more.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if plan && noPlan {
 				return errors.New("--plan and --no-plan ask for opposite things; pass one or neither")
+			}
+			// Zero is how the daemon is told to grant its own default, so an
+			// explicit zero is refused here rather than read as one.
+			if cmd.Flags().Changed("ttl") && ttl < 1 {
+				return fmt.Errorf("attempts count from one; --ttl %d is not a number of runs a job can take", ttl)
 			}
 			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
 				j, err := c.AddJob(ctx, client.AddJobRequest{
@@ -52,6 +61,7 @@ needs no thinking through first.`,
 					Plan:       planChoice(plan, noPlan),
 					Model:      model,
 					Effort:     effort,
+					TTL:        ttl,
 				})
 				if err != nil {
 					return err
@@ -66,6 +76,7 @@ needs no thinking through first.`,
 	cmd.Flags().BoolVar(&noPlan, "no-plan", false, "carry the Job out without planning it first")
 	cmd.Flags().StringVar(&model, "model", "", "model every phase of this Job runs as (default: what the Project or Owl says)")
 	cmd.Flags().StringVar(&effort, "effort", "", "effort every phase of this Job runs at (default: what the Project or Owl says)")
+	cmd.Flags().IntVar(&ttl, "ttl", 0, "how many Runs the Job may take before it is exhausted (default: ten)")
 	return cmd
 }
 

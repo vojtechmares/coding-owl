@@ -53,6 +53,8 @@ const (
 	JobServiceDropJobProcedure = "/codingowl.v1.JobService/DropJob"
 	// JobServiceGetOverviewProcedure is the fully-qualified name of the JobService's GetOverview RPC.
 	JobServiceGetOverviewProcedure = "/codingowl.v1.JobService/GetOverview"
+	// JobServiceExtendJobProcedure is the fully-qualified name of the JobService's ExtendJob RPC.
+	JobServiceExtendJobProcedure = "/codingowl.v1.JobService/ExtendJob"
 )
 
 // JobServiceClient is a client for the codingowl.v1.JobService service.
@@ -82,6 +84,9 @@ type JobServiceClient interface {
 	// GetOverview reports what is running, how the Jobs stand, and which of them
 	// are waiting for a decision.
 	GetOverview(context.Context, *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error)
+	// ExtendJob gives a Job more attempts, returning it to the queue if it had
+	// run out (ADR-0025).
+	ExtendJob(context.Context, *connect.Request[v1.ExtendJobRequest]) (*connect.Response[v1.ExtendJobResponse], error)
 }
 
 // NewJobServiceClient constructs a client for the codingowl.v1.JobService service. By default, it
@@ -155,6 +160,12 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(jobServiceMethods.ByName("GetOverview")),
 			connect.WithClientOptions(opts...),
 		),
+		extendJob: connect.NewClient[v1.ExtendJobRequest, v1.ExtendJobResponse](
+			httpClient,
+			baseURL+JobServiceExtendJobProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("ExtendJob")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -170,6 +181,7 @@ type jobServiceClient struct {
 	acceptJob    *connect.Client[v1.AcceptJobRequest, v1.AcceptJobResponse]
 	dropJob      *connect.Client[v1.DropJobRequest, v1.DropJobResponse]
 	getOverview  *connect.Client[v1.GetOverviewRequest, v1.GetOverviewResponse]
+	extendJob    *connect.Client[v1.ExtendJobRequest, v1.ExtendJobResponse]
 }
 
 // AddJob calls codingowl.v1.JobService.AddJob.
@@ -222,6 +234,11 @@ func (c *jobServiceClient) GetOverview(ctx context.Context, req *connect.Request
 	return c.getOverview.CallUnary(ctx, req)
 }
 
+// ExtendJob calls codingowl.v1.JobService.ExtendJob.
+func (c *jobServiceClient) ExtendJob(ctx context.Context, req *connect.Request[v1.ExtendJobRequest]) (*connect.Response[v1.ExtendJobResponse], error) {
+	return c.extendJob.CallUnary(ctx, req)
+}
+
 // JobServiceHandler is an implementation of the codingowl.v1.JobService service.
 type JobServiceHandler interface {
 	// AddJob queues a Job, producing it through the local queue Source.
@@ -249,6 +266,9 @@ type JobServiceHandler interface {
 	// GetOverview reports what is running, how the Jobs stand, and which of them
 	// are waiting for a decision.
 	GetOverview(context.Context, *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error)
+	// ExtendJob gives a Job more attempts, returning it to the queue if it had
+	// run out (ADR-0025).
+	ExtendJob(context.Context, *connect.Request[v1.ExtendJobRequest]) (*connect.Response[v1.ExtendJobResponse], error)
 }
 
 // NewJobServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -318,6 +338,12 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(jobServiceMethods.ByName("GetOverview")),
 		connect.WithHandlerOptions(opts...),
 	)
+	jobServiceExtendJobHandler := connect.NewUnaryHandler(
+		JobServiceExtendJobProcedure,
+		svc.ExtendJob,
+		connect.WithSchema(jobServiceMethods.ByName("ExtendJob")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/codingowl.v1.JobService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case JobServiceAddJobProcedure:
@@ -340,6 +366,8 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 			jobServiceDropJobHandler.ServeHTTP(w, r)
 		case JobServiceGetOverviewProcedure:
 			jobServiceGetOverviewHandler.ServeHTTP(w, r)
+		case JobServiceExtendJobProcedure:
+			jobServiceExtendJobHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -387,4 +415,8 @@ func (UnimplementedJobServiceHandler) DropJob(context.Context, *connect.Request[
 
 func (UnimplementedJobServiceHandler) GetOverview(context.Context, *connect.Request[v1.GetOverviewRequest]) (*connect.Response[v1.GetOverviewResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.GetOverview is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) ExtendJob(context.Context, *connect.Request[v1.ExtendJobRequest]) (*connect.Response[v1.ExtendJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.ExtendJob is not implemented"))
 }

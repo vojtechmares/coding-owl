@@ -35,6 +35,12 @@ const (
 	StateExhausted State = "exhausted"
 )
 
+// DefaultTTL is how many Runs a Job may take when nobody says otherwise. It is
+// generous on purpose: under ADR-0011 a Run the user interrupts by opening
+// their laptop costs an attempt exactly as a failure does, so a Job that makes
+// real progress every night still has room (ADR-0025).
+const DefaultTTL = 10
+
 // Source is a producer of Jobs (ADR-0008). The local queue is the first
 // implementation; later ones read a forge or a schedule and feed this same
 // queue rather than opening a second path into the scheduler.
@@ -97,6 +103,8 @@ type Job struct {
 	Effort string
 	// Reason is why the Job is where it is when no Run explains it.
 	Reason string
+	// TTL is how many Runs the Job may still take (ADR-0025).
+	TTL int
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -133,6 +141,9 @@ type AddRequest struct {
 	// (ADR-0028). Empty leaves it to the Project and the defaults.
 	Model  string
 	Effort string
+	// TTL is how many Runs the Job may take. Zero asks for no particular
+	// number and takes DefaultTTL.
+	TTL int
 }
 
 // Add produces a Job through the Service's Source and queues it behind
@@ -156,6 +167,13 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Job, error) {
 	if err := usableSetting("effort", req.Effort); err != nil {
 		return Job{}, err
 	}
+	ttl := req.TTL
+	switch {
+	case ttl < 0:
+		return Job{}, invalid("attempts count from one; %d is not a number of runs a job can take", ttl)
+	case ttl == 0:
+		ttl = DefaultTTL
+	}
 	j, err := s.store.UpsertJob(ctx, store.Job{
 		Source:    s.source.Name(),
 		SourceRef: ref,
@@ -165,6 +183,7 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Job, error) {
 		Planned:   req.Planned,
 		Model:     req.Model,
 		Effort:    req.Effort,
+		TTL:       ttl,
 		Created:   s.now().UTC(),
 	})
 	if err != nil {
@@ -277,6 +296,7 @@ func FromStore(j store.Job) Job {
 		Model:     j.Model,
 		Effort:    j.Effort,
 		Reason:    j.Reason,
+		TTL:       j.TTL,
 		Position:  j.Position,
 		Created:   j.Created,
 	}
@@ -293,6 +313,24 @@ func (s *Service) Cancel(ctx context.Context, id int64) (Job, error) {
 		return Job{}, err
 	}
 	j, err := s.store.GetJob(ctx, id)
+	if err != nil {
+		return Job{}, err
+	}
+	return FromStore(j), nil
+}
+
+// Extend gives a Job add more attempts, and returns it to the queue if it had
+// run out (ADR-0025). Zero asks for no particular number and adds DefaultTTL.
+// Extending is adding rather than setting: a Job that still has attempts keeps
+// the ones it has.
+func (s *Service) Extend(ctx context.Context, id int64, add int) (Job, error) {
+	switch {
+	case add < 0:
+		return Job{}, invalid("attempts count from one; %d is not a number of runs to add", add)
+	case add == 0:
+		add = DefaultTTL
+	}
+	j, err := s.store.ExtendJob(ctx, id, add, string(StateExhausted), string(StatePending))
 	if err != nil {
 		return Job{}, err
 	}
