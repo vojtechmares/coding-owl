@@ -90,36 +90,36 @@ func TestParseReadsAProjectsClausesAndSpendCap(t *testing.T) {
 	}
 }
 
-func TestParseReadsTheReviewAProjectAsksFor(t *testing.T) {
-	// A review costs a second Agent invocation, so it is opt-in per Project
-	// (ADR-0013).
+func TestParseReadsTheVerificationAProjectAsksFor(t *testing.T) {
+	// The agent Verifier costs a second Agent invocation, so it is opt-in per
+	// Project (ADR-0013).
 	cfg, err := config.Parse("main:.coding-owl.yaml",
-		[]byte("apiVersion: codingowl.dev/v1\nreview:\n  agent: true\n  timeout: 20m\n"))
+		[]byte("apiVersion: codingowl.dev/v1\nverification:\n  agent: true\n  timeout: 20m\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if !cfg.Review.Agent {
-		t.Error("Review.Agent = false, want the review the file asks for")
+	if !cfg.Verification.Agent {
+		t.Error("Verification.Agent = false, want the agent verifier the file asks for")
 	}
-	if cfg.Review.Timeout != 20*time.Minute {
-		t.Errorf("Review.Timeout = %v, want 20m", cfg.Review.Timeout)
+	if cfg.Verification.Timeout != 20*time.Minute {
+		t.Errorf("Verification.Timeout = %v, want 20m", cfg.Verification.Timeout)
 	}
 }
 
-func TestParseLeavesAProjectThatAsksForNoReviewWithout(t *testing.T) {
+func TestParseLeavesAProjectThatAsksForNoAgentVerifierWithout(t *testing.T) {
 	cfg, err := config.Parse("main:.coding-owl.yaml", []byte("apiVersion: codingowl.dev/v1\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if cfg.Review.Agent {
-		t.Error("Review.Agent = true for a file that asks for none")
+	if cfg.Verification.Agent {
+		t.Error("Verification.Agent = true for a file that asks for none")
 	}
 }
 
-func TestParseRefusesAReviewTimeoutItCannotRead(t *testing.T) {
+func TestParseRefusesAVerificationTimeoutItCannotRead(t *testing.T) {
 	for _, body := range []string{
-		"apiVersion: codingowl.dev/v1\nreview:\n  agent: true\n  timeout: soon\n",
-		"apiVersion: codingowl.dev/v1\nreview:\n  agent: true\n  timeout: -1m\n",
+		"apiVersion: codingowl.dev/v1\nverification:\n  agent: true\n  timeout: soon\n",
+		"apiVersion: codingowl.dev/v1\nverification:\n  agent: true\n  timeout: -1m\n",
 	} {
 		_, err := config.Parse("main:.coding-owl.yaml", []byte(body))
 
@@ -129,16 +129,16 @@ func TestParseRefusesAReviewTimeoutItCannotRead(t *testing.T) {
 	}
 }
 
-func TestParseRefusesACheckCalledWhatAReviewIsCalled(t *testing.T) {
-	// Verification reports a review beside the Project's own checks, and a
-	// reader tells them apart by name (ADR-0013).
+func TestParseRefusesACheckCalledWhatTheAgentVerifierIsCalled(t *testing.T) {
+	// Verification reports the agent Verifier beside the Project's own checks,
+	// and a reader tells them apart by name (ADR-0013).
 	_, err := config.Parse("main:.coding-owl.yaml",
-		[]byte("apiVersion: codingowl.dev/v1\nchecks:\n  - name: "+config.ReviewName+"\n    run: \"true\"\n"))
+		[]byte("apiVersion: codingowl.dev/v1\nchecks:\n  - name: "+config.AgentVerifierName+"\n    run: \"true\"\n"))
 
 	if err == nil {
-		t.Fatal("Parse accepted a check called what a review is called")
+		t.Fatal("Parse accepted a check called what the agent verifier is called")
 	}
-	if !strings.Contains(err.Error(), config.ReviewName) {
+	if !strings.Contains(err.Error(), config.AgentVerifierName) {
 		t.Errorf("the error %q does not name it", err)
 	}
 }

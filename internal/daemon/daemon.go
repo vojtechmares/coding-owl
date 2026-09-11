@@ -146,7 +146,7 @@ func Run(ctx context.Context, opts Options) error {
 		Driver:            claudecode.New(),
 		Executor:          host.New(),
 		Verifier:          command.New(),
-		Reviewer:          agentverifier.New(claudecode.New(), host.New()),
+		AgentVerifier:     agentverifier.New(claudecode.New(), host.New()),
 		WorktreeDir:       worktrees,
 		LogDir:            filepath.Join(opts.Paths.StateDir, logsDir),
 		ConfigPath:        configPath,

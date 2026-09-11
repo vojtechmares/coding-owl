@@ -968,13 +968,13 @@ func TestAJobRunsOnTheAccountItRecordedRatherThanTheProjectsCurrentOne(t *testin
 	}
 }
 
-func TestARunIsBlockedWhenTheProjectAsksForAReviewNobodyCanGive(t *testing.T) {
+func TestARunIsBlockedWhenTheProjectAsksForAVerifierNobodyCanGive(t *testing.T) {
 	// A Job must not reach review because nobody was asked (ADR-0013): a
-	// daemon built without a reviewer refuses rather than letting the work
-	// through unreviewed.
+	// daemon built without the agent Verifier refuses rather than letting the
+	// work through unjudged.
 	ctx := context.Background()
 	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{},
-		"apiVersion: codingowl.dev/v1\nreview:\n  agent: true\n")
+		"apiVersion: codingowl.dev/v1\nverification:\n  agent: true\n")
 	j := queueJob(t, st, "work")
 
 	if _, _, _, err := svc.Start(ctx); err != nil {
@@ -982,8 +982,8 @@ func TestARunIsBlockedWhenTheProjectAsksForAReviewNobodyCanGive(t *testing.T) {
 	}
 	done := awaitState(t, st, j.ID, queue.StateBlocked)
 
-	if !strings.Contains(done.Reason, config.ReviewName) {
-		t.Errorf("reason = %q, want it to name the review", done.Reason)
+	if !strings.Contains(done.Reason, config.AgentVerifierName) {
+		t.Errorf("reason = %q, want it to name the verifier", done.Reason)
 	}
 	// Why it could not be carried out is recorded where a user reads what
 	// Verification said, beside whatever the Project's own checks said.
@@ -991,8 +991,8 @@ func TestARunIsBlockedWhenTheProjectAsksForAReviewNobodyCanGive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListCheckResults: %v", err)
 	}
-	if len(results) != 1 || results[0].Passed || !strings.Contains(results[0].Reason, "no agent reviewer") {
-		t.Errorf("verification recorded %+v, want a review saying the daemon has none", results)
+	if len(results) != 1 || results[0].Passed || !strings.Contains(results[0].Reason, "no agent verifier") {
+		t.Errorf("verification recorded %+v, want a verifier saying the daemon has none", results)
 	}
 }
 

@@ -94,12 +94,12 @@ func (s *jobService) GetJob(ctx context.Context, req *connect.Request[codingowlv
 	}
 
 	res := &codingowlv1.GetJobResponse{
-		Job:                toJobProto(d.Job),
-		Runs:               make([]*codingowlv1.Run, 0, len(d.Runs)),
-		SystemPrompt:       d.SystemPrompt,
-		ReviewSystemPrompt: d.ReviewSystemPrompt,
-		Phases:             make([]*codingowlv1.PhaseSettings, 0, len(d.Phases)),
-		Handoff:            d.Handoff,
+		Job:                  toJobProto(d.Job),
+		Runs:                 make([]*codingowlv1.Run, 0, len(d.Runs)),
+		SystemPrompt:         d.SystemPrompt,
+		VerifierSystemPrompt: d.VerifierSystemPrompt,
+		Phases:               make([]*codingowlv1.PhaseSettings, 0, len(d.Phases)),
+		Handoff:              d.Handoff,
 		Diff: &codingowlv1.DiffSummary{
 			Insertions: int32(d.Diff.Insertions),
 			Deletions:  int32(d.Diff.Deletions),

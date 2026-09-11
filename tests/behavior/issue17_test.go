@@ -3,7 +3,7 @@ package behavior_test
 // Behavior tests for issue #17. Each TestS<n> maps to scenario S<n> in
 // tests/behavior/issue-17.md. They drive the built owl binary against a daemon
 // whose PATH puts the stub agent of issue #5 where Claude Code would be, and
-// exercise the review a Project can ask for after its own checks.
+// exercise the agent Verifier a Project can ask for after its own checks.
 
 import (
 	"encoding/json"
@@ -13,43 +13,44 @@ import (
 	"time"
 )
 
-// reviewPath is where Owl asks a reviewer to leave its verdict, inside the
-// Job's worktree.
-const reviewPath = ".coding-owl/REVIEW.md"
+// verdictPath is where Owl asks the verifying Agent to leave its verdict,
+// inside the Job's worktree.
+const verdictPath = ".coding-owl/VERDICT.md"
 
-// reviewedConfig is a Project that asks for a review after one passing check.
-const reviewedConfig = `apiVersion: codingowl.dev/v1
+// verifiedConfig is a Project that asks for an agent verifier after one
+// passing check.
+const verifiedConfig = `apiVersion: codingowl.dev/v1
 checks:
   - name: build
     run: "true"
-review:
+verification:
   agent: true
 `
 
-// reviewing is a layout whose stub agent leaves that verdict when it is asked
-// for a review, and whose execution Agent commits a file of its own.
-func reviewing(t *testing.T, verdict string) (*layout, *stub) {
+// verifying is a layout whose stub agent leaves that verdict when it is asked
+// to judge the work, and whose execution Agent commits a file of its own.
+func verifying(t *testing.T, verdict string) (*layout, *stub) {
 	t.Helper()
 	l, s := writingLayout(t, map[string]string{"work.txt": "the agent's own work\n"}, true, agentScript)
 	return withVerdict(t, l, verdict), s
 }
 
-// withVerdict tells the stub agent what to write when it is asked for a
-// review. An empty verdict is a reviewer that leaves none.
+// withVerdict tells the stub agent what to write when it is asked to judge the
+// work. An empty verdict is an Agent that leaves none.
 func withVerdict(t *testing.T, l *layout, verdict string) *layout {
 	t.Helper()
 	if verdict == "" {
 		return l
 	}
-	spec, err := json.Marshal(map[string]string{reviewPath: verdict})
+	spec, err := json.Marshal(map[string]string{verdictPath: verdict})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return l.withEnv("OWL_FAKE_CLAUDE_REVIEW=" + string(spec))
+	return l.withEnv("OWL_FAKE_CLAUDE_VERDICT=" + string(spec))
 }
 
-// reviewName is what the review is called in a report.
-const reviewName = "agent review"
+// verifierName is what the agent Verifier is called in a report.
+const verifierName = "agent verifier"
 
 // lastArg is the prompt an invocation was given, which the Driver puts last.
 func lastArg(t *testing.T, inv invocation) string {
@@ -61,31 +62,32 @@ func lastArg(t *testing.T, inv invocation) string {
 }
 
 // workInvocation is the stub agent's invocation that carried the Job out,
-// which is the one that was not asked for a review.
+// which is the one that was not asked to judge anything.
 func workInvocation(t *testing.T, s *stub) invocation {
 	t.Helper()
 	for _, inv := range s.invocations(t) {
-		if !strings.Contains(strings.Join(inv.Argv, " "), reviewPath) {
+		if !strings.Contains(strings.Join(inv.Argv, " "), verdictPath) {
 			return inv
 		}
 	}
-	t.Fatalf("the stub agent was only ever asked for a review: %v", s.invocations(t))
+	t.Fatalf("the stub agent was only ever asked to judge the work: %v", s.invocations(t))
 	return invocation{}
 }
 
-// reviewInvocation is the stub agent's invocation that was asked for a review.
-func reviewInvocation(t *testing.T, s *stub) invocation {
+// verifyInvocation is the stub agent's invocation that was asked to judge the
+// work.
+func verifyInvocation(t *testing.T, s *stub) invocation {
 	t.Helper()
 	for _, inv := range s.invocations(t) {
-		if strings.Contains(strings.Join(inv.Argv, " "), reviewPath) {
+		if strings.Contains(strings.Join(inv.Argv, " "), verdictPath) {
 			return inv
 		}
 	}
-	t.Fatalf("the stub agent was never asked for a review: %v", s.invocations(t))
+	t.Fatalf("the stub agent was never asked to judge the work: %v", s.invocations(t))
 	return invocation{}
 }
 
-func TestS1ReviewAProjectThatDoesNotAskForOneDoesNotGetOne(t *testing.T) {
+func TestS1AProjectThatDoesNotAskForTheAgentVerifierDoesNotGetIt(t *testing.T) {
 	l, s := agentLayout(t, agentScript, 0)
 	daemonUp(t, l)
 	checkedProject(t, l, `apiVersion: codingowl.dev/v1
@@ -101,54 +103,54 @@ checks:
 	}
 	rows := checks(t, out)
 	wantCheck(t, rows, "build", "passed")
-	if _, ok := rows[reviewName]; ok {
-		t.Errorf("a project that asked for no review got one:\n%s", out)
+	if _, ok := rows[verifierName]; ok {
+		t.Errorf("a project that asked for no agent verifier got one:\n%s", out)
 	}
 	if got := line(t, out, "state"); got != "review" {
 		t.Errorf("state = %q, want review", got)
 	}
 }
 
-func TestS2ReviewIsASecondSeparateSession(t *testing.T) {
-	l, s := reviewing(t, "verdict: pass\n\nNothing to add.\n")
+func TestS2TheAgentVerifierIsASecondSeparateSession(t *testing.T) {
+	l, s := verifying(t, "verdict: pass\n\nNothing to add.\n")
 	daemonUp(t, l)
-	checkedProject(t, l, reviewedConfig)
+	checkedProject(t, l, verifiedConfig)
 
 	out, _ := finishedJob(t, l)
 
 	if got := len(s.invocations(t)); got != 2 {
-		t.Fatalf("the agent was invoked %d times, want twice: once to work and once to review", got)
+		t.Fatalf("the agent was invoked %d times, want twice: once to work and once to judge it", got)
 	}
-	worked, reviewed := workInvocation(t, s), reviewInvocation(t, s)
+	worked, judged := workInvocation(t, s), verifyInvocation(t, s)
 	// The stub records the directory it was started in with its symlinks
 	// resolved, which is what /var is on a mac.
 	worktree, err := filepath.EvalSymlinks(line(t, out, "worktree"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reviewed.Dir != worktree {
-		t.Errorf("the reviewer ran in %s, want the job's worktree %s", reviewed.Dir, worktree)
+	if judged.Dir != worktree {
+		t.Errorf("the verifying agent ran in %s, want the job's worktree %s", judged.Dir, worktree)
 	}
-	if reviewed.Env["CLAUDE_CONFIG_DIR"] != worked.Env["CLAUDE_CONFIG_DIR"] {
-		t.Errorf("the reviewer ran as %q, want the account the job runs on %q",
-			reviewed.Env["CLAUDE_CONFIG_DIR"], worked.Env["CLAUDE_CONFIG_DIR"])
+	if judged.Env["CLAUDE_CONFIG_DIR"] != worked.Env["CLAUDE_CONFIG_DIR"] {
+		t.Errorf("the verifying agent ran as %q, want the account the job runs on %q",
+			judged.Env["CLAUDE_CONFIG_DIR"], worked.Env["CLAUDE_CONFIG_DIR"])
 	}
 	// Fresh is the whole point: nothing carries the session that produced the
-	// work into the one that reviews it (ADR-0013).
+	// work into the one that judges it (ADR-0013).
 	for _, flag := range []string{"--resume", "--continue", "--session-id", "-c", "-r"} {
-		if reviewed.has(flag) {
-			t.Errorf("the reviewer was invoked with %s: %v", flag, reviewed.Argv)
+		if judged.has(flag) {
+			t.Errorf("the verifying agent was invoked with %s: %v", flag, judged.Argv)
 		}
 	}
 }
 
-func TestS3ReviewIsGivenThePlanAndTheDiff(t *testing.T) {
+func TestS3TheVerifyingAgentIsGivenThePlanAndTheDiff(t *testing.T) {
 	l, s := planningLayout(t, "# Handoff\n\nAdd the file and stop.\n")
 	l = withVerdict(t, l, "verdict: pass\n")
 	l = l.withEnv(`OWL_FAKE_CLAUDE_WRITE={"` + handoffPath + `":"# Handoff\n\nAdd the file and stop.\n","work.txt":"a line the agent added\n"}`)
 	daemonUp(t, l)
 	r := newRepo(t, l, "api")
-	r.commit(".coding-owl.yaml", reviewedConfig, "configure owl")
+	r.commit(".coding-owl.yaml", verifiedConfig, "configure owl")
 	addProject(t, l, r)
 	addJob(t, l, r.dir, "work")
 
@@ -156,39 +158,39 @@ func TestS3ReviewIsGivenThePlanAndTheDiff(t *testing.T) {
 	run, _ := startRun(t, l)
 	waitRun(t, l, job, run)
 
-	prompt := lastArg(t, reviewInvocation(t, s))
+	prompt := lastArg(t, verifyInvocation(t, s))
 	// The plan is quoted as the plan: the handoff it came from is also on the
 	// branch, so a prompt that carries the sentence anywhere carries it twice
-	// over and says nothing about what the reviewer was told it was.
+	// over and says nothing about what the verifying agent was told it was.
 	planned := quoted(t, prompt, planFence)
 	if !strings.Contains(planned, "Add the file and stop.") {
-		t.Errorf("the reviewer was not given the plan:\n%s", planned)
+		t.Errorf("the verifying agent was not given the plan:\n%s", planned)
 	}
 	// The plan, not the diff quoted under the plan's name: the handoff the
 	// plan came from is committed on the branch, so it is in the diff too.
 	for _, notWant := range []string{"diff --git", "work.txt"} {
 		if strings.Contains(planned, notWant) {
-			t.Errorf("what the reviewer was told is the plan carries %q:\n%s", notWant, planned)
+			t.Errorf("what the verifying agent was told is the plan carries %q:\n%s", notWant, planned)
 		}
 	}
 	diff := quoted(t, prompt, diffFence)
 	for _, want := range []string{"work.txt", "a line the agent added"} {
 		if !strings.Contains(diff, want) {
-			t.Errorf("the diff the reviewer was given does not carry %q:\n%s", want, diff)
+			t.Errorf("the diff the verifying agent was given does not carry %q:\n%s", want, diff)
 		}
 	}
 	// Where to write the verdict is Owl's own instruction, so it is outside
 	// everything the prompt quotes.
 	asked, _, _ := strings.Cut(prompt, planFence)
 	rest := prompt[strings.LastIndex(prompt, diffFence)+len(diffFence):]
-	if strings.Contains(asked, reviewPath) || !strings.Contains(rest, reviewPath) {
+	if strings.Contains(asked, verdictPath) || !strings.Contains(rest, verdictPath) {
 		t.Errorf("the prompt does not say where to write the verdict outside what it quotes:\n%s", prompt)
 	}
 }
 
-// planFence and diffFence are the lines the reviewer's prompt sets quoted
-// material apart with, so a scenario can ask what the reviewer was told a
-// piece of text was.
+// planFence and diffFence are the lines the prompt sets quoted material
+// apart with, so a scenario can ask what the verifying agent was told a piece
+// of text was.
 const (
 	planFence = "----- plan -----"
 	diffFence = "----- diff -----"
@@ -208,10 +210,10 @@ func quoted(t *testing.T, prompt, fence string) string {
 	return body
 }
 
-func TestS4ReviewThatPassesLeavesTheJobInReview(t *testing.T) {
-	l, _ := reviewing(t, "verdict: pass\n\nThe change does what the plan said.\n")
+func TestS4AVerdictThatPassesLeavesTheJobInReview(t *testing.T) {
+	l, _ := verifying(t, "verdict: pass\n\nThe change does what the plan said.\n")
 	daemonUp(t, l)
-	checkedProject(t, l, reviewedConfig)
+	checkedProject(t, l, verifiedConfig)
 
 	out, _ := finishedJob(t, l)
 
@@ -220,73 +222,73 @@ func TestS4ReviewThatPassesLeavesTheJobInReview(t *testing.T) {
 	}
 	rows := checks(t, out)
 	wantCheck(t, rows, "build", "passed")
-	row := wantCheck(t, rows, reviewName, "passed")
+	row := wantCheck(t, rows, verifierName, "passed")
 	if !strings.Contains(row.output, "The change does what the plan said.") {
-		t.Errorf("what the reviewer wrote was not reported:\n%s", out)
+		t.Errorf("what the verifying agent wrote was not reported:\n%s", out)
 	}
 }
 
-func TestS5ReviewThatFailsBlocksTheJobWithItsFindings(t *testing.T) {
-	l, _ := reviewing(t, "verdict: fail\n\n1. The error from os.Rename is dropped.\n2. Nothing covers the empty input.\n")
+func TestS5AVerdictThatRefusesTheWorkBlocksTheJob(t *testing.T) {
+	l, _ := verifying(t, "verdict: fail\n\n1. The error from os.Rename is dropped.\n2. Nothing covers the empty input.\n")
 	daemonUp(t, l)
-	checkedProject(t, l, reviewedConfig)
+	checkedProject(t, l, verifiedConfig)
 
 	out, _ := finishedJob(t, l)
 
 	if got := line(t, out, "state"); got != "blocked" {
 		t.Fatalf("state = %q, want blocked:\n%s", got, out)
 	}
-	if got := line(t, out, "reason"); !strings.Contains(got, reviewName) {
-		t.Errorf("reason = %q, want it to name the review", got)
+	if got := line(t, out, "reason"); !strings.Contains(got, verifierName) {
+		t.Errorf("reason = %q, want it to name the agent verifier", got)
 	}
-	row := wantCheck(t, checks(t, out), reviewName, "failed")
+	row := wantCheck(t, checks(t, out), verifierName, "failed")
 	for _, want := range []string{"os.Rename", "the empty input"} {
 		if !strings.Contains(row.output, want) {
-			t.Errorf("the reviewer's findings do not carry %q:\n%s", want, out)
+			t.Errorf("the findings do not carry %q:\n%s", want, out)
 		}
 	}
 }
 
-func TestS6ReviewerThatLeavesNoVerdictBlocksTheJob(t *testing.T) {
-	l, _ := reviewing(t, "")
+func TestS6AnAgentThatLeavesNoVerdictBlocksTheJob(t *testing.T) {
+	l, _ := verifying(t, "")
 	daemonUp(t, l)
-	checkedProject(t, l, reviewedConfig)
+	checkedProject(t, l, verifiedConfig)
 
 	out, _ := finishedJob(t, l)
 
 	if got := line(t, out, "state"); got != "blocked" {
 		t.Fatalf("state = %q, want blocked:\n%s", got, out)
 	}
-	row := wantCheck(t, checks(t, out), reviewName, "failed")
+	row := wantCheck(t, checks(t, out), verifierName, "failed")
 	if !strings.Contains(row.why, "verdict") {
-		t.Errorf("the review says %q, want it to say no verdict was left", row.why)
+		t.Errorf("the agent verifier says %q, want it to say no verdict was left", row.why)
 	}
 }
 
-func TestS7ReviewLeavesNothingBehindInTheWorktree(t *testing.T) {
-	l, _ := reviewing(t, "verdict: pass\n\nThe change does what the plan said.\n")
+func TestS7TheAgentVerifierLeavesNothingBehind(t *testing.T) {
+	l, _ := verifying(t, "verdict: pass\n\nThe change does what the plan said.\n")
 	daemonUp(t, l)
-	r := checkedProject(t, l, reviewedConfig)
+	r := checkedProject(t, l, verifiedConfig)
 
 	out, _ := finishedJob(t, l)
 
 	worktree := line(t, out, "worktree")
 	if got := gitIn(t, r, worktree, "status", "--porcelain"); strings.TrimSpace(got) != "" {
-		t.Errorf("the worktree is not clean after a review:\n%s", got)
+		t.Errorf("the worktree is not clean after the agent verifier ran:\n%s", got)
 	}
-	if got := readFile(t, filepath.Join(worktree, reviewPath)); got != "" {
+	if got := readFile(t, filepath.Join(worktree, verdictPath)); got != "" {
 		t.Errorf("the verdict file is still in the worktree:\n%s", got)
 	}
 }
 
-func TestS8ACheckThatFailedStillBlocksAReviewedJob(t *testing.T) {
-	l, _ := reviewing(t, "verdict: pass\n\nLooks right to me.\n")
+func TestS8ACheckThatFailedStillBlocksAJobTheVerifierPassed(t *testing.T) {
+	l, _ := verifying(t, "verdict: pass\n\nLooks right to me.\n")
 	daemonUp(t, l)
 	checkedProject(t, l, `apiVersion: codingowl.dev/v1
 checks:
   - name: test
     run: echo the tests are unhappy; exit 1
-review:
+verification:
   agent: true
 `)
 
@@ -297,18 +299,18 @@ review:
 	}
 	rows := checks(t, out)
 	wantCheck(t, rows, "test", "failed")
-	wantCheck(t, rows, reviewName, "passed")
+	wantCheck(t, rows, verifierName, "passed")
 }
 
-func TestS9ReviewerThatWillNotFinishIsStopped(t *testing.T) {
-	l, _ := reviewing(t, "verdict: pass\n")
-	l = l.withEnv("OWL_FAKE_CLAUDE_REVIEW_SLEEP=60s")
+func TestS9AnAgentThatWillNotFinishIsStopped(t *testing.T) {
+	l, _ := verifying(t, "verdict: pass\n")
+	l = l.withEnv("OWL_FAKE_CLAUDE_VERDICT_SLEEP=60s")
 	daemonUp(t, l)
 	checkedProject(t, l, `apiVersion: codingowl.dev/v1
 checks:
   - name: build
     run: "true"
-review:
+verification:
   agent: true
   timeout: 1s
 `)
@@ -317,23 +319,23 @@ review:
 	out, _ := finishedJob(t, l)
 
 	if took := time.Since(started); took > 30*time.Second {
-		t.Errorf("the job took %s, want the review's own timeout to end it", took)
+		t.Errorf("the job took %s, want the verifier's own timeout to end it", took)
 	}
 	if got := line(t, out, "state"); got != "blocked" {
 		t.Fatalf("state = %q, want blocked:\n%s", got, out)
 	}
-	row := wantCheck(t, checks(t, out), reviewName, "failed")
+	row := wantCheck(t, checks(t, out), verifierName, "failed")
 	if !strings.Contains(row.why, "stopped") && !strings.Contains(row.why, "timed out") {
-		t.Errorf("the review says %q, want it to say it was stopped", row.why)
+		t.Errorf("the agent verifier says %q, want it to say it was stopped", row.why)
 	}
 }
 
-func TestS10APlanningRunIsNotReviewed(t *testing.T) {
+func TestS10APlanningRunIsNotJudged(t *testing.T) {
 	l, s := planningLayout(t, "# Handoff\n\nstep one done\n")
 	l = withVerdict(t, l, "verdict: fail\n\nnobody should have asked me\n")
 	daemonUp(t, l)
 	r := newRepo(t, l, "api")
-	r.commit(".coding-owl.yaml", reviewedConfig, "configure owl")
+	r.commit(".coding-owl.yaml", verifiedConfig, "configure owl")
 	addProject(t, l, r)
 	addJob(t, l, r.dir, "work")
 
@@ -345,15 +347,15 @@ func TestS10APlanningRunIsNotReviewed(t *testing.T) {
 	if got := line(t, out, "state"); got != "pending" {
 		t.Errorf("state = %q, want the job back in the queue to be carried out", got)
 	}
-	if _, ok := checks(t, out)[reviewName]; ok {
+	if _, ok := checks(t, out)[verifierName]; ok {
 		t.Errorf("a planning run was reviewed:\n%s", out)
 	}
 }
 
-func TestS11TheDesktopAppShowsTheReviewBesideTheChecks(t *testing.T) {
-	l, _ := reviewing(t, "verdict: fail\n\n1. The error from os.Rename is dropped.\n")
+func TestS11TheDesktopAppShowsTheFindingsBesideTheChecks(t *testing.T) {
+	l, _ := verifying(t, "verdict: fail\n\n1. The error from os.Rename is dropped.\n")
 	daemonUp(t, l)
-	checkedProject(t, l, reviewedConfig)
+	checkedProject(t, l, verifiedConfig)
 	out, job := finishedJob(t, l)
 	app, _ := desktopApp(t, l)
 
@@ -371,30 +373,30 @@ func TestS11TheDesktopAppShowsTheReviewBesideTheChecks(t *testing.T) {
 	if _, ok := byName["build"]; !ok {
 		t.Errorf("the detail does not carry the project's own check: %+v", d.Checks)
 	}
-	findings, ok := byName[reviewName]
+	findings, ok := byName[verifierName]
 	if !ok {
-		t.Fatalf("the detail does not carry the review: %+v", d.Checks)
+		t.Fatalf("the detail does not carry the agent verifier: %+v", d.Checks)
 	}
-	if passed[reviewName] {
+	if passed[verifierName] {
 		t.Error("the app reports a failed review as passed")
 	}
 	if !strings.Contains(findings, "os.Rename") {
-		t.Errorf("the app does not carry the reviewer's findings: %q", findings)
+		t.Errorf("the app does not carry the findings: %q", findings)
 	}
 }
 
-func TestS12TheReviewersContractIsShown(t *testing.T) {
-	l, _ := reviewing(t, "verdict: pass\n\nThe change does what the plan said.\n")
+func TestS12TheVerifyingAgentsContractIsShown(t *testing.T) {
+	l, _ := verifying(t, "verdict: pass\n\nThe change does what the plan said.\n")
 	daemonUp(t, l)
-	checkedProject(t, l, reviewedConfig)
+	checkedProject(t, l, verifiedConfig)
 
 	out, _ := finishedJob(t, l)
 
-	// The reviewer is an Agent Owl starts with a contract of its own, and
+	// The verifying agent is one Owl starts with a contract of its own, and
 	// nothing Owl puts in front of an Agent is hidden (ADR-0017).
-	shown := section(t, out, "review system prompt:")
+	shown := section(t, out, "verifier system prompt:")
 	if !strings.Contains(shown, "reviewing somebody else's work") {
-		t.Errorf("owl jobs show does not print the reviewer's own contract:\n%s", out)
+		t.Errorf("owl jobs show does not print the verifying agent's own contract:\n%s", out)
 	}
 	if !strings.Contains(section(t, out, "system prompt:"), "running unattended") {
 		t.Errorf("owl jobs show no longer prints the agent's own contract:\n%s", out)
@@ -405,7 +407,7 @@ func TestS12TheReviewersContractIsShown(t *testing.T) {
 	daemonUp(t, other)
 	checkedProject(t, other, "apiVersion: codingowl.dev/v1\n")
 	plain, _ := finishedJob(t, other)
-	if strings.Contains(plain, "review system prompt:") {
-		t.Errorf("a project that asked for no review is shown a reviewer's contract:\n%s", plain)
+	if strings.Contains(plain, "verifier system prompt:") {
+		t.Errorf("a project that asked for no agent verifier is shown one's contract:\n%s", plain)
 	}
 }

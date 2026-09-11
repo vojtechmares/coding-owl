@@ -23,14 +23,14 @@
 //	                         milliseconds, so a scenario can see whether what
 //	                         the Agent started is running. Its pid is written
 //	                         to the same path with `.pid` after it
-//	OWL_FAKE_CLAUDE_REVIEW   JSON object of path to contents, written instead
-//	                         of OWL_FAKE_CLAUDE_WRITE when the prompt asks for
-//	                         a review, and committed by nothing: a reviewer
-//	                         reviews (ADR-0013)
-//	OWL_FAKE_CLAUDE_REVIEW_SLEEP
-//	                         how long a review invocation takes before it
-//	                         writes anything, so a scenario can let Owl's own
-//	                         timeout be the thing that ends it
+//	OWL_FAKE_CLAUDE_VERDICT  JSON object of path to contents, written instead
+//	                         of OWL_FAKE_CLAUDE_WRITE when the prompt asks the
+//	                         agent to judge somebody else's work, and committed
+//	                         by nothing: a verifier verifies (ADR-0013)
+//	OWL_FAKE_CLAUDE_VERDICT_SLEEP
+//	                         how long such an invocation takes before it writes
+//	                         anything, so a scenario can let Owl's own timeout
+//	                         be the thing that ends it
 //
 // The invocation record also holds the names of the files in the working
 // directory, so a scenario can see what ran before the Agent did, and every
@@ -95,10 +95,10 @@ func main() {
 			os.Exit(90)
 		}
 	}
-	if reviewing() {
-		// A review is a session of its own, given the diff and the plan and
+	if judging() {
+		// Verifying is a session of its own, given the diff and the plan and
 		// asked for a verdict. It writes what it was told to and nothing else.
-		if err := review(); err != nil {
+		if err := verdict(); err != nil {
 			fmt.Fprintln(os.Stderr, "fakeclaude:", err)
 			os.Exit(96)
 		}
@@ -247,32 +247,32 @@ func entryNames(dir string) ([]string, error) {
 	return names, nil
 }
 
-// reviewMark is what tells a review invocation apart: Owl asks for the verdict
+// verdictMark is what tells such an invocation apart: Owl asks for the verdict
 // by naming the file it wants it in, so the prompt carries that name.
-const reviewMark = "REVIEW.md"
+const verdictMark = "VERDICT.md"
 
-// reviewing reports whether this invocation was asked for a review.
-func reviewing() bool {
-	return strings.Contains(strings.Join(os.Args, " "), reviewMark)
+// judging reports whether this invocation was asked to judge somebody's work.
+func judging() bool {
+	return strings.Contains(strings.Join(os.Args, " "), verdictMark)
 }
 
-// review takes as long as it was told to and writes the verdict of
-// OWL_FAKE_CLAUDE_REVIEW, which is empty for a reviewer that leaves none.
-func review() error {
-	if d := os.Getenv("OWL_FAKE_CLAUDE_REVIEW_SLEEP"); d != "" {
+// verdict takes as long as it was told to and writes what
+// OWL_FAKE_CLAUDE_VERDICT says, which is empty for an agent that leaves none.
+func verdict() error {
+	if d := os.Getenv("OWL_FAKE_CLAUDE_VERDICT_SLEEP"); d != "" {
 		wait, err := time.ParseDuration(d)
 		if err != nil {
-			return fmt.Errorf("OWL_FAKE_CLAUDE_REVIEW_SLEEP: %w", err)
+			return fmt.Errorf("OWL_FAKE_CLAUDE_VERDICT_SLEEP: %w", err)
 		}
 		time.Sleep(wait)
 	}
-	spec := os.Getenv("OWL_FAKE_CLAUDE_REVIEW")
+	spec := os.Getenv("OWL_FAKE_CLAUDE_VERDICT")
 	if spec == "" {
 		return nil
 	}
 	var files map[string]string
 	if err := json.Unmarshal([]byte(spec), &files); err != nil {
-		return fmt.Errorf("OWL_FAKE_CLAUDE_REVIEW: %w", err)
+		return fmt.Errorf("OWL_FAKE_CLAUDE_VERDICT: %w", err)
 	}
 	for path, content := range files {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

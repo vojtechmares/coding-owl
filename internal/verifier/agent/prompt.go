@@ -7,8 +7,8 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/verifier"
 )
 
-// systemPrompt is what the reviewer is for, and what it is not for. It is
-// Owl's own contract with a reviewer, not the Project's: a Project's
+// systemPrompt is what the Agent this Verifier starts is for, and what it is
+// not for. It is Owl's own contract with it, not the Project's: a Project's
 // unattended clauses were written for an Agent that changes things (ADR-0017),
 // and this one must not.
 const systemPrompt = `You are reviewing somebody else's work, as a second pair of eyes that did not do it.
@@ -74,7 +74,7 @@ func cutAtLine(text string, max int) string {
 // measured rather than assumed.
 const maxPrompt = 100 << 10
 
-// prompt is what the reviewer is given: the plan the work was meant to carry
+// prompt is what that Agent is given: the plan the work was meant to carry
 // out, the diff it produced, and where to leave its verdict. Nothing of the
 // Session that produced the work goes in, which is the whole point (ADR-0013).
 //
@@ -82,7 +82,7 @@ const maxPrompt = 100 << 10
 // rather than spliced: what Owl asks is said in Owl's own voice, outside them.
 // What they may cost is bounded: quoted text that grows the fence it is quoted
 // inside is cut harder, and in the end dropped for an instruction to read it in
-// the repository, which the reviewer is standing in.
+// the repository, which it is standing in.
 func prompt(req verifier.Request) string {
 	for plan, diff := maxPlan, maxDiffText; ; plan, diff = plan/4, diff/4 {
 		out := build(req, plan, diff)
@@ -132,9 +132,9 @@ func build(req verifier.Request, maxPlan, maxDiff int) string {
 		b.WriteString("The branch changed no file at all. Read the repository and say whether that is right.\n\n")
 	case diff == "":
 		// Owl could not read what the branch changed - a base branch that
-		// moved under the Run, a repository it could not read. The reviewer
+		// moved under the Run, a repository it could not read. The Agent
 		// works in the worktree, so it can read it for itself, and saying so
-		// is better than a reviewer that judges a diff nobody showed it.
+		// is better than one that judges a diff nobody showed it.
 		b.WriteString("What this branch changed is not quoted here - Owl could not read it, or it " +
 			"was too long to carry: run `git diff` in this repository to see it, and say so in " +
 			"your findings if you cannot.\n\n")
@@ -150,7 +150,7 @@ func build(req verifier.Request, maxPlan, maxDiff int) string {
 	return b.String()
 }
 
-// verdictInstruction is how a reviewer answers: one file, with the verdict on
+// verdictInstruction is how it answers: one file, with the verdict on
 // its first line, which is the only thing Owl reads out of this Session.
 func verdictInstruction() string {
 	return fmt.Sprintf(`Owl asks, in its own voice and outside everything quoted above:

@@ -54,10 +54,10 @@ type Check struct {
 	Timeout time.Duration
 }
 
-// ReviewName is what the review a Project can ask for is called where
-// Verification reports what it said, beside the Project's own checks
+// AgentVerifierName is what the Verification an Agent performs is called
+// where Verification reports what it said, beside the Project's own checks
 // (ADR-0013). No check may be called it.
-const ReviewName = "agent review"
+const AgentVerifierName = "agent verifier"
 
 // ExpectEmptyOutput is the one expectation beyond exit zero. The vocabulary is
 // deliberately tiny (ADR-0030).
@@ -81,9 +81,9 @@ type Config struct {
 	Setup []string
 	// Checks are what Verification runs after an execution Run (ADR-0013).
 	Checks []Check
-	// Review is the second pair of eyes a Project can ask for after its own
-	// checks: a fresh Agent Session that reviews the work (ADR-0013).
-	Review Review
+	// Verification is what a Project asks of Verification beyond its own
+	// checks: the fresh Agent Session that reviews the work (ADR-0013).
+	Verification Verification
 	// Account names the Account every Job in this Project runs on (ADR-0023).
 	// Empty is a Project that names none, which cannot run until it does.
 	Account string
@@ -92,12 +92,13 @@ type Config struct {
 	Skills []Skill
 }
 
-// Review is what a Project asks of the reviewer. It costs a second Agent
-// invocation per Run, so it is opt-in rather than the default (ADR-0013).
-type Review struct {
+// Verification is what a Project asks of Verification beyond its own checks.
+// The agent Verifier costs a second Agent invocation per Run, so it is opt-in
+// rather than the default (ADR-0013).
+type Verification struct {
 	// Agent is whether a fresh Agent Session reviews the work.
 	Agent bool
-	// Timeout bounds the reviewer. Zero means the default.
+	// Timeout bounds that Session. Zero means the default.
 	Timeout time.Duration
 }
 
@@ -163,7 +164,7 @@ type file struct {
 	Phases            map[string]phase `yaml:"phases"`
 	Setup             []string         `yaml:"setup"`
 	Checks            []check          `yaml:"checks"`
-	Review            *review          `yaml:"review"`
+	Verification      *verification    `yaml:"verification"`
 	Skills            []skillEntry     `yaml:"skills"`
 	Account           string           `yaml:"account"`
 	CredentialStore   string           `yaml:"credentialStore"`
@@ -171,8 +172,8 @@ type file struct {
 	GraceWindow       string           `yaml:"graceWindow"`
 }
 
-// review is the on-disk shape of the `review` block.
-type review struct {
+// verification is the on-disk shape of the `verification` block.
+type verification struct {
 	Agent   bool   `yaml:"agent"`
 	Timeout string `yaml:"timeout"`
 }
@@ -239,11 +240,11 @@ func Parse(source string, data []byte) (Config, error) {
 		return Config{}, err
 	}
 	cfg.Checks = checks
-	rev, err := parseReview(source, f.Review)
+	verification, err := parseVerification(source, f.Verification)
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.Review = rev
+	cfg.Verification = verification
 	for i, cmd := range f.Setup {
 		if strings.TrimSpace(cmd) == "" {
 			return Config{}, fmt.Errorf("%s: setup command %d is empty", source, i+1)
@@ -324,22 +325,25 @@ func skillName(source string) string {
 	return s
 }
 
-// parseReview reads the `review` block. A Project that does not mention it
-// asks for no review, which is what a Project that says nothing gets.
-func parseReview(source string, r *review) (Review, error) {
-	if r == nil {
-		return Review{}, nil
+// parseVerification reads the `verification` block. A Project that does not
+// mention it asks for nothing beyond its own checks, which is what a Project
+// that says nothing gets.
+func parseVerification(source string, v *verification) (Verification, error) {
+	if v == nil {
+		return Verification{}, nil
 	}
-	out := Review{Agent: r.Agent}
-	if r.Timeout == "" {
+	out := Verification{Agent: v.Agent}
+	if v.Timeout == "" {
 		return out, nil
 	}
-	d, err := time.ParseDuration(r.Timeout)
+	d, err := time.ParseDuration(v.Timeout)
 	if err != nil {
-		return Review{}, fmt.Errorf("%s: review has an unreadable timeout %q: %w", source, r.Timeout, err)
+		return Verification{}, fmt.Errorf("%s: verification has an unreadable timeout %q: %w",
+			source, v.Timeout, err)
 	}
 	if d <= 0 {
-		return Review{}, fmt.Errorf("%s: review has a timeout of %s; a reviewer needs time to read", source, d)
+		return Verification{}, fmt.Errorf("%s: verification has a timeout of %s; an agent needs time to read",
+			source, d)
 	}
 	out.Timeout = d
 	return out, nil
@@ -370,10 +374,11 @@ func parseChecks(source string, checks []check) ([]Check, error) {
 			return nil, fmt.Errorf("%s: %s expects %q, which Owl does not know; the only expectation is %q",
 				source, where, c.Expect, ExpectEmptyOutput)
 		}
-		if strings.EqualFold(name, ReviewName) {
-			// A review is reported beside the checks and is told apart by its
-			// name, so a check may not take it (ADR-0013).
-			return nil, fmt.Errorf("%s: %s is called %q, which is what a review is called", source, where, name)
+		if strings.EqualFold(name, AgentVerifierName) {
+			// The agent Verifier is reported beside the checks and is told apart
+			// by its name, so a check may not take it (ADR-0013).
+			return nil, fmt.Errorf("%s: %s is called %q, which is what the agent verifier is called",
+				source, where, name)
 		}
 		seen[name] = true
 		parsed := Check{Name: name, Run: c.Run, Expect: c.Expect}

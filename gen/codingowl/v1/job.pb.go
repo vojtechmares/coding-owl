@@ -1450,9 +1450,10 @@ type GetJobResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Job   *Job                   `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
 	Runs  []*Run                 `protobuf:"bytes,2,rep,name=runs,proto3" json:"runs,omitempty"`
-	// ReviewSystemPrompt is the contract with the reviewer a Project asked for,
-	// empty for a Project that asked for none (ADR-0013, ADR-0017).
-	ReviewSystemPrompt string `protobuf:"bytes,8,opt,name=review_system_prompt,json=reviewSystemPrompt,proto3" json:"review_system_prompt,omitempty"`
+	// VerifierSystemPrompt is the contract with the Agent that verifies the
+	// work, for a Project that asked for one and empty for one that did not
+	// (ADR-0013, ADR-0017).
+	VerifierSystemPrompt string `protobuf:"bytes,8,opt,name=verifier_system_prompt,json=verifierSystemPrompt,proto3" json:"verifier_system_prompt,omitempty"`
 	// SystemPrompt is the unattended contract with the Project's own clauses
 	// appended, exactly as the Agent is given it (ADR-0017).
 	SystemPrompt string `protobuf:"bytes,3,opt,name=system_prompt,json=systemPrompt,proto3" json:"system_prompt,omitempty"`
@@ -1516,9 +1517,9 @@ func (x *GetJobResponse) GetRuns() []*Run {
 	return nil
 }
 
-func (x *GetJobResponse) GetReviewSystemPrompt() string {
+func (x *GetJobResponse) GetVerifierSystemPrompt() string {
 	if x != nil {
-		return x.ReviewSystemPrompt
+		return x.VerifierSystemPrompt
 	}
 	return ""
 }
@@ -2399,11 +2400,11 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\x03job\x18\x02 \x01(\v2\x11.codingowl.v1.JobR\x03job\x12#\n" +
 	"\x03run\x18\x03 \x01(\v2\x11.codingowl.v1.RunR\x03run\"\x1f\n" +
 	"\rGetJobRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\"\xe4\x02\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\"\xe8\x02\n" +
 	"\x0eGetJobResponse\x12#\n" +
 	"\x03job\x18\x01 \x01(\v2\x11.codingowl.v1.JobR\x03job\x12%\n" +
-	"\x04runs\x18\x02 \x03(\v2\x11.codingowl.v1.RunR\x04runs\x120\n" +
-	"\x14review_system_prompt\x18\b \x01(\tR\x12reviewSystemPrompt\x12#\n" +
+	"\x04runs\x18\x02 \x03(\v2\x11.codingowl.v1.RunR\x04runs\x124\n" +
+	"\x16verifier_system_prompt\x18\b \x01(\tR\x14verifierSystemPrompt\x12#\n" +
 	"\rsystem_prompt\x18\x03 \x01(\tR\fsystemPrompt\x121\n" +
 	"\x06checks\x18\x05 \x03(\v2\x19.codingowl.v1.CheckResultR\x06checks\x123\n" +
 	"\x06phases\x18\x04 \x03(\v2\x1b.codingowl.v1.PhaseSettingsR\x06phases\x12\x18\n" +
