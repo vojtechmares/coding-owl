@@ -20,6 +20,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/run"
+	"github.com/vojtechmares/coding-owl/internal/skill"
 	"github.com/vojtechmares/coding-owl/internal/store"
 	"github.com/vojtechmares/coding-owl/internal/verifier"
 )
@@ -49,6 +50,9 @@ func (d *fakeDriver) Command(req driver.Request) (agent.Invocation, error) {
 	}
 	return agent.Invocation{Path: "/fake/agent", Dir: req.WorkingDir}, nil
 }
+
+// SkillsDir is where this fake's tool would read Skills from.
+func (d *fakeDriver) SkillsDir() string { return ".fake/skills" }
 
 // SetupToken is the tool's own token flow, which this fake has no need of
 // beyond satisfying the Driver.
@@ -177,6 +181,8 @@ func newVerifiedFixture(t *testing.T, d driver.Driver, e *fakeExecutor, v verifi
 		Store:       st,
 		Projects:    projects,
 		Accounts:    accounts,
+		Skills:      skill.NewService(skill.NewCache(filepath.Join(root, "skills"))),
+		SkillsDir:   filepath.Join(root, "worktree-config"),
 		Driver:      d,
 		Executor:    e,
 		Verifier:    v,
@@ -959,4 +965,87 @@ func TestAJobRunsOnTheAccountItRecordedRatherThanTheProjectsCurrentOne(t *testin
 	if got := d.given().Token; got != "sk-ant-oat01-second" {
 		t.Errorf("the run drew on %q, want the token of the account the job recorded", got)
 	}
+}
+
+func TestARunPlacesTheSkillsTheProjectDeclares(t *testing.T) {
+	ctx := context.Background()
+	src := skillSource(t)
+	svc, st, _, root := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{},
+		"apiVersion: codingowl.dev/v1\nskills:\n  - git: "+src+"\n")
+	j := queueJob(t, st, "work")
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	done := awaitState(t, st, j.ID, queue.StateReview)
+
+	body, err := os.ReadFile(filepath.Join(done.Worktree, ".fake", "skills", "go-review", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("the skill was not placed: %v", err)
+	}
+	if !strings.Contains(string(body), "Be kind.") {
+		t.Errorf("the placed skill is %q, want what the source holds", body)
+	}
+	runs, err := st.ListRuns(ctx, j.ID)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("ListRuns = %+v, %v", runs, err)
+	}
+	recorded, err := st.ListRunSkills(ctx, runs[0].ID)
+	if err != nil {
+		t.Fatalf("ListRunSkills: %v", err)
+	}
+	if len(recorded) != 1 || recorded[0].Name != "go-review" {
+		t.Fatalf("the run recorded %+v, want the skill it read", recorded)
+	}
+	if recorded[0].Commit == "" || recorded[0].Digest == "" {
+		t.Errorf("the run recorded %+v, want the commit and digest it read", recorded[0])
+	}
+	// The Skill is a link into the cache rather than a copy, so the same
+	// content used twice is one directory on disk (ADR-0033).
+	link, err := os.Readlink(filepath.Join(done.Worktree, ".fake", "skills", "go-review"))
+	if err != nil {
+		t.Fatalf("the skill is not a link into the cache: %v", err)
+	}
+	if !strings.HasPrefix(link, filepath.Join(root, "skills")) {
+		t.Errorf("the skill points at %s, want somewhere in the cache", link)
+	}
+}
+
+func TestARunWithASkillThatCannotBeFetchedIsRefused(t *testing.T) {
+	ctx := context.Background()
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{},
+		"apiVersion: codingowl.dev/v1\nskills:\n  - git: /nowhere/at/all\n")
+	j := queueJob(t, st, "work")
+
+	_, _, started, err := svc.Start(ctx)
+
+	var refused *run.RefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("Start with a skill that cannot be fetched = %v, want it refused", err)
+	}
+	if started {
+		t.Error("a run started for a job whose skills could not be placed")
+	}
+	after, err := st.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	// Nothing is wrong with the work, so the Job waits exactly where it was.
+	if queue.State(after.State) != queue.StatePending {
+		t.Errorf("state = %q, want the job left pending", after.State)
+	}
+}
+
+// skillSource makes a git repository carrying a SKILL.md, and returns its path.
+func skillSource(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "go-review")
+	gitInit(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"),
+		[]byte("---\nname: go-review\ndescription: how we review go\n---\n\nBe kind.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, dir, "add", "--", "SKILL.md")
+	gitIn(t, dir, "commit", "-m", "write the skill")
+	return dir
 }

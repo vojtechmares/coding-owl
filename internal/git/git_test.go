@@ -630,3 +630,185 @@ func hasPath(paths []string, want string) bool {
 	}
 	return false
 }
+
+func TestResolveRefReadsWhatARefPointsAt(t *testing.T) {
+	dir := newRepo(t)
+	run(t, dir, "tag", "-a", "v1.0.0", "-m", "v1.0.0")
+	commit(t, dir, "later.txt", "the branch moved on\n")
+	head := strings.TrimSpace(run(t, dir, "rev-parse", "HEAD"))
+	tagged := strings.TrimSpace(run(t, dir, "rev-parse", "v1.0.0^{commit}"))
+
+	gotHead, err := git.ResolveRef(dir, "main")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+	gotTag, err := git.ResolveRef(dir, "v1.0.0")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+
+	if gotHead != head {
+		t.Errorf("ResolveRef(main) = %s, want %s", gotHead, head)
+	}
+	// An annotated tag is an object of its own, and what a Skill is fetched at
+	// is the commit it points at.
+	if gotTag != tagged {
+		t.Errorf("ResolveRef(v1.0.0) = %s, want the commit the tag points at %s", gotTag, tagged)
+	}
+	if gotTag == gotHead {
+		t.Error("the tag and the branch resolved to the same commit, so this proves nothing")
+	}
+}
+
+func TestResolveRefReportsARefThatIsNotThere(t *testing.T) {
+	dir := newRepo(t)
+
+	_, err := git.ResolveRef(dir, "nope")
+
+	if err == nil {
+		t.Fatal("ResolveRef on a ref that is not there = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), "nope") {
+		t.Errorf("the error %q does not name the ref", err)
+	}
+}
+
+func TestResolveRefReportsASourceThatIsNotARepository(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := git.ResolveRef(dir, "main")
+
+	if err == nil {
+		t.Fatal("ResolveRef on something that is not a repository = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), dir) {
+		t.Errorf("the error %q does not name the source", err)
+	}
+}
+
+func TestExportCommitWritesTheTreeAsItWasAtThatCommit(t *testing.T) {
+	dir := newRepo(t)
+	commit(t, dir, "SKILL.md", "first\n")
+	first := strings.TrimSpace(run(t, dir, "rev-parse", "HEAD"))
+	commit(t, dir, "SKILL.md", "second\n")
+	into := filepath.Join(t.TempDir(), "export")
+
+	if err := git.ExportCommit(dir, first, into); err != nil {
+		t.Fatalf("ExportCommit: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(into, "SKILL.md"))
+	if err != nil {
+		t.Fatalf("reading the export: %v", err)
+	}
+	if string(got) != "first\n" {
+		t.Errorf("the export holds %q, want the content at that commit", got)
+	}
+	if _, err := os.Stat(filepath.Join(into, ".git")); err == nil {
+		t.Error("the export carries a .git, which is a repository rather than a tree")
+	}
+}
+
+func TestExportCommitReportsACommitThatIsNotThere(t *testing.T) {
+	dir := newRepo(t)
+
+	err := git.ExportCommit(dir, "0000000000000000000000000000000000000000", filepath.Join(t.TempDir(), "export"))
+
+	if err == nil {
+		t.Fatal("ExportCommit for a commit that is not there = nil, want an error")
+	}
+}
+
+func TestEnableWorktreeConfigIsIdempotent(t *testing.T) {
+	dir := newRepo(t)
+
+	for range 2 {
+		if err := git.EnableWorktreeConfig(dir); err != nil {
+			t.Fatalf("EnableWorktreeConfig: %v", err)
+		}
+	}
+
+	if got := strings.TrimSpace(run(t, dir, "config", "--get", "extensions.worktreeConfig")); got != "true" {
+		t.Errorf("extensions.worktreeConfig = %q, want true", got)
+	}
+}
+
+func TestSetWorktreeExcludesHidesAPathInThatWorktreeAlone(t *testing.T) {
+	dir := newRepo(t)
+	worktree := filepath.Join(t.TempDir(), "job-1")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	excludes := filepath.Join(t.TempDir(), "excludes")
+	if err := os.WriteFile(excludes, []byte(".claude/skills/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(worktree, ".claude", "skills", "go-review"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := git.EnableWorktreeConfig(dir); err != nil {
+		t.Fatalf("EnableWorktreeConfig: %v", err)
+	}
+	if err := git.SetWorktreeExcludes(worktree, excludes); err != nil {
+		t.Fatalf("SetWorktreeExcludes: %v", err)
+	}
+
+	if got := runIn(t, worktree, "status", "--porcelain"); strings.TrimSpace(got) != "" {
+		t.Errorf("the worktree reports what it was told to ignore:\n%s", got)
+	}
+	// The user's own checkout is left exactly as it was, which is the point of
+	// setting this per worktree (ADR-0033).
+	if err := os.MkdirAll(filepath.Join(dir, ".claude", "skills", "go-review"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "skills", "go-review", "SKILL.md"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(t, dir, "status", "--porcelain"); !strings.Contains(got, ".claude") {
+		t.Errorf("the user's own checkout stopped reporting their own files:\n%s", got)
+	}
+}
+
+func TestGlobalExcludesReadsWhatTheRepositoryWasAlreadyTold(t *testing.T) {
+	dir := newRepo(t)
+
+	before, err := git.GlobalExcludes(dir)
+	if err != nil {
+		t.Fatalf("GlobalExcludes: %v", err)
+	}
+	run(t, dir, "config", "core.excludesFile", "/somewhere/theirs")
+	after, err := git.GlobalExcludes(dir)
+	if err != nil {
+		t.Fatalf("GlobalExcludes: %v", err)
+	}
+
+	if before != "" {
+		t.Errorf("GlobalExcludes with none configured = %q, want nothing", before)
+	}
+	if after != "/somewhere/theirs" {
+		t.Errorf("GlobalExcludes = %q, want what the repository was told", after)
+	}
+}
+
+// runIn runs git in a directory that is not the repository root.
+func runIn(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	return run(t, dir, args...)
+}
+
+func TestDefaultBranchIsWhatHeadPointsAt(t *testing.T) {
+	dir := t.TempDir()
+	run(t, dir, "init", "-b", "trunk")
+	commit(t, dir, "README.md", "# test\n")
+
+	got, err := git.DefaultBranch(dir)
+
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	// The source's own choice, not an assumption about what it is called.
+	if got != "trunk" {
+		t.Errorf("DefaultBranch = %q, want trunk", got)
+	}
+}

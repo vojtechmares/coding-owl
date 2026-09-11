@@ -64,4 +64,8 @@ type Driver interface {
 	// (ADR-0019). It runs in the Account's own configuration directory rather
 	// than the user's.
 	SetupToken(configDir string) (agent.Invocation, error)
+	// SkillsDir is where this tool reads Skills from, relative to the worktree
+	// it runs in (ADR-0033). It is the tool's own convention, which is why it
+	// lives behind the Driver rather than in the scheduler.
+	SkillsDir() string
 }

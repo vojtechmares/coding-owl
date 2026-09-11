@@ -248,3 +248,65 @@ func TestParseGlobalRefusesAGarbageCollectionDurationItCannotActOn(t *testing.T)
 		}
 	}
 }
+
+func TestParseReadsTheSkillsSection(t *testing.T) {
+	got, err := config.Parse("main:.coding-owl.yaml", []byte(`apiVersion: codingowl.dev/v1
+skills:
+  - git: github.com/x/go-review
+    ref: v1.4.0
+  - git: github.com/me/house-style
+    ref: main
+    auto_update: true
+`))
+
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(got.Skills) != 2 {
+		t.Fatalf("skills = %+v, want two", got.Skills)
+	}
+	if got.Skills[0].Source != "github.com/x/go-review" || got.Skills[0].Ref != "v1.4.0" {
+		t.Errorf("the first skill is %+v, want the source and ref it declares", got.Skills[0])
+	}
+	if got.Skills[0].AutoUpdate {
+		t.Error("a skill that does not ask for it is set to update on its own")
+	}
+	if !got.Skills[1].AutoUpdate {
+		t.Error("a skill that asks to update on its own does not")
+	}
+}
+
+func TestParseRefusesASkillWithNoSource(t *testing.T) {
+	_, err := config.Parse("main:.coding-owl.yaml", []byte("apiVersion: codingowl.dev/v1\nskills:\n  - ref: main\n"))
+
+	if err == nil {
+		t.Fatal("Parse of a skill with no source = nil, want it refused")
+	}
+	if !strings.Contains(err.Error(), "skills[0]") {
+		t.Errorf("the error %q does not say which entry", err)
+	}
+}
+
+func TestParseRefusesTwoSkillsOfOneName(t *testing.T) {
+	_, err := config.Parse("main:.coding-owl.yaml", []byte(`apiVersion: codingowl.dev/v1
+skills:
+  - git: github.com/x/go-review
+  - git: github.com/y/go-review
+`))
+
+	if err == nil {
+		t.Fatal("Parse of two skills of one name = nil, want it refused")
+	}
+	if !strings.Contains(err.Error(), "go-review") {
+		t.Errorf("the error %q does not name the skill", err)
+	}
+}
+
+func TestParseRefusesASkillRefThatWouldBeAnOption(t *testing.T) {
+	_, err := config.Parse("main:.coding-owl.yaml",
+		[]byte("apiVersion: codingowl.dev/v1\nskills:\n  - git: github.com/x/go-review\n    ref: --upload-pack=evil\n"))
+
+	if err == nil {
+		t.Fatal("Parse of a dash-leading ref = nil, want it refused")
+	}
+}

@@ -105,6 +105,53 @@ func spendAttempt(ctx context.Context, tx *sql.Tx, jobID int64) error {
 	return err
 }
 
+// RunSkill is one Skill a Run ran with (ADR-0024).
+type RunSkill struct {
+	Name   string
+	Source string
+	Ref    string
+	Commit string
+	Digest string
+}
+
+// SetRunSkills records what a Run ran with, replacing whatever was recorded
+// for it: a Run is prepared once, and what it read is what it read.
+func (s *Store) SetRunSkills(ctx context.Context, runID int64, skills []RunSkill) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM run_skills WHERE run_id = ?`, runID); err != nil {
+			return err
+		}
+		for _, sk := range skills {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO run_skills (run_id, name, source, ref, commit_sha, digest)
+				 VALUES (?, ?, ?, ?, ?, ?)`,
+				runID, sk.Name, sk.Source, sk.Ref, sk.Commit, sk.Digest); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ListRunSkills is what a Run ran with, by name.
+func (s *Store) ListRunSkills(ctx context.Context, runID int64) ([]RunSkill, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT name, source, ref, commit_sha, digest FROM run_skills WHERE run_id = ? ORDER BY name`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []RunSkill
+	for rows.Next() {
+		var sk RunSkill
+		if err := rows.Scan(&sk.Name, &sk.Source, &sk.Ref, &sk.Commit, &sk.Digest); err != nil {
+			return nil, err
+		}
+		out = append(out, sk)
+	}
+	return out, rows.Err()
+}
+
 // SetRunLog records where a Run's output is being captured, which is only
 // known once the Run has an id to name the file after.
 func (s *Store) SetRunLog(ctx context.Context, id int64, path string) error {

@@ -33,6 +33,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/shell"
+	"github.com/vojtechmares/coding-owl/internal/skill"
 	"github.com/vojtechmares/coding-owl/internal/store"
 	"github.com/vojtechmares/coding-owl/internal/verifier"
 )
@@ -97,6 +98,9 @@ type Run struct {
 	LogPath string
 	// Phase is what the Run was carrying out (ADR-0026).
 	Phase Phase
+	// Skills is what the Run read, so that what an Agent did is attributable
+	// to the instructions it had (ADR-0024).
+	Skills []skill.Locked
 }
 
 // Details is a Job with its Runs, the system prompt in force for it, and what
@@ -153,6 +157,12 @@ type Options struct {
 	Executor executor.Executor
 	// Verifier decides whether what a Run produced is acceptable (ADR-0013).
 	Verifier verifier.Verifier
+	// Skills fetches and places what a Project declares (ADR-0024).
+	Skills *skill.Service
+	// SkillsDir holds the exclude file Owl owns for each Job's worktree, one
+	// directory per Job, outside the worktree so that an Agent cannot edit
+	// what hides its own Skills (ADR-0033).
+	SkillsDir string
 	// Collector answers what garbage collection would report as unfinished, so
 	// that owl status can say it (ADR-0015). A Service without one reports no
 	// unfinished work.
@@ -341,6 +351,15 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 		j.Branch, j.Worktree = branch, worktree
 	}
 
+	// The Skills a Project declares are placed before anything reads them, and
+	// before the setup commands, which may want them. A Skill that cannot be
+	// fetched or placed refuses the Run rather than failing it: nothing is
+	// wrong with the work (ADR-0024).
+	placed, used, err := s.placeSkills(ctx, j, details)
+	if err != nil {
+		return queue.Job{}, Run{}, false, err
+	}
+
 	// A fresh worktree does not have the untracked things a build needs, so
 	// the Project's setup commands run before the Agent does (ADR-0007). A Job
 	// that cannot be prepared has not attempted anything, so it is blocked
@@ -374,8 +393,17 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 		return queue.Job{}, Run{}, false, err
 	}
 	r.LogPath = logPath
+	// What the Agent will read is recorded against the Run, so that what it
+	// did is attributable to the instructions it had (ADR-0024).
+	if err = s.opts.Store.SetRunSkills(ctx, r.ID, used); err != nil {
+		return queue.Job{}, Run{}, false, err
+	}
 	if err = s.opts.Store.SetJobState(ctx, j.ID, string(queue.StateActive)); err != nil {
 		return queue.Job{}, Run{}, false, err
+	}
+	if len(placed.Skills) > 0 {
+		s.opts.Logger.Info("skills placed",
+			"job", j.ID, "run", r.ID, "into", placed.Dir, "skills", len(placed.Skills))
 	}
 	// The Account is recorded at the Job's first Run and not touched again, so
 	// what a Job drew on stays knowable for its whole life (ADR-0023).
@@ -516,7 +544,19 @@ func (s *Service) Show(ctx context.Context, jobID int64) (Details, error) {
 	}
 	runs := make([]Run, 0, len(rows))
 	for _, r := range rows {
-		runs = append(runs, toRun(r))
+		out := toRun(r)
+		// What a Run read is recorded against it, so that what an Agent did is
+		// attributable to the instructions it had (ADR-0024).
+		read, err := s.opts.Store.ListRunSkills(ctx, r.ID)
+		if err != nil {
+			return Details{}, err
+		}
+		for _, sk := range read {
+			out.Skills = append(out.Skills, skill.Locked{
+				Name: sk.Name, Source: sk.Source, Ref: sk.Ref, Commit: sk.Commit, Digest: sk.Digest,
+			})
+		}
+		runs = append(runs, out)
 	}
 	details, err := s.opts.Projects.Show(ctx, j.Project)
 	if err != nil {
@@ -743,6 +783,41 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 			s.opts.Logger.Error("recording where a job got to", "job", r.JobID, "error", err)
 		}
 	}
+}
+
+// placeSkills fetches what a Project declares and puts it in the Driver's own
+// skills directory inside the Job's worktree, hidden from git (ADR-0033). It
+// returns what was placed and what to record against the Run.
+//
+// A Skill pinned in the lockfile is fetched at the commit recorded there; one
+// that asks to move on its own is resolved afresh at every Run. The lockfile
+// comes from the Project's base branch, so an Agent cannot pull another
+// version by editing the lock in its worktree (ADR-0014).
+func (s *Service) placeSkills(ctx context.Context, j store.Job, details project.Details) (skill.Placement, []store.RunSkill, error) {
+	declared := skill.Declare(details.Config)
+	if len(declared) == 0 && s.opts.Skills == nil {
+		return skill.Placement{}, nil, nil
+	}
+	if s.opts.Skills == nil {
+		return skill.Placement{}, nil, refused("project %s declares skills, but this daemon cannot fetch them", details.Name)
+	}
+	resolved, used, err := s.opts.Skills.Prepare(ctx, declared, details.Lock)
+	if err != nil {
+		return skill.Placement{}, nil, &RefusedError{Err: err}
+	}
+	owned := filepath.Join(s.opts.SkillsDir, strconv.FormatInt(j.ID, 10))
+	placed, err := skill.Place(details.Path, j.Worktree, s.opts.Driver.SkillsDir(), owned, resolved)
+	if err != nil {
+		return skill.Placement{}, nil, &RefusedError{Err: err}
+	}
+	rows := make([]store.RunSkill, 0, len(used.Skills))
+	for _, name := range used.Names() {
+		u := used.Skills[name]
+		rows = append(rows, store.RunSkill{
+			Name: u.Name, Source: u.Source, Ref: u.Ref, Commit: u.Commit, Digest: u.Digest,
+		})
+	}
+	return placed, rows, nil
 }
 
 // accountFor is the Account a Job runs on, with the credential to run it. A

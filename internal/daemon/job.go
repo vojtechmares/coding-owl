@@ -92,6 +92,7 @@ func (s *jobService) GetJob(ctx context.Context, req *connect.Request[codingowlv
 	if err != nil {
 		return nil, rpcError(err)
 	}
+
 	res := &codingowlv1.GetJobResponse{
 		Job:          toJobProto(d.Job),
 		Runs:         make([]*codingowlv1.Run, 0, len(d.Runs)),
@@ -211,6 +212,7 @@ func toRunProto(r run.Run) *codingowlv1.Run {
 		ExitCode: int32(r.ExitCode),
 		LogPath:  r.LogPath,
 		Phase:    string(r.Phase),
+		Skills:   toRunSkillsProto(r.Skills),
 	}
 	if !r.Ended.IsZero() {
 		out.Ended = timestamppb.New(r.Ended)

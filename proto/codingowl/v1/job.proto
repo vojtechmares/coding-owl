@@ -3,6 +3,7 @@ syntax = "proto3";
 package codingowl.v1;
 
 import "codingowl/v1/gc.proto";
+import "codingowl/v1/skill.proto";
 import "google/protobuf/timestamp.proto";
 
 // JobService queues work against a Project and controls the order it will run
@@ -175,6 +176,9 @@ message Run {
   // ExitCode is what the Agent exited with, and -1 when it never got far
   // enough to have one.
   int32 exit_code = 9;
+  // Skills is what this Run read, so that what an Agent did is attributable to
+  // the instructions it had (ADR-0024).
+  repeated Skill skills = 11;
 }
 
 message AddJobRequest {

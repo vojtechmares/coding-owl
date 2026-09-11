@@ -33,6 +33,9 @@ type Run struct {
 	LogPath string
 	// Phase is what the Run was carrying out: plan or execute.
 	Phase string
+	// Skills is what the Run read, so that what an Agent did is attributable
+	// to the instructions it had (ADR-0024).
+	Skills []Skill
 }
 
 // CheckResult is what one Verification check said about a Run.
@@ -193,6 +196,7 @@ func runFromProto(r *codingowlv1.Run) Run {
 		ExitCode: int(r.GetExitCode()),
 		LogPath:  r.GetLogPath(),
 		Phase:    r.GetPhase(),
+		Skills:   skillsFromProto(r.GetSkills()),
 	}
 	if r.GetEnded() != nil {
 		out.Ended = r.GetEnded().AsTime()

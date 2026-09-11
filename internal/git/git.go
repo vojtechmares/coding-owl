@@ -205,6 +205,87 @@ func WorktreeIsClean(path string) (bool, error) {
 	return strings.TrimSpace(string(out)) == "", nil
 }
 
+// ResolveRef reads what a ref points at in a repository: the commit, so an
+// annotated tag yields the commit it tags rather than the tag object. It is
+// how a Skill's ref becomes the identity a lockfile records (ADR-0033).
+func ResolveRef(dir, ref string) (string, error) {
+	// ^{commit} peels a tag; --end-of-options keeps a ref that begins with a
+	// dash out of option position; --verify refuses anything that resolves to
+	// more than one thing.
+	out, stderr, code, err := run(dir, "rev-parse", "--verify", "--quiet",
+		"--end-of-options", ref+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	if code != 0 {
+		// rev-parse --quiet says nothing about a ref it could not read, so
+		// whether the repository itself is readable is what tells the two
+		// apart: a source nobody can read and a ref nobody has are different
+		// mistakes.
+		if _, _, root, rootErr := runRoot(dir); rootErr != nil || root != 0 {
+			return "", fmt.Errorf("%s is not a git repository Owl can read: %s", dir, message(stderr))
+		}
+		return "", fmt.Errorf("%s has no ref %q", dir, ref)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// runRoot asks a directory whether it is a repository at all, for the messages
+// that have to tell an unreadable source from a ref it does not carry.
+func runRoot(dir string) ([]byte, string, int, error) {
+	return run(dir, "rev-parse", "--git-dir")
+}
+
+// DefaultBranch is the branch a repository's HEAD points at, which is what a
+// Skill added with no ref follows. It is read rather than assumed: a source's
+// default branch is its own to choose, and writing `main` into a manifest that
+// actually follows `trunk` would be a lie a user reads.
+func DefaultBranch(dir string) (string, error) {
+	out, stderr, code, err := run(dir, "ls-remote", "--symref", "--end-of-options", dir, "HEAD")
+	if err != nil {
+		return "", err
+	}
+	if code != 0 {
+		return "", fmt.Errorf("asking %s which branch it is on: %s", dir, message(stderr))
+	}
+	for _, ln := range strings.Split(string(out), "\n") {
+		rest, ok := strings.CutPrefix(ln, "ref: ")
+		if !ok {
+			continue
+		}
+		ref, _, _ := strings.Cut(rest, "\t")
+		if branch, ok := strings.CutPrefix(strings.TrimSpace(ref), "refs/heads/"); ok {
+			return branch, nil
+		}
+	}
+	return "", fmt.Errorf("%s does not say which branch it is on", dir)
+}
+
+// ExportCommit writes the tree of a commit into a directory, which is created.
+// What lands there is the files as they stood, with no repository of their own:
+// a Skill is content, not a checkout (ADR-0033).
+func ExportCommit(dir, commit, into string) error {
+	if err := os.MkdirAll(into, 0o700); err != nil {
+		return fmt.Errorf("creating %s: %w", into, err)
+	}
+	// --format=tar into a pipe rather than a file, so nothing large lands
+	// twice; git writes the tree and tar unpacks it as it arrives.
+	_, stderr, code, err := run(dir, "archive", "--format=tar", "-o", filepath.Join(into, archiveName),
+		"--end-of-options", commit)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("reading %s out of %s: %s", commit, dir, message(stderr))
+	}
+	defer func() { _ = os.Remove(filepath.Join(into, archiveName)) }()
+	return untar(filepath.Join(into, archiveName), into)
+}
+
+// archiveName is the tar a commit is written to on its way out of git, inside
+// the directory it is being written into: it goes as soon as it is unpacked.
+const archiveName = ".owl-export.tar"
+
 // BranchIsIn reports whether branch is contained in base: every commit on it
 // is already on the base branch. That is what Owl reads as the user having
 // merged a Job's work through their own git tooling, which is an implicit
@@ -281,6 +362,52 @@ func resolve(path string) string {
 		return filepath.Clean(r)
 	}
 	return filepath.Clean(path)
+}
+
+// EnableWorktreeConfig lets a repository carry configuration per worktree,
+// which is what makes an exclude file settable for Owl's worktree alone
+// (ADR-0033). It writes to the configuration of a repository Owl does not own,
+// which is benign - it only enables the mechanism - and is done idempotently.
+func EnableWorktreeConfig(dir string) error {
+	_, stderr, code, err := run(dir, "config", "extensions.worktreeConfig", "true")
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("enabling per-worktree configuration in %s: %s", dir, message(stderr))
+	}
+	return nil
+}
+
+// SetWorktreeExcludes points one worktree at an exclude file of its own. It
+// shadows whatever the repository was told globally, inside that worktree
+// alone, which is why the caller has to carry the old setting forward
+// (ADR-0033).
+func SetWorktreeExcludes(worktree, excludes string) error {
+	_, stderr, code, err := run(worktree, "config", "--worktree", "core.excludesFile", excludes)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("setting the exclude file of %s: %s", worktree, message(stderr))
+	}
+	return nil
+}
+
+// GlobalExcludes is the exclude file a repository was already told to use, and
+// is empty when it was told none. It is what an Owl exclude file has to carry
+// forward, or a user's global ignores silently stop applying (ADR-0033).
+func GlobalExcludes(dir string) (string, error) {
+	out, _, code, err := run(dir, "config", "--get", "core.excludesFile")
+	if err != nil {
+		return "", err
+	}
+	if code != 0 {
+		// git exits 1 for a setting nobody has made, which is an answer rather
+		// than a failure.
+		return "", nil
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // PruneWorktrees forgets the administrative files of worktrees whose

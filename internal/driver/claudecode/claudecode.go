@@ -30,6 +30,11 @@ const configDirEnv = "CLAUDE_CONFIG_DIR"
 // Claude Code authenticates without a browser.
 const tokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
 
+// skillsDir is where Claude Code reads Skills from, relative to the directory
+// it runs in. It is not the plugins directory, which is a different thing
+// (ADR-0033).
+const skillsDir = ".claude/skills"
+
 // MinVersion is the oldest Claude Code Owl drives, and NextMajor the release
 // it stops at. The flags below are a CLI contract rather than an API, so the
 // range is pinned and checked before every Run (ADR-0012).
@@ -61,6 +66,9 @@ func (*Driver) Capabilities() driver.Capabilities {
 		UsageReporting:  false,
 	}
 }
+
+// SkillsDir is where Claude Code reads Skills from inside a worktree.
+func (*Driver) SkillsDir() string { return skillsDir }
 
 // Check reports whether Claude Code is installed and a version Owl drives.
 func (d *Driver) Check(ctx context.Context) error {

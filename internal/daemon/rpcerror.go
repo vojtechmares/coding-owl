@@ -9,6 +9,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/run"
+	"github.com/vojtechmares/coding-owl/internal/skill"
 	"github.com/vojtechmares/coding-owl/internal/store"
 )
 
@@ -22,6 +23,7 @@ func rpcError(err error) error {
 	var conflict *project.ConflictError
 	var unusable *queue.InvalidError
 	var unusableAccount *account.InvalidError
+	var unusableSkill *skill.InvalidError
 	var inUse *account.InUseError
 	var refused *run.RefusedError
 	switch {
@@ -34,7 +36,7 @@ func rpcError(err error) error {
 		errors.Is(err, store.ErrAccountNameTaken):
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.As(err, &invalid), errors.As(err, &unusable), errors.As(err, &unusableAccount),
-		errors.Is(err, store.ErrNotQueued):
+		errors.As(err, &unusableSkill), errors.Is(err, store.ErrNotQueued):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
