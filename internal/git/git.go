@@ -730,7 +730,7 @@ func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 	// Whatever stopped it - a conflict, a commit that could not be signed, a
 	// hook that refused - the worktree must not be left in the middle of a
 	// rebase for the next Run to trip over.
-	if err := abortRebase(path); err != nil {
+	if err := abortRebase(ctx, path); err != nil {
 		return Conflict{}, err
 	}
 	// Anything that is not a conflict is the caller's to report as it is.
@@ -741,13 +741,17 @@ func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 }
 
 // abortRebase puts a worktree back where it was, when there is a rebase to
-// abort at all.
-func abortRebase(path string) error {
+// abort at all. It runs whether or not what asked for the rebase is still
+// waiting - that is the point of it - but it is bounded, because a filter or
+// a hook the abort has to run through can hang as easily as the rebase could.
+func abortRebase(ctx context.Context, path string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abortTimeout)
+	defer cancel()
 	inProgress, err := RebaseInProgress(path)
 	if err != nil || !inProgress {
 		return err
 	}
-	_, stderr, code, err := run(path, "rebase", "--abort")
+	_, stderr, code, err := runWithin(ctx, path, "rebase", "--abort")
 	if err != nil {
 		return err
 	}
@@ -794,8 +798,9 @@ func FetchBase(ctx context.Context, dir, base string) error {
 	// a tag of the same name.
 	refspec := fmt.Sprintf("+%s:refs/remotes/%s/%s", branchRef(base), remote, base)
 	// protocol.ext.allow=never: a remote URL is configuration, and an ext::
-	// one is a command for git to run. Owl fetches from remotes, not from
-	// whatever a repository's configuration would like it to execute.
+	// one is a command for git to run. It is not the only way a repository can
+	// name a program - core.sshCommand and uploadpack are others - but it is
+	// the one that needs no transport of its own.
 	_, stderr, code, err := runWithin(ctx, dir,
 		"-c", "protocol.ext.allow=never", "fetch", "--quiet", "--", remote, refspec)
 	if err != nil {
@@ -909,6 +914,10 @@ var FetchTimeout = 10 * time.Minute
 func runWithin(ctx context.Context, dir string, args ...string) (stdout []byte, stderr string, code int, err error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	// A cancelled git is killed, but something it started can hold the pipes
+	// open - a filter driver, a hook, ssh - and waiting on those would never
+	// return. After this, what is still holding them is let go of.
+	cmd.WaitDelay = killDelay
 	// A C locale keeps git's diagnostics in one language. Nothing below parses
 	// them, but they end up in messages users read. The redirection variables
 	// are dropped because they override the repository chosen by cmd.Dir: a
@@ -928,6 +937,10 @@ func runWithin(ctx context.Context, dir string, args ...string) (stdout []byte, 
 		return out.Bytes(), errb.String(), 0, nil
 	case errors.As(err, &exitErr):
 		return out.Bytes(), errb.String(), exitErr.ExitCode(), nil
+	case errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil:
+		// git itself finished; what it started was still holding the pipes
+		// open, and has been let go of. Its status is the answer.
+		return out.Bytes(), errb.String(), cmd.ProcessState.ExitCode(), nil
 	default:
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, errb.String(), -1, fmt.Errorf("running git %s in %s: %w", strings.Join(args, " "), dir, ctxErr)
@@ -943,6 +956,13 @@ func fetching(dir string, args ...string) (stdout []byte, stderr string, code in
 	defer cancel()
 	return runWithin(ctx, dir, args...)
 }
+
+// abortTimeout bounds putting a worktree back after a rebase that stopped.
+const abortTimeout = 30 * time.Second
+
+// killDelay is how long git has to finish after it is killed before whatever
+// it started is stopped waiting for.
+const killDelay = 5 * time.Second
 
 // gitRedirection are the environment variables that move git away from the
 // directory it was pointed at, or change how the paths it is given are read.

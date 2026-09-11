@@ -13,12 +13,6 @@ before its execution Run starts.
 "The Project's base branch" is the local branch the Project was registered
 against. Owl rebases the Job's own branch onto it and never moves anything else.
 
-One thing here cannot be arranged from the outside: a rebase that stops after it
-has begun rather than before, which is what makes the abort load-bearing. Where
-in a rebase git stops depends on how many files it has to write, so the git
-package pins that case directly, in
-`TestRebaseLeavesNoRebaseInProgressWhenItStopsPartWay`.
-
 ## Scenarios
 
 ### S1 - the base branch moving between Runs reaches the next Run's worktree
@@ -121,8 +115,8 @@ Then it exits with a non-zero code
 And the reason names the file and says the changes are in the repository's stash
 And `git stash list` in the Project reports that stash
 
-### S17 - a rebase that cannot be carried out blocks the Job and leaves no rebase in progress
-Given a Job whose Project requires a filter that refuses what the rebase has to write
+### S17 - a rebase that stops after it has begun blocks the Job and leaves no rebase in progress
+Given a Job whose Project requires a filter that refuses content one of the Job's own commits carries and a later one takes away, so git meets it only while replaying
 When `owl start` runs for it
 Then it exits with a non-zero code
 And `owl jobs show <job>` reports the Job as `blocked`, saying the rebase could not be carried out

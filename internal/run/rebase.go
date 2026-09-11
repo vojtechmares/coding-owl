@@ -70,7 +70,9 @@ func (s *Service) rebase(ctx context.Context, j store.Job, details project.Detai
 	// kill git in the middle of rewriting the branch, and what it leaves
 	// behind is the one state a Run must never begin on top of (ADR-0016).
 	// The daemon stopping still cuts it short, and it is bounded either way.
-	conflict, err := git.Rebase(s.untilClosedFrom(ctx), j.Worktree, details.BaseBranch)
+	rebasing, done := s.untilClosedFrom(ctx)
+	defer done()
+	conflict, err := git.Rebase(rebasing, j.Worktree, details.BaseBranch)
 	switch {
 	case err != nil:
 		// A rebase that could not be carried out at all is not something the
