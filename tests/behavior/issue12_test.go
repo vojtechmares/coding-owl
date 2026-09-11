@@ -683,3 +683,42 @@ func TestS18AWorktreeThatIsGoneBlocksTheJobNotTheQueue(t *testing.T) {
 // waiting for a condition would be waiting for something not to happen.
 func sleepABit() { time.Sleep(500 * time.Millisecond) }
 
+func TestS20AWorktreeOfAnotherRepositoryIsNotRebased(t *testing.T) {
+	rb := rebasingJob(t, nil)
+	addJob(t, rb.l, rb.repo.dir, "the next one", "--no-plan")
+	worktree := rb.worktree(t)
+	if err := os.RemoveAll(worktree); err != nil {
+		t.Fatal(err)
+	}
+	// Somebody else's repository, with a worktree of its own at the path the
+	// Job's used to be: git can work in it, and it is not the Project's.
+	other := newRepo(t, rb.l, "elsewhere")
+	other.git("worktree", "add", "-q", "-b", "theirs", worktree, "main")
+	before := strings.TrimSpace(other.git("rev-parse", "theirs"))
+	rb.moveBase(t, "from-base.txt", "added while the job was waiting\n")
+
+	res := runOwl(t, rb.l, "start")
+
+	if res.code == 0 {
+		t.Fatalf("owl start rebased a worktree of another repository\nstdout:\n%s", res.stdout)
+	}
+	out := mustOwl(t, rb.l, "jobs", "show", rb.job).stdout
+	if got := line(t, out, "state"); got != "blocked" {
+		t.Errorf("state = %q, want blocked", got)
+	}
+	if reason := line(t, out, "reason"); !strings.Contains(reason, "another repository") {
+		t.Errorf("the reason does not say the worktree belongs to another repository: %q", reason)
+	}
+	if got := strings.TrimSpace(other.git("rev-parse", "theirs")); got != before {
+		t.Errorf("the other repository's branch moved from %s to %s", before, got)
+	}
+	if midRebase(t, other, worktree) {
+		t.Errorf("the other repository's worktree was left mid-rebase")
+	}
+	_, next := startRun(t, rb.l)
+	if next == rb.job {
+		t.Errorf("owl start ran job %s again, want the next one in the queue", next)
+	}
+	rb.stub.let(t)
+}
+

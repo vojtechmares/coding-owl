@@ -218,6 +218,44 @@ func IsWorktree(path string) (bool, error) {
 	return code == 0 && strings.TrimSpace(string(out)) == "true", nil
 }
 
+// WorktreeBelongsTo reports whether a worktree is one of repo's: whether the
+// repository it shares its objects and refs with is the one at repo. A
+// directory at a Job's worktree path that git can work in is not enough - it
+// could be anybody's checkout put there since - and replaying what is checked
+// out in it would be rewriting a branch of some other repository.
+func WorktreeBelongsTo(worktree, repo string) (bool, error) {
+	mine, err := commonDir(worktree)
+	if err != nil {
+		return false, err
+	}
+	theirs, err := commonDir(repo)
+	if err != nil {
+		return false, err
+	}
+	return mine == theirs, nil
+}
+
+// commonDir is the directory a worktree shares with every other worktree of
+// its repository, resolved, so two names for one place compare equal.
+func commonDir(dir string) (string, error) {
+	out, stderr, code, err := run(dir, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	if code != 0 {
+		return "", fmt.Errorf("finding the repository of %s: %s", dir, message(stderr))
+	}
+	common := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(dir, common)
+	}
+	resolved, err := filepath.EvalSymlinks(common)
+	if err != nil {
+		return filepath.Clean(common), nil
+	}
+	return resolved, nil
+}
+
 // WorktreeIsClean reports whether a worktree holds nothing uncommitted -
 // neither a change to a tracked file nor a file git does not know about.
 func WorktreeIsClean(path string) (bool, error) {
