@@ -74,7 +74,7 @@ func Place(site Site, skills []Resolved) (Placement, error) {
 	}
 	// Nothing is written until every entry has been found to be Owl's: a Run
 	// that is going to be refused leaves the worktree exactly as it was.
-	if err := hide(site); err != nil {
+	if err := hide(site, skills); err != nil {
 		return Placement{}, err
 	}
 	if err := os.MkdirAll(into, 0o755); err != nil {
@@ -262,7 +262,7 @@ func within(root, path string) bool {
 // enabled on the repository, and this worktree alone is pointed at an exclude
 // file of Owl's that carries forward whatever the repository was already told
 // (ADR-0033).
-func hide(site Site) error {
+func hide(site Site, skills []Resolved) error {
 	if err := git.EnableWorktreeConfig(site.Repo); err != nil {
 		return err
 	}
@@ -283,7 +283,13 @@ func hide(site Site) error {
 		body += "# What this repository was already told to ignore:\n" +
 			"# " + oneLine(theirs) + "\n"
 	}
-	body += "/" + strings.Trim(site.SkillsDir, "/") + "/\n"
+	// One line per entry Owl places, rather than the whole directory: what the
+	// Agent writes there is the Job's work, and work that git cannot see is
+	// work that never reaches the diff, the commit or verification.
+	dir := "/" + strings.Trim(site.SkillsDir, "/") + "/"
+	for _, s := range skills {
+		body += dir + s.Name + "\n"
+	}
 	if theirs != "" {
 		data, err := git.ReadExcludes(theirs)
 		if err != nil {

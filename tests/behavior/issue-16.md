@@ -155,3 +155,10 @@ Given a Project with one Skill, whose Job has run once
 When the Skill is removed, the removal is committed, and the Job runs again
 Then the Skill is no longer in the Job's worktree
 And `owl jobs show <job>` records no skills for the second Run
+
+### S22 - a Run is refused when the lockfile does not answer for a Skill
+Given a Project whose committed configuration declares a Skill at a ref its committed lockfile does not record
+When `owl start` runs
+Then it exits with a non-zero code
+And stderr names the Skill, both refs, and says to run `owl skills update`
+And the Job is still pending with no Run

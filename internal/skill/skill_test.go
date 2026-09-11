@@ -1,6 +1,7 @@
 package skill_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/skill"
 )
 
@@ -390,6 +392,66 @@ func TestParseSourceRefusesWhatGitWouldRunAProgramFor(t *testing.T) {
 	}
 }
 
+func TestPrepareRefusesASkillTheLockfileDoesNotAnswerFor(t *testing.T) {
+	// A Run reads the lockfile from the base branch and cannot write it back,
+	// so resolving a Skill the lock does not record would make a Skill nobody
+	// declared to move move at the start of every Run (ADR-0024).
+	src := newSource(t, "go-review")
+	svc := skill.NewService(skill.NewCache(filepath.Join(t.TempDir(), "cache")))
+
+	_, _, err := svc.Prepare(context.Background(),
+		[]skill.Declared{{Source: src.dir, Ref: "main"}}, skill.Lock{})
+
+	var refused *skill.InvalidError
+	if !errors.As(err, &refused) {
+		t.Fatalf("Prepare with nothing locked = %v, want it refused", err)
+	}
+	for _, want := range []string{"go-review", "owl skills update"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error %q does not say %q", err, want)
+		}
+	}
+}
+
+func TestPrepareRefusesASkillWhoseLockAnswersAnotherRef(t *testing.T) {
+	src := newSource(t, "go-review")
+	cache := skill.NewCache(filepath.Join(t.TempDir(), "cache"))
+	svc := skill.NewService(cache)
+	tagged, err := cache.Fetch("go-review", src.dir, "v1.0.0", src.commit("v1.0.0"), "")
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	locked := skill.Lock{Skills: map[string]skill.Locked{"go-review": tagged.Locked}}
+
+	_, _, err = svc.Prepare(context.Background(),
+		[]skill.Declared{{Source: src.dir, Ref: "main"}}, locked)
+
+	var refused *skill.InvalidError
+	if !errors.As(err, &refused) {
+		t.Fatalf("Prepare with a lock answering another ref = %v, want it refused", err)
+	}
+	for _, want := range []string{"v1.0.0", "main", "owl skills update go-review"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error %q does not say %q", err, want)
+		}
+	}
+}
+
+func TestPrepareResolvesASkillDeclaredToMoveOnItsOwn(t *testing.T) {
+	src := newSource(t, "go-review")
+	svc := skill.NewService(skill.NewCache(filepath.Join(t.TempDir(), "cache")))
+
+	got, used, err := svc.Prepare(context.Background(),
+		[]skill.Declared{{Source: src.dir, Ref: "main", AutoUpdate: true}}, skill.Lock{})
+
+	if err != nil {
+		t.Fatalf("Prepare of a skill that may move on its own: %v", err)
+	}
+	if len(got) != 1 || used.Skills["go-review"].Commit != src.commit("main") {
+		t.Errorf("Prepare = %+v, %+v, want it resolved at main", got, used.Skills)
+	}
+}
+
 func TestWriteManifestLeavesTheRestOfTheFileAsItWas(t *testing.T) {
 	// The file is the user's, and they have to commit what Owl edits: a diff
 	// over lines nobody touched is a diff nobody can review.
@@ -423,6 +485,67 @@ account: work
 `
 	if string(got) != want {
 		t.Errorf("the file is now:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestWriteManifestLeavesAValueThatHoldsABlankLine(t *testing.T) {
+	// A blank line inside a block scalar is part of a value, not a paragraph
+	// break, and a check command is not Owl's to edit.
+	const before = `apiVersion: codingowl.dev/v1
+checks:
+  - name: test
+    run: |
+      go test ./...
+
+      go vet ./...
+`
+	path := filepath.Join(t.TempDir(), ".coding-owl.yaml")
+	if err := os.WriteFile(path, []byte(before), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := skill.WriteManifest(path, []skill.Declared{{Source: "x/go-review", Ref: "main"}}); err != nil {
+		t.Fatalf("WriteManifest: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Parse(path, got)
+	if err != nil {
+		t.Fatalf("what was written no longer parses: %v\n%s", err, got)
+	}
+	if len(cfg.Checks) != 1 || !strings.Contains(cfg.Checks[0].Run, "go vet ./...") ||
+		strings.Contains(cfg.Checks[0].Run, blankLineMarkerInTests) {
+		t.Errorf("the check now runs %q", cfg.Checks[0].Run)
+	}
+	if len(cfg.Skills) != 1 {
+		t.Errorf("the skill was not declared:\n%s", got)
+	}
+}
+
+// blankLineMarkerInTests is what a configuration must never come back
+// carrying: the stand-in Owl uses for a blank line while it edits one key.
+const blankLineMarkerInTests = "#owl-kept-this-line-blank"
+
+func TestWriteManifestLeavesAConfigurationThatAlreadyCarriesTheMarker(t *testing.T) {
+	before := "apiVersion: codingowl.dev/v1\n" + blankLineMarkerInTests + "\nbranchPrefix: owl/\n"
+	path := filepath.Join(t.TempDir(), ".coding-owl.yaml")
+	if err := os.WriteFile(path, []byte(before), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := skill.WriteManifest(path, []skill.Declared{{Source: "x/go-review", Ref: "main"}}); err != nil {
+		t.Fatalf("WriteManifest: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), blankLineMarkerInTests) {
+		t.Errorf("a comment the user wrote was taken for Owl's own:\n%s", got)
 	}
 }
 

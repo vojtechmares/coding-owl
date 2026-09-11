@@ -970,8 +970,11 @@ func TestAJobRunsOnTheAccountItRecordedRatherThanTheProjectsCurrentOne(t *testin
 func TestARunPlacesTheSkillsTheProjectDeclares(t *testing.T) {
 	ctx := context.Background()
 	src := skillSource(t)
-	svc, st, _, root := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{},
+	svc, st, repo, root := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{},
 		"apiVersion: codingowl.dev/v1\nskills:\n  - git: "+src+"\n")
+	// A Skill runs at the commit the lockfile records, and `owl skills add`
+	// writes both files for the user to commit (ADR-0033).
+	commitFile(t, repo, skill.LockName, lockFor(t, src))
 	j := queueJob(t, st, "work")
 
 	if _, _, _, err := svc.Start(ctx); err != nil {
@@ -1034,6 +1037,26 @@ func TestARunWithASkillThatCannotBeFetchedIsRefused(t *testing.T) {
 	if queue.State(after.State) != queue.StatePending {
 		t.Errorf("state = %q, want the job left pending", after.State)
 	}
+}
+
+// lockFor is the lockfile a Project commits beside a manifest declaring that
+// source, as `owl skills add` would have written it.
+func lockFor(t *testing.T, src string) string {
+	t.Helper()
+	cache := skill.NewCache(filepath.Join(t.TempDir(), "cache"))
+	commit, err := cache.Resolve(src, "main")
+	if err != nil {
+		t.Fatalf("resolving the skill source: %v", err)
+	}
+	got, err := cache.Fetch("go-review", src, "main", commit, "")
+	if err != nil {
+		t.Fatalf("fetching the skill source: %v", err)
+	}
+	data, err := skill.Lock{Skills: map[string]skill.Locked{got.Name: got.Locked}}.Render()
+	if err != nil {
+		t.Fatalf("rendering the lockfile: %v", err)
+	}
+	return string(data)
 }
 
 // skillSource makes a git repository carrying a SKILL.md, and returns its path.

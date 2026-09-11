@@ -836,6 +836,11 @@ func (s *Service) placeSkills(ctx context.Context, j store.Job, details project.
 		return skill.Placement{}, nil, nil
 	}
 	if s.opts.Skills == nil {
+		if len(declared) == 0 {
+			// Nothing to place and no way to take anything away, which is a
+			// daemon nobody built for Skills rather than a Project's problem.
+			return skill.Placement{}, nil, nil
+		}
 		return skill.Placement{}, nil, refused("project %s declares skills, but this daemon cannot fetch them", details.Name)
 	}
 	if owned == "" {
