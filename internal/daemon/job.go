@@ -97,6 +97,16 @@ func (s *jobService) GetJob(ctx context.Context, req *connect.Request[codingowlv
 		Runs:         make([]*codingowlv1.Run, 0, len(d.Runs)),
 		SystemPrompt: d.SystemPrompt,
 		Phases:       make([]*codingowlv1.PhaseSettings, 0, len(d.Phases)),
+		Handoff:      d.Handoff,
+		Diff: &codingowlv1.DiffSummary{
+			Insertions: int32(d.Diff.Insertions),
+			Deletions:  int32(d.Diff.Deletions),
+		},
+	}
+	for _, f := range d.Diff.Files {
+		res.Diff.Files = append(res.Diff.Files, &codingowlv1.DiffFile{
+			Path: f.Path, Insertions: int32(f.Insertions), Deletions: int32(f.Deletions),
+		})
 	}
 	for _, r := range d.Runs {
 		res.Runs = append(res.Runs, toRunProto(r))

@@ -256,6 +256,7 @@ func printJob(env Env, d client.JobDetails) {
 		{"planned", yesNo(d.Job.Planned)},
 		{"source", d.Job.Source + ":" + d.Job.SourceRef},
 		{"created", d.Job.Created.UTC().Format(time.RFC3339)},
+		{"diff", diffLine(d.Diff)},
 	} {
 		_, _ = fmt.Fprintf(env.Stdout, "%s: %s\n", kv[0], kv[1])
 	}
@@ -283,6 +284,11 @@ func printJob(env Env, d client.JobDetails) {
 		_, _ = fmt.Fprintf(env.Stdout, "\nplan:\n%s\n", plan)
 	} else {
 		_, _ = fmt.Fprintf(env.Stdout, "\nplan: %s\n", noValue)
+	}
+	if handoff := strings.TrimRight(d.Handoff, "\n"); handoff != "" {
+		_, _ = fmt.Fprintf(env.Stdout, "\nhandoff:\n%s\n", handoff)
+	} else {
+		_, _ = fmt.Fprintf(env.Stdout, "\nhandoff: %s\n", noValue)
 	}
 	_, _ = fmt.Fprintf(env.Stdout, "\nsystem prompt:\n%s\n", d.SystemPrompt)
 }
@@ -392,4 +398,17 @@ func runID(arg string) (int64, error) {
 		return 0, fmt.Errorf("run ids are whole numbers; %q is not one", arg)
 	}
 	return id, nil
+}
+
+// diffLine sums up what a Job's branch changed, or says there is nothing to
+// sum up.
+func diffLine(d client.DiffSummary) string {
+	if len(d.Files) == 0 {
+		return noValue
+	}
+	files := "files"
+	if len(d.Files) == 1 {
+		files = "file"
+	}
+	return fmt.Sprintf("%d %s changed, %d added, %d removed", len(d.Files), files, d.Insertions, d.Deletions)
 }

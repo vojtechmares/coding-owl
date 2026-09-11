@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -425,4 +426,88 @@ func message(stderr string) string {
 		return s
 	}
 	return "git failed without a message"
+}
+
+// DiffFile is one file a branch changed against its base. A binary file is
+// reported with no lines.
+type DiffFile struct {
+	Path                  string
+	Insertions, Deletions int
+}
+
+// DiffSummary is what a branch changed against its base, per file and in
+// total.
+type DiffSummary struct {
+	Files                 []DiffFile
+	Insertions, Deletions int
+}
+
+// DiffStat summarises what branch changed since it left base: the files it
+// touched and the lines added and removed in each. Both are read as local
+// branches, and the comparison is from their merge base, so what landed on
+// base since is not counted against the branch.
+func DiffStat(dir, base, branch string) (DiffSummary, error) {
+	// -z ends each record with NUL, so a path with a newline or a tab in it
+	// cannot split a record; --numstat is the machine-readable form.
+	out, stderr, code, err := run(dir, "diff", "--numstat", "-z", "--end-of-options",
+		branchRef(base)+"..."+branchRef(branch))
+	if err != nil {
+		return DiffSummary{}, err
+	}
+	if code != 0 {
+		return DiffSummary{}, fmt.Errorf("diffing %s against %s in %s: %s", branch, base, dir, message(stderr))
+	}
+	return parseNumstat(out)
+}
+
+// parseNumstat reads `diff --numstat -z` output. A record is
+// `<added> TAB <removed> TAB <path> NUL`, and a rename is
+// `<added> TAB <removed> TAB NUL <old> NUL <new> NUL`; binary files carry a
+// dash for both counts.
+func parseNumstat(out []byte) (DiffSummary, error) {
+	var d DiffSummary
+	fields := bytes.Split(out, []byte{0})
+	for i := 0; i < len(fields); i++ {
+		rec := fields[i]
+		if len(rec) == 0 {
+			continue
+		}
+		parts := bytes.SplitN(rec, []byte{'\t'}, 3)
+		if len(parts) != 3 {
+			return DiffSummary{}, fmt.Errorf("unreadable numstat record %q", rec)
+		}
+		f := DiffFile{Path: string(parts[2])}
+		if f.Path == "" {
+			// A rename: the old and new names follow as records of their
+			// own, and the new name is the one to report.
+			if i+2 >= len(fields) || len(fields[i+1]) == 0 || len(fields[i+2]) == 0 {
+				return DiffSummary{}, fmt.Errorf("truncated rename in numstat output")
+			}
+			f.Path = string(fields[i+2])
+			i += 2
+		}
+		var err error
+		if f.Insertions, err = numstatCount(parts[0]); err != nil {
+			return DiffSummary{}, err
+		}
+		if f.Deletions, err = numstatCount(parts[1]); err != nil {
+			return DiffSummary{}, err
+		}
+		d.Files = append(d.Files, f)
+		d.Insertions += f.Insertions
+		d.Deletions += f.Deletions
+	}
+	return d, nil
+}
+
+// numstatCount reads one count, where a dash means a binary file.
+func numstatCount(b []byte) (int, error) {
+	if string(b) == "-" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(string(b))
+	if err != nil {
+		return 0, fmt.Errorf("unreadable numstat count %q", b)
+	}
+	return n, nil
 }

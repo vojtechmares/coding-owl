@@ -111,6 +111,13 @@ type Details struct {
 	// Checks is what Verification said about the Job's most recent Run that
 	// was verified, in the order the checks were configured.
 	Checks []verifier.Result
+	// Handoff is the document on the Job's branch carrying intent and
+	// progress from one Run to the next (ADR-0026): read from the worktree
+	// while the Job has one, and from the branch once it does not.
+	Handoff string
+	// Diff is what the Job's branch changed against the Project's base
+	// branch, empty for a Job without a branch or whose branch is gone.
+	Diff git.DiffSummary
 }
 
 // Line is one line of an Agent's structured output, numbered from one so a
@@ -538,13 +545,60 @@ func (s *Service) Show(ctx context.Context, jobID int64) (Details, error) {
 			results = append(results, verifier.Result(r))
 		}
 	}
+	handoff, err := handoffOf(j, details.Path)
+	if err != nil {
+		return Details{}, err
+	}
+	diff, err := diffOf(j, details.Path, details.BaseBranch)
+	if err != nil {
+		return Details{}, err
+	}
 	return Details{
 		Job:          queue.FromStore(j),
 		Runs:         runs,
 		SystemPrompt: SystemPrompt(details.Config.UnattendedClauses),
 		Phases:       settings,
 		Checks:       results,
+		Handoff:      handoff,
+		Diff:         diff,
 	}, nil
+}
+
+// handoffOf reads a Job's handoff from its worktree while it has one, and
+// from its branch once the worktree is gone: an accepted Job keeps its branch
+// (ADR-0015), and the handoff on it is still worth reading.
+func handoffOf(j store.Job, projectPath string) (string, error) {
+	if j.Worktree != "" {
+		return readHandoff(j.Worktree)
+	}
+	if j.Branch == "" {
+		return "", nil
+	}
+	has, err := git.HasBranch(projectPath, j.Branch)
+	if err != nil || !has {
+		return "", err
+	}
+	data, found, err := git.ShowFileOnBranch(projectPath, j.Branch, HandoffPath)
+	if err != nil || !found {
+		return "", err
+	}
+	if len(data) > maxHandoff {
+		return "", fmt.Errorf("%s is larger than %d bytes; a handoff is a document, not a dump", HandoffPath, maxHandoff)
+	}
+	return string(data), nil
+}
+
+// diffOf summarises what a Job's branch changed, and is empty for a Job that
+// has no branch or whose branch was deleted when it was dropped.
+func diffOf(j store.Job, projectPath, base string) (git.DiffSummary, error) {
+	if j.Branch == "" {
+		return git.DiffSummary{}, nil
+	}
+	has, err := git.HasBranch(projectPath, j.Branch)
+	if err != nil || !has {
+		return git.DiffSummary{}, err
+	}
+	return git.DiffStat(projectPath, base, j.Branch)
 }
 
 // Log sends a Run's captured output to send, from its first line. With follow,
