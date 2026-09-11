@@ -730,15 +730,17 @@ func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 		}
 		return Conflict{}, nil
 	}
+	// What conflicted is read first, because aborting is what clears it - but
+	// a read that fails is not a reason to leave the rebase standing, so the
+	// abort happens either way. Whatever stopped it, the worktree must not be
+	// left in the middle of a rebase for the next Run to trip over.
 	conflicts, listErr := unmergedPaths(path)
+	abortErr := abortRebase(ctx, path, onBranch)
 	if listErr != nil {
 		return Conflict{}, listErr
 	}
-	// Whatever stopped it - a conflict, a filter that refused, a hook - the
-	// worktree must not be left in the middle of a rebase for the next Run to
-	// trip over.
-	if err := abortRebase(ctx, path, onBranch); err != nil {
-		return Conflict{}, err
+	if abortErr != nil {
+		return Conflict{}, abortErr
 	}
 	// Anything that is not a conflict is the caller's to report as it is.
 	if len(conflicts) == 0 {
@@ -785,7 +787,7 @@ func abortRebase(ctx context.Context, path, branch string) error {
 // abortRebase: a worktree nobody can use is worse than files nobody asked to
 // keep, and the autostash keeps what was not committed.
 func forceBack(ctx context.Context, path, branch string) error {
-	if _, stderr, code, err := runContext(ctx, path, "rebase", "--quit"); err != nil {
+	if _, stderr, code, err := runWithin(ctx, path, "rebase", "--quit"); err != nil {
 		return err
 	} else if code != 0 {
 		return fmt.Errorf("dropping the rebase: %s", message(stderr))
@@ -793,7 +795,7 @@ func forceBack(ctx context.Context, path, branch string) error {
 	// --end-of-options rather than --: after --, git reads the name as a path
 	// and never as a branch, which is how a checkout meant to switch branches
 	// quietly becomes one that restores a file of that name.
-	_, stderr, code, err := runContext(ctx, path, "checkout", "--force", "--end-of-options", branch, "--")
+	_, stderr, code, err := runWithin(ctx, path, "checkout", "--force", "--end-of-options", branch, "--")
 	if err != nil {
 		return err
 	}

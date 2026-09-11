@@ -15,19 +15,19 @@ import (
 // in the middle of a rebase, on no branch.
 func TestForceBackPutsAWorktreeOnItsBranchAgain(t *testing.T) {
 	dir := t.TempDir()
-	gitIn(t, dir, "init", "--quiet", "-b", "main")
+	gitOut(t, dir, "init", "--quiet", "-b", "main")
 	write(t, dir, "both.txt", "shared\n")
-	gitIn(t, dir, "add", "--", "both.txt")
-	gitIn(t, dir, "commit", "-m", "one")
+	gitOut(t, dir, "add", "--", "both.txt")
+	gitOut(t, dir, "commit", "-m", "one")
 	worktree := filepath.Join(t.TempDir(), "job")
 	if err := AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
 		t.Fatalf("AddWorktree: %v", err)
 	}
 	write(t, worktree, "both.txt", "what the agent wrote\n")
-	gitIn(t, worktree, "commit", "-am", "the agent's work")
-	before := strings.TrimSpace(gitIn(t, worktree, "rev-parse", "HEAD"))
+	gitOut(t, worktree, "commit", "-am", "the agent's work")
+	before := strings.TrimSpace(gitOut(t, worktree, "rev-parse", "HEAD"))
 	write(t, dir, "both.txt", "what the base says\n")
-	gitIn(t, dir, "commit", "-am", "the base moves")
+	gitOut(t, dir, "commit", "-am", "the base moves")
 	// Left in the middle of a rebase, on no branch, which is what an abort
 	// that refused leaves behind.
 	_ = exec.Command("git", "-C", worktree, "rebase", "main").Run()
@@ -42,10 +42,10 @@ func TestForceBackPutsAWorktreeOnItsBranchAgain(t *testing.T) {
 	if progress, err := RebaseInProgress(worktree); err != nil || progress {
 		t.Errorf("RebaseInProgress = %v, %v, want none left", progress, err)
 	}
-	if got := strings.TrimSpace(gitIn(t, worktree, "rev-parse", "--abbrev-ref", "HEAD")); got != "owl/job-1" {
+	if got := strings.TrimSpace(gitOut(t, worktree, "rev-parse", "--abbrev-ref", "HEAD")); got != "owl/job-1" {
 		t.Errorf("the worktree is on %q, want the branch it was put back on", got)
 	}
-	if got := strings.TrimSpace(gitIn(t, worktree, "rev-parse", "HEAD")); got != before {
+	if got := strings.TrimSpace(gitOut(t, worktree, "rev-parse", "HEAD")); got != before {
 		t.Errorf("the worktree is at %s, want where the branch was, %s", got, before)
 	}
 }
@@ -57,7 +57,7 @@ func write(t *testing.T, dir, path, content string) {
 	}
 }
 
-func gitIn(t *testing.T, dir string, args ...string) string {
+func gitOut(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
