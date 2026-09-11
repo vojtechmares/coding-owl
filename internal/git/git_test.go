@@ -986,13 +986,6 @@ func TestDefaultBranchIsWhatHeadPointsAt(t *testing.T) {
 	}
 }
 
-// onBranch cuts a branch in a worktree and commits a file on it.
-func onBranch(t *testing.T, dir, branch, path, body string) {
-	t.Helper()
-	run(t, dir, "checkout", "-q", "-b", branch)
-	commit(t, dir, path, body)
-}
-
 func TestRebaseReplaysABranchOntoAMovedBase(t *testing.T) {
 	dir := newRepo(t)
 	worktree := filepath.Join(t.TempDir(), "job")
