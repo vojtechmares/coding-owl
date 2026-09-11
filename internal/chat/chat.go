@@ -150,11 +150,15 @@ func (s *Service) AddProvider(ctx context.Context, name, key, baseURL string, mo
 	ref := credentialRef(name)
 	// Whether this is a first configuration or a rotation decides what happens
 	// if the row cannot be written: a rotation's key is the one the provider
-	// that is still configured uses.
+	// that is still configured uses, so the one it had is kept to put back.
 	_, err = s.store.GetChatProvider(ctx, name)
 	rotating := err == nil
 	if err != nil && !errors.Is(err, store.ErrProviderNotFound) {
 		return Config{}, err
+	}
+	var had string
+	if rotating {
+		had, _ = s.creds.Get(ctx, ref)
 	}
 	if err := s.creds.Set(ctx, ref, strings.TrimSpace(key)); err != nil {
 		return Config{}, err
@@ -165,10 +169,14 @@ func (s *Service) AddProvider(ctx context.Context, name, key, baseURL string, mo
 	}
 	if err := s.store.AddChatProvider(ctx, p); err != nil {
 		// The row is what makes the key reachable, so a key without one is
-		// taken back rather than left in the store - unless a row was already
-		// there, whose provider is still using it.
-		if !rotating {
+		// taken back rather than left in the store. A rotation that did not
+		// happen puts back the key of the provider that is still configured,
+		// rather than leaving it reaching models with one nobody asked it to.
+		switch {
+		case !rotating:
 			_ = s.creds.Delete(ctx, ref)
+		case had != "":
+			_ = s.creds.Set(ctx, ref, had)
 		}
 		return Config{}, err
 	}
