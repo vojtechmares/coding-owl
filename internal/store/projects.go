@@ -31,7 +31,10 @@ type Project struct {
 	Registered time.Time
 }
 
-// timeFormat keeps timestamps sortable as text.
+// timeFormat is how a time is written to a column. It is not an order: RFC
+// 3339 trims the trailing zeros of a fraction, so "10:00:00.5Z" sorts after
+// "10:00:00.55Z" as text. Anything that wants the order things happened in
+// reads an id, which counts up.
 const timeFormat = time.RFC3339Nano
 
 // AddProject registers p. It returns ErrNameTaken when the name is in use.
