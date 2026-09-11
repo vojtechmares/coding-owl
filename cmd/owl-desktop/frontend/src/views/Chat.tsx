@@ -37,7 +37,7 @@ export function Chat() {
   // What was said in the conversation being read, which the daemon keeps.
   useEffect(() => {
     let alive = true;
-    if (open === undefined) {
+    if (!open) {
       setSaid([]);
       return;
     }
@@ -54,14 +54,17 @@ export function Chat() {
     };
   }, [open, waiting]);
 
+  // A send the daemon refused before a conversation existed carries no id,
+  // and zero is not one: reading it back would replace the failure the user
+  // needs to see with "no conversation 0".
   useEvent<ChatDelta>(EVENT_CHAT_DELTA, (d) => {
-    setOpen((current) => current ?? d.conversationId);
+    setOpen((current) => current ?? (d.conversationId || undefined));
     setAnswer((current) => current + d.text);
   });
   useEvent<ChatEnd>(EVENT_CHAT_END, (end) => {
     setWaiting(false);
     setAnswer("");
-    setOpen((current) => current ?? end.conversationId);
+    setOpen((current) => current ?? (end.conversationId || undefined));
     if (end.error) setNote(end.error);
     void conversations.refresh();
   });
@@ -79,7 +82,7 @@ export function Chat() {
     setSaid((current) => [...current, { Role: "user", Text: asked, Created: new Date().toISOString() } as ChatMessage]);
     try {
       const id = await api.sendTo(open ?? 0, chosen.Provider, chosen.ID, asked);
-      setOpen(id);
+      if (id) setOpen(id);
     } catch (err) {
       setWaiting(false);
       setNote(errorText(err));

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -427,8 +428,12 @@ func TestS8ChatTheAppListsConversationsMostRecentFirst(t *testing.T) {
 	if got[0].ID != older || got[1].ID != newer {
 		t.Errorf("conversations are %+v, want the most recently spoken to first", got)
 	}
-	if !strings.Contains(got[1].Title, "the newer conversation") {
-		t.Errorf("a conversation carries the title %q, want what it is about", got[1].Title)
+	// Each one, so a title taken from the wrong conversation - or the same
+	// title on both - is not mistaken for what they are about.
+	if !strings.Contains(got[0].Title, "the older conversation") ||
+		!strings.Contains(got[1].Title, "the newer conversation") {
+		t.Errorf("the conversations are titled %q and %q, want what each is about",
+			got[0].Title, got[1].Title)
 	}
 }
 
@@ -460,9 +465,11 @@ func TestS9ChatTheToolsOfferedOnlyRead(t *testing.T) {
 func TestS10ChatAQuestionAboutOwlsStateIsAnsweredFromIt(t *testing.T) {
 	l, s := agentLayout(t, agentScript, 0)
 	daemonUp(t, l)
+	// The check is named something that is not a word of what it prints, so
+	// "the check that failed" is checked apart from "what it printed".
 	checkedProject(t, l, `apiVersion: codingowl.dev/v1
 checks:
-  - name: test
+  - name: gauntlet
     run: echo the tests are unhappy; exit 1
 `)
 	out, job := finishedJob(t, l)
@@ -472,7 +479,7 @@ checks:
 	_ = s
 	p := newFakeProvider(t,
 		anthropicToolUse("call-1", "get_job", map[string]any{"id": id(t, job)}),
-		anthropicText("It was the test check."))
+		anthropicText("It was the gauntlet check."))
 	addProvider(t, l, "anthropic", "sk-ant-test", p.server.URL)
 	app, ev := desktopApp(t, l)
 
@@ -480,12 +487,14 @@ checks:
 
 	// What the daemon sent back for the tool call is in the second request.
 	second := fmt.Sprint(p.asked(t, 1)["messages"])
-	for _, want := range []string{"test", "the tests are unhappy"} {
+	// Which check failed, said as the tool result says it, and what it
+	// printed: a result that only says something failed is not an answer.
+	for _, want := range []string{"gauntlet: failed", "the tests are unhappy"} {
 		if !strings.Contains(second, want) {
 			t.Errorf("the tool result does not carry %q:\n%s", want, second)
 		}
 	}
-	if answer := strings.Join(got.deltas, ""); !strings.Contains(answer, "It was the test check.") {
+	if answer := strings.Join(got.deltas, ""); !strings.Contains(answer, "It was the gauntlet check.") {
 		t.Errorf("the answer after the tool call is %q", answer)
 	}
 }
@@ -597,8 +606,8 @@ func TestS14ChatAProviderThatFailsMidAnswerEndsTheStream(t *testing.T) {
 
 	id, got := chatting(t, app, ev, 0, anthropicModel(t, app), "why was job 7 blocked")
 
-	if got.err == "" {
-		t.Error("the answer ended without saying it failed")
+	if !strings.Contains(got.err, "anthropic") {
+		t.Errorf("the answer ended with %q, want an error naming the provider", got.err)
 	}
 	if strings.Join(got.deltas, "") != "half an ans" {
 		t.Errorf("the app was given %v, want what arrived before the break", got.deltas)
@@ -645,8 +654,12 @@ func TestS15ChatTheAppNeverHoldsAProviderKey(t *testing.T) {
 			t.Errorf("what the app was given for %s carries the key:\n%s", what, data)
 		}
 	}
-	if _, err := app.Send(0, "openrouter/nothing", "hello"); err == nil {
-		t.Error("the app sent a message for a provider that is not configured")
+	_, err = app.Send(0, "openrouter/nothing", "hello")
+	if err == nil {
+		t.Fatal("the app sent a message for a provider that is not configured")
+	}
+	if !strings.Contains(err.Error(), "openrouter/nothing") {
+		t.Errorf("the refusal is %q, want it to say what was asked for", err)
 	}
 }
 
@@ -685,5 +698,11 @@ func TestS16ChatTheAppsWindowOffersTheChat(t *testing.T) {
 				t.Errorf("%s does not carry %q", path, want)
 			}
 		}
+	}
+	// The provider goes to the daemon with the model, rather than the picker
+	// naming it only for itself: two providers may offer the same model.
+	sending := regexp.MustCompile(`api\.sendTo\([^)]*chosen\.Provider`)
+	if body := readFile(t, filepath.Join(src, "views", "Chat.tsx")); !sending.MatchString(body) {
+		t.Error("the chat view does not send naming the provider the model comes from")
 	}
 }
