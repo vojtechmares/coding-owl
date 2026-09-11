@@ -51,7 +51,9 @@ type Request struct {
 	// not planned (ADR-0026).
 	Plan string
 	// Diff is what the Job's branch changed against the Project's base
-	// branch, and DiffComplete is false when it was too long to carry whole.
+	// branch. DiffComplete says Owl has the whole of it: a Diff that is empty
+	// with DiffComplete set is a branch that changed nothing, and one that is
+	// empty without it is a diff Owl could not read.
 	Diff         string
 	DiffComplete bool
 	// Agent is what a Verifier needs to start an Agent of its own: the
@@ -67,6 +69,9 @@ type Agent struct {
 	// the credential to run on.
 	ConfigDir string
 	Token     string
+	// BudgetUSD caps what it may spend when it is above zero. A Project that
+	// caps what a Run costs caps the review of that Run too.
+	BudgetUSD float64
 	// Model is what it runs as, and Effort how hard it thinks (ADR-0028).
 	Model  string
 	Effort string

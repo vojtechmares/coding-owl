@@ -1144,11 +1144,15 @@ func (s *Service) reviewRequest(j store.Job, details project.Details, req driver
 		Agent: verifier.Agent{
 			ConfigDir: req.ConfigDir,
 			Token:     req.Token,
+			BudgetUSD: req.BudgetUSD,
 			Model:     req.Model,
 			Effort:    req.Effort,
 		},
 	}
 	if j.Branch == "" {
+		// A Job with no branch changed nothing, which is a thing to review
+		// rather than a diff Owl failed to read.
+		out.DiffComplete = true
 		return out
 	}
 	patch, complete, err := git.DiffPatch(details.Path, details.BaseBranch, j.Branch, maxDiff)

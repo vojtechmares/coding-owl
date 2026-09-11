@@ -793,7 +793,13 @@ func DiffPatch(dir, base, branch string, max int) (patch string, complete bool, 
 		return "", false, fmt.Errorf("diffing %s against %s in %s: %s", branch, base, dir, message(stderr))
 	}
 	if max > 0 && len(out) > max {
-		return string(out[:max]), false, nil
+		// Cut at the last whole line, so what is carried is a diff as far as
+		// it goes rather than one ending mid-rune or mid-hunk.
+		cut := out[:max]
+		if at := bytes.LastIndexByte(cut, '\n'); at > 0 {
+			cut = cut[:at+1]
+		}
+		return string(cut), false, nil
 	}
 	return string(out), true, nil
 }

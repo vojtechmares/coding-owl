@@ -54,6 +54,11 @@ type Check struct {
 	Timeout time.Duration
 }
 
+// ReviewName is what the review a Project can ask for is called where
+// Verification reports what it said, beside the Project's own checks
+// (ADR-0013). No check may be called it.
+const ReviewName = "agent review"
+
 // ExpectEmptyOutput is the one expectation beyond exit zero. The vocabulary is
 // deliberately tiny (ADR-0030).
 const ExpectEmptyOutput = "empty_output"
@@ -364,6 +369,11 @@ func parseChecks(source string, checks []check) ([]Check, error) {
 		case c.Expect != "" && c.Expect != ExpectEmptyOutput:
 			return nil, fmt.Errorf("%s: %s expects %q, which Owl does not know; the only expectation is %q",
 				source, where, c.Expect, ExpectEmptyOutput)
+		}
+		if strings.EqualFold(name, ReviewName) {
+			// A review is reported beside the checks and is told apart by its
+			// name, so a check may not take it (ADR-0013).
+			return nil, fmt.Errorf("%s: %s is called %q, which is what a review is called", source, where, name)
 		}
 		seen[name] = true
 		parsed := Check{Name: name, Run: c.Run, Expect: c.Expect}
