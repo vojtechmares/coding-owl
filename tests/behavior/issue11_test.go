@@ -735,3 +735,33 @@ func TestS20AnAgentThatWillNotStopIsKilled(t *testing.T) {
 	}
 	mustOwl(t, b.l, "pause")
 }
+
+func TestS21ARunTheWindowEndedCannotBeFrozenAgain(t *testing.T) {
+	b := beatingLayout(t, "apiVersion: codingowl.dev/v1\ngraceWindow: 1s\n")
+	b.l = b.l.withEnv("OWL_FAKE_CLAUDE_IGNORE_TERM=1")
+	d := daemonUp(t, b.l)
+	run, job := b.frozen(t)
+	// The window has fired and asked the Agent to stop, which it will not;
+	// this is the few seconds before it is killed (ADR-0034).
+	waitForLog(t, d, "the grace window ended a paused run")
+
+	for _, verb := range []string{"pause", "resume"} {
+		res := runOwl(t, b.l, verb)
+		if res.code == 0 {
+			t.Errorf("owl %s exited 0 for a run the grace window has ended\nstdout:\n%s", verb, res.stdout)
+			continue
+		}
+		if !strings.Contains(res.stderr, "being ended") {
+			t.Errorf("owl %s does not say the run is being ended:\n%s", verb, res.stderr)
+		}
+	}
+
+	row := waitRun(t, b.l, job, run)
+	if row.outcome != "interrupted" {
+		t.Errorf("run outcome = %q, want interrupted", row.outcome)
+	}
+	if got := line(t, mustOwl(t, b.l, "jobs", "show", job).stdout, "state"); got != "pending" {
+		t.Errorf("state = %q, want pending", got)
+	}
+	b.gone(t)
+}
