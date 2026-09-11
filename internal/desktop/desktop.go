@@ -7,6 +7,7 @@ package desktop
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/client"
@@ -67,7 +68,7 @@ type App struct {
 	mu      sync.Mutex
 	ctx     context.Context
 	cancel  context.CancelFunc
-	follows map[int64]context.CancelFunc
+	follows map[int64]*follow
 }
 
 // New returns an app for the daemon on socketPath, emitting through emit.
@@ -79,7 +80,7 @@ func New(socketPath string, emit Emitter) *App {
 		emit:    emit,
 		ctx:     ctx,
 		cancel:  cancel,
-		follows: map[int64]context.CancelFunc{},
+		follows: map[int64]*follow{},
 	}
 }
 
@@ -89,8 +90,8 @@ func (a *App) Shutdown() {
 	a.cancel()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	for id, stop := range a.follows {
-		stop()
+	for id, f := range a.follows {
+		f.stop()
 		delete(a.follows, id)
 	}
 }
@@ -173,53 +174,65 @@ func (a *App) Drop(id int64, force bool) (client.Job, error) {
 	return a.client.DropJob(ctx, id, force)
 }
 
+// follow is one log being followed: how to stop it, and whether the
+// frontend has seen any of it yet.
+type follow struct {
+	stop      context.CancelFunc
+	delivered atomic.Bool
+}
+
 // FollowLog streams a Run's output to the frontend as EventLogLine events,
 // from its first line and on until the Run ends, then emits EventLogEnd. It
 // returns once the first line has arrived or the stream has ended, so a Run
 // that does not exist is refused here rather than reported as an event.
+// Following a Run already being followed replaces the earlier follow.
 func (a *App) FollowLog(runID int64) error {
-	a.StopLog(runID)
 	ctx, stop := context.WithCancel(a.ctx)
+	f := &follow{stop: stop}
 	a.mu.Lock()
-	a.follows[runID] = stop
+	if old := a.follows[runID]; old != nil {
+		old.stop()
+	}
+	a.follows[runID] = f
 	a.mu.Unlock()
 
-	// first settles once: with the first line's arrival (nil), or with how
-	// the stream ended before any line came.
+	// first settles once: nil when the first line arrives, otherwise with
+	// how the stream ended before any line came.
 	first := make(chan error, 1)
-	settle := func(err error) {
-		select {
-		case first <- err:
-		default:
-		}
-	}
 	go func() {
 		defer func() {
 			a.mu.Lock()
-			if a.follows[runID] != nil {
+			// Only this follow's own entry: a replacement may already be
+			// registered under the same Run.
+			if a.follows[runID] == f {
 				delete(a.follows, runID)
 			}
 			a.mu.Unlock()
 			stop()
 		}()
 		err := a.client.StreamRunLog(ctx, runID, true, func(line string) error {
-			settle(nil)
+			if f.delivered.CompareAndSwap(false, true) {
+				first <- nil
+			}
 			a.emit.Emit(EventLogLine, LogLine{RunID: runID, Line: line})
 			return nil
 		})
-		if err != nil && ctx.Err() != nil {
-			// Stopped from the frontend, or the app is closing: not a
-			// failure of the Run's log.
-			err = nil
+		if ctx.Err() != nil {
+			// Stopped from the frontend, replaced, or the app is closing:
+			// not a failure of the Run's log, and nobody is listening. A
+			// caller still waiting for the first line is let go.
+			if !f.delivered.Load() {
+				first <- nil
+			}
+			return
 		}
-		select {
-		case first <- err:
-			// Nothing arrived before the end: the caller learns why, and
-			// there is no stream to announce the end of.
+		if !f.delivered.Load() {
+			// Nothing arrived before the end: the caller learns why. A
+			// failure here is refused rather than announced.
+			first <- err
 			if err != nil {
 				return
 			}
-		default:
 		}
 		msg := ""
 		if err != nil {
@@ -230,14 +243,14 @@ func (a *App) FollowLog(runID int64) error {
 	return <-first
 }
 
-// StopLog stops following a Run's log. Following a Run nobody is following is
+// StopLog stops following a Run's log. Stopping a Run nobody is following is
 // not an error.
 func (a *App) StopLog(runID int64) {
 	a.mu.Lock()
-	stop := a.follows[runID]
+	f := a.follows[runID]
 	delete(a.follows, runID)
 	a.mu.Unlock()
-	if stop != nil {
-		stop()
+	if f != nil {
+		f.stop()
 	}
 }
