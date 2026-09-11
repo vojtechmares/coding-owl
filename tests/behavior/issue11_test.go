@@ -163,7 +163,7 @@ func TestS1PauseFreezesTheWholeProcessGroup(t *testing.T) {
 		t.Errorf("the agent's child started beating again on its own")
 	}
 	row := runRowOf(t, b.l, job, run)
-	if row.outcome != "running" && row.outcome != "paused" {
+	if row.ended != "(none)" {
 		t.Errorf("run outcome = %q, want a run still in progress", row.outcome)
 	}
 	b.stub.let(t)
@@ -369,7 +369,7 @@ func TestS10GraceWindowIsConfigurable(t *testing.T) {
 
 	sleep(time.Second)
 
-	if row := runRowOf(t, b.l, job, run); row.outcome != "running" && row.outcome != "paused" {
+	if row := runRowOf(t, b.l, job, run); row.ended != "(none)" {
 		t.Errorf("run state = %q one second into a two second window, want it still in progress", row.outcome)
 	}
 	row := waitRun(t, b.l, job, run)
@@ -543,6 +543,16 @@ func TestS16VerifyingRunIsNotReportedAsAbsent(t *testing.T) {
 	waitFor(t, "the agent to exit and its checks to start", func() bool {
 		return syscall.Kill(b.stub.invoked(t).PID, syscall.Signal(0)) != nil
 	})
+
+	// What owl status and owl jobs show say about it is where it is, not
+	// that its Agent is running: nothing is, and a person deciding whether
+	// to pause should know that.
+	if row := runningRow(t, mustOwl(t, b.l, "status").stdout); !contains(row, "verifying") {
+		t.Errorf("owl status does not say the run is being verified: %v", row)
+	}
+	if got := runRowOf(t, b.l, job, run).outcome; got != "verifying" {
+		t.Errorf("owl jobs show reports the run as %q while its checks run, want verifying", got)
+	}
 
 	res := runOwl(t, b.l, "pause")
 

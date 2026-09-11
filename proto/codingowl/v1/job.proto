@@ -180,6 +180,10 @@ message Run {
   // Paused is whether the Run is frozen right now (ADR-0011). Only a run this
   // daemon is carrying out can be.
   bool paused = 12;
+  // Stage is where a Run that has not ended is: starting, agent, verifying or
+  // finishing. Only the daemon carrying it out knows, and it is empty for a
+  // Run that has ended.
+  string stage = 13;
   // ExitCode is what the Agent exited with, and -1 when it never got far
   // enough to have one.
   int32 exit_code = 9;

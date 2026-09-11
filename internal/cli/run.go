@@ -447,8 +447,12 @@ func runState(r client.Run) string {
 		return r.Outcome
 	case r.Paused:
 		return "paused"
-	default:
+	case r.Stage == "" || r.Stage == "agent":
 		return "running"
+	default:
+		// Where the Run is when its Agent is not the answer: starting,
+		// verifying or finishing, in the daemon's own words.
+		return r.Stage
 	}
 }
 

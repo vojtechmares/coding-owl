@@ -333,6 +333,8 @@ func TestS4RunCleanExitLandsTheJobInReview(t *testing.T) {
 // runRow is one row of the runs table owl jobs show prints.
 type runRow struct {
 	id, attempt, phase, outcome, exit, log string
+	// ended is the ENDED column, and "(none)" while the Run is in progress.
+	ended string
 }
 
 var runRowRE = regexp.MustCompile(`^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)$`)
@@ -356,7 +358,7 @@ func runRows(t *testing.T, out string) []runRow {
 		if m == nil {
 			t.Fatalf("cannot parse run row %q in:\n%s", ln, out)
 		}
-		rows = append(rows, runRow{id: m[1], attempt: m[2], phase: m[3], outcome: m[4], exit: m[5], log: m[8]})
+		rows = append(rows, runRow{id: m[1], attempt: m[2], phase: m[3], outcome: m[4], exit: m[5], ended: m[7], log: m[8]})
 	}
 	return rows
 }

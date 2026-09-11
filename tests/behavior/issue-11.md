@@ -54,6 +54,7 @@ And the Agent and the child it started are both gone
 Given a running daemon and a Job whose Agent starts a child and then exits of its own accord
 When the Run has finished
 Then the child is gone too, rather than left running with nobody watching it
+(The Run finishes when the Agent's output closes; a child that inherits and holds that output open keeps the Run going until it exits, and is then cleaned up with the group all the same.)
 
 ### S20 - an Agent that will not stop when it is asked is killed
 Given a running daemon whose `graceWindow` is a second, and a frozen Run whose Agent ignores being asked to stop
@@ -68,6 +69,7 @@ When `owl pause` runs while the checks are running
 Then it exits with a non-zero code
 And stderr says that Run is being verified rather than saying there is no run at all
 And `owl resume` says the same, in the words of the verb that was asked for
+And `owl status` and `owl jobs show` report the Run as `verifying` rather than as one whose Agent is running
 
 ### S17 - what an earlier daemon was carrying out is queued again, however it died
 Given a database in which a Job is `active` and its Run was already recorded as interrupted, which is a daemon that died halfway through recovering

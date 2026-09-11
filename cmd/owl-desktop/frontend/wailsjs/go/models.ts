@@ -188,6 +188,7 @@ export namespace client {
 	    Phase: string;
 	    Skills: Skill[];
 	    Paused: boolean;
+	    Stage: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Run(source);
@@ -207,6 +208,7 @@ export namespace client {
 	        this.Phase = source["Phase"];
 	        this.Skills = this.convertValues(source["Skills"], Skill);
 	        this.Paused = source["Paused"];
+	        this.Stage = source["Stage"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

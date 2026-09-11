@@ -580,6 +580,10 @@ type Run struct {
 	// Paused is whether the Run is frozen right now (ADR-0011). Only a run this
 	// daemon is carrying out can be.
 	Paused bool `protobuf:"varint,12,opt,name=paused,proto3" json:"paused,omitempty"`
+	// Stage is where a Run that has not ended is: starting, agent, verifying or
+	// finishing. Only the daemon carrying it out knows, and it is empty for a
+	// Run that has ended.
+	Stage string `protobuf:"bytes,13,opt,name=stage,proto3" json:"stage,omitempty"`
 	// ExitCode is what the Agent exited with, and -1 when it never got far
 	// enough to have one.
 	ExitCode int32 `protobuf:"varint,9,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
@@ -688,6 +692,13 @@ func (x *Run) GetPaused() bool {
 		return x.Paused
 	}
 	return false
+}
+
+func (x *Run) GetStage() string {
+	if x != nil {
+		return x.Stage
+	}
+	return ""
 }
 
 func (x *Run) GetExitCode() int32 {
@@ -2315,7 +2326,7 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"model_from\x18\x03 \x01(\tR\tmodelFrom\x12\x16\n" +
 	"\x06effort\x18\x04 \x01(\tR\x06effort\x12\x1f\n" +
 	"\veffort_from\x18\x05 \x01(\tR\n" +
-	"effortFrom\"\x8b\x03\n" +
+	"effortFrom\"\xa1\x03\n" +
 	"\x03Run\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\x03R\x05jobId\x12\x18\n" +
@@ -2327,7 +2338,8 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\blog_path\x18\b \x01(\tR\alogPath\x12\x14\n" +
 	"\x05phase\x18\n" +
 	" \x01(\tR\x05phase\x12\x16\n" +
-	"\x06paused\x18\f \x01(\bR\x06paused\x12\x1b\n" +
+	"\x06paused\x18\f \x01(\bR\x06paused\x12\x14\n" +
+	"\x05stage\x18\r \x01(\tR\x05stage\x12\x1b\n" +
 	"\texit_code\x18\t \x01(\x05R\bexitCode\x12+\n" +
 	"\x06skills\x18\v \x03(\v2\x13.codingowl.v1.SkillR\x06skills\"\x11\n" +
 	"\x0fPauseRunRequest\"7\n" +

@@ -38,6 +38,9 @@ type Run struct {
 	Skills []Skill
 	// Paused is whether the Run is frozen right now (ADR-0011).
 	Paused bool
+	// Stage is where a Run that has not ended is: starting, agent, verifying
+	// or finishing. Empty once it has ended.
+	Stage string
 }
 
 // CheckResult is what one Verification check said about a Run.
@@ -200,6 +203,7 @@ func runFromProto(r *codingowlv1.Run) Run {
 		Phase:    r.GetPhase(),
 		Skills:   skillsFromProto(r.GetSkills()),
 		Paused:   r.GetPaused(),
+		Stage:    r.GetStage(),
 	}
 	if r.GetEnded() != nil {
 		out.Ended = r.GetEnded().AsTime()
