@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -72,7 +73,7 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, emit func(string
 			return invalid("the provider sent an event Owl could not read: %v", err)
 		}
 		if strings.TrimSpace(ev.Error.Message) != "" {
-			return invalid("the provider refused: %s", strings.TrimSpace(ev.Error.Message))
+			return fmt.Errorf("the provider refused: %s", strings.TrimSpace(ev.Error.Message))
 		}
 		for _, choice := range ev.Choices {
 			if text := choice.Delta.Content; text != "" {

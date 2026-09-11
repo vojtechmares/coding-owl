@@ -130,6 +130,10 @@ func TestAddProviderRefusesWhatOwlCannotUse(t *testing.T) {
 			_, err := f.chat.AddProvider(ctx, "anthropic", "k", "https://someone:s3cr3t@models.test", nil)
 			return err
 		},
+		"a base url carrying a query": func() error {
+			_, err := f.chat.AddProvider(ctx, "anthropic", "k", "https://models.test/v1?key=s3cr3t", nil)
+			return err
+		},
 		"a model name Owl cannot use": func() error {
 			_, err := f.chat.AddProvider(ctx, "openrouter", "k", "", []string{"--upload-pack=evil"})
 			return err
@@ -497,7 +501,7 @@ func TestAnAnswerThatNeverArrivedDoesNotSpoilTheNextOne(t *testing.T) {
 	alternating(t, roles, said)
 	for _, want := range []string{"the first question", "the first answer", "the second question", "the third question"} {
 		if !strings.Contains(said, want) {
-			t.Errorf("what was sent does not carry %q:\n%s", want, said)
+			t.Errorf("what was sent does not carry %q:\n%s", want, tailOf(said))
 		}
 	}
 }
@@ -632,5 +636,75 @@ func TestEveryProviderIsSentAConversationInTheSameShape(t *testing.T) {
 		if !strings.Contains(said, want) {
 			t.Errorf("what was sent does not carry %q:\n%s", want, tailOf(said))
 		}
+	}
+}
+
+func TestAProviderThatSendsNothingReadableIsSaidSo(t *testing.T) {
+	f := newFixture(t)
+	// Something answering on the provider's behalf: a captive portal, or a
+	// base url pointing at a server that is not the API.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprint(w, "<html>Sign in to use this network</html>")
+	}))
+	t.Cleanup(srv.Close)
+	if _, err := f.chat.AddProvider(ctx, "anthropic", "sk-ant-secret",
+		srv.URL, []string{"claude-opus-5"}); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+
+	id, err := f.chat.Send(ctx, chat.SendRequest{Model: "claude-opus-5", Text: "are you there"}, nil)
+
+	if err == nil {
+		t.Fatal("an answer nobody sent was reported as one")
+	}
+	if !strings.Contains(err.Error(), "anthropic") {
+		t.Errorf("the failure is %q, want it to name the provider", err)
+	}
+	// The question is still the user's to see, and nothing was answered.
+	_, said, err := f.chat.Conversation(ctx, id)
+	if err != nil {
+		t.Fatalf("the conversation could not be read back: %v", err)
+	}
+	for _, m := range said {
+		if m.Role == chat.RoleAssistant {
+			t.Errorf("the conversation keeps an answer nobody gave: %q", m.Text)
+		}
+	}
+}
+
+// unreadableStore is a credential store whose secrets cannot be read back,
+// which is what a rotation has to say something about.
+type unreadableStore struct {
+	credential.Store
+}
+
+func (s unreadableStore) Get(context.Context, string) (string, error) {
+	return "", errors.New("the credential store will not say")
+}
+
+func TestARotationThatCannotReadTheKeyItReplacesSaysSo(t *testing.T) {
+	f := newFixture(t)
+	broken := &breakingStore{Store: f.store}
+	service := chat.NewService(broken, f.creds, chat.NewTools(f.view))
+	if _, err := service.AddProvider(ctx, "anthropic", "sk-ant-first", "", nil); err != nil {
+		t.Fatalf("AddProvider: %v", err)
+	}
+
+	broken.broken = true
+	blind := chat.NewService(broken, unreadableStore{Store: f.creds}, chat.NewTools(f.view))
+	_, err := blind.AddProvider(ctx, "anthropic", "sk-ant-second", "", nil)
+
+	if err == nil {
+		t.Fatal("the rotation was reported as done though the row could not be written")
+	}
+	// It is now reaching models with a key nobody meant to configure, which is
+	// a thing to be told rather than to find out.
+	if !strings.Contains(err.Error(), "new key") {
+		t.Errorf("the failure is %q, want it to say which key the provider is left with", err)
+	}
+	key, err := f.creds.Get(ctx, "chat/anthropic")
+	if err != nil || key != "sk-ant-second" {
+		t.Errorf("the credential store holds %q, %v; want what the error says it does", key, err)
 	}
 }

@@ -487,11 +487,12 @@ checks:
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"type":"tool_use"`, `"call-1"`} {
-		if !strings.Contains(string(raw), want) {
-			t.Errorf("the tool result is carried back without %s, so there is no call to attach it to:\n%s",
-				want, raw)
-		}
+	calls, answered := pairing(t, raw)
+	if len(calls) != 1 || calls[0] != "call-1" {
+		t.Errorf("the call the model made went back as %v, want the one it made:\n%s", calls, raw)
+	}
+	if len(answered) != 1 || answered[0] != "call-1" {
+		t.Errorf("the result answers %v, want the call that asked for it:\n%s", answered, raw)
 	}
 	if answer := strings.Join(got.deltas, ""); !strings.Contains(answer, "It was the gauntlet check.") {
 		t.Errorf("the answer after the tool call is %q", answer)
@@ -531,6 +532,33 @@ func TestS11ChatARunsLogIsAnsweredBounded(t *testing.T) {
 	if len(second) > 20<<10 {
 		t.Errorf("the tool result is %d bytes, want no more than the daemon will carry", len(second))
 	}
+}
+
+// pairing is the calls a request carries and the calls its results answer,
+// which are the same calls or the provider has nothing to attach them to.
+func pairing(t *testing.T, raw []byte) (calls, answered []string) {
+	t.Helper()
+	var turns []struct {
+		Content []struct {
+			Type      string `json:"type"`
+			ID        string `json:"id"`
+			ToolUseID string `json:"tool_use_id"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &turns); err != nil {
+		t.Fatalf("the request is not one Owl sent: %v\n%s", err, raw)
+	}
+	for _, turn := range turns {
+		for _, block := range turn.Content {
+			switch block.Type {
+			case "tool_use":
+				calls = append(calls, block.ID)
+			case "tool_result":
+				answered = append(answered, block.ToolUseID)
+			}
+		}
+	}
+	return calls, answered
 }
 
 // tail is the end of something long, for a message a person reads.

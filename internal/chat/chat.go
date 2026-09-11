@@ -302,6 +302,12 @@ func checkBaseURL(raw string) error {
 	if at.User != nil {
 		return invalid("the base url carries a name or a password; a provider's key is configured with --key-stdin")
 	}
+	// Every request is that url with a path put after it, so anything that
+	// cannot come before a path would end up in the middle of one.
+	if at.RawQuery != "" || at.ForceQuery || at.Fragment != "" {
+		return invalid("the base url %q carries a query or a fragment; it is where Owl reaches the provider, "+
+			"and every request puts a path after it", raw)
+	}
 	return nil
 }
 
