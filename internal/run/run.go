@@ -36,7 +36,6 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/skill"
 	"github.com/vojtechmares/coding-owl/internal/store"
 	"github.com/vojtechmares/coding-owl/internal/verifier"
-	agentverifier "github.com/vojtechmares/coding-owl/internal/verifier/agent"
 )
 
 // logSuffix names a Run's captured output under the state directory
@@ -141,10 +140,11 @@ type Details struct {
 	Job          queue.Job
 	Runs         []Run
 	SystemPrompt string
-	// ReviewSystemPrompt is Owl's standing contract with the reviewer, for a
-	// Project that asks for a review and empty for one that does not: nothing
-	// Owl puts in front of an Agent is hidden (ADR-0013, ADR-0017).
-	ReviewSystemPrompt string
+	// VerifierSystemPrompt is Owl's standing contract with the Agent that
+	// verifies the work, for a Project that asks for one and empty for one
+	// that does not: nothing Owl puts in front of an Agent is hidden
+	// (ADR-0013, ADR-0017).
+	VerifierSystemPrompt string
 	// Phases is what each phase runs at and where each setting came from, in
 	// the order a Job passes through them (ADR-0028).
 	Phases []Settings
@@ -193,11 +193,11 @@ type Options struct {
 	Executor executor.Executor
 	// Verifier decides whether what a Run produced is acceptable (ADR-0013).
 	Verifier verifier.Verifier
-	// Reviewer is the second pair of eyes a Project can ask for after its own
-	// checks: a fresh Agent Session that reviews the work (ADR-0013). A
-	// Service without one refuses a Project that asks for a review rather than
-	// letting the Job through unreviewed.
-	Reviewer verifier.Verifier
+	// AgentVerifier is the second pair of eyes a Project can ask for after its
+	// own checks: a fresh Agent Session that reviews the work (ADR-0013). A
+	// Service without one refuses a Project that asks for it rather than
+	// letting the Job through unjudged.
+	AgentVerifier verifier.Verifier
 	// Skills fetches and places what a Project declares (ADR-0024).
 	Skills *skill.Service
 	// WorktreeConfigDir holds the exclude file Owl owns for each Job's
@@ -648,14 +648,14 @@ func (s *Service) Show(ctx context.Context, jobID int64) (Details, error) {
 		return Details{}, err
 	}
 	return Details{
-		Job:                queue.FromStore(j),
-		Runs:               runs,
-		SystemPrompt:       SystemPrompt(details.Config.UnattendedClauses),
-		ReviewSystemPrompt: reviewSystemPrompt(details.Config),
-		Phases:             settings,
-		Checks:             results,
-		Handoff:            handoff,
-		Diff:               diff,
+		Job:                  queue.FromStore(j),
+		Runs:                 runs,
+		SystemPrompt:         SystemPrompt(details.Config.UnattendedClauses),
+		VerifierSystemPrompt: s.verifierSystemPrompt(details.Config),
+		Phases:               settings,
+		Checks:               results,
+		Handoff:              handoff,
+		Diff:                 diff,
 	}, nil
 }
 
@@ -1098,14 +1098,14 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64, details 
 	// opinion, and it reads the same work (ADR-0013). It runs whatever the
 	// checks said, so a blocked Job reports everything that is wrong at once
 	// rather than one thing a morning (ADR-0030).
-	if cfg.Review.Agent {
+	if cfg.Verification.Agent {
 		var got []verifier.Result
 		var err error
-		if s.opts.Reviewer == nil {
+		if s.opts.AgentVerifier == nil {
 			// A Job must not reach review because nobody was asked (ADR-0013).
-			err = errors.New("this daemon has no agent reviewer")
+			err = errors.New("this daemon has no agent verifier")
 		} else {
-			got, err = s.opts.Reviewer.Verify(ctx, s.reviewRequest(j, details, req))
+			got, err = s.opts.AgentVerifier.Verify(ctx, s.agentRequest(j, details, req))
 		}
 		if ctx.Err() != nil {
 			return ""
@@ -1115,7 +1115,7 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64, details 
 			// recorded beside the checks that did run: what a Project's own
 			// checks said is worth keeping whatever became of the review.
 			got = []verifier.Result{{
-				Name: config.ReviewName, Verifier: verifier.KindAgent, ExitCode: store.NoExitCode,
+				Name: config.AgentVerifierName, Verifier: verifier.KindAgent, ExitCode: store.NoExitCode,
 				Reason: fmt.Sprintf("could not be carried out: %v", err),
 			}}
 		}
@@ -1147,28 +1147,33 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64, details 
 	return "verification failed: " + strings.Join(names, ", ")
 }
 
-// reviewSystemPrompt is what a reviewer is told it is for, for a Project that
-// asks for one. Nothing Owl puts in front of an Agent is hidden (ADR-0017),
-// and a reviewer is an Agent Owl starts.
-func reviewSystemPrompt(cfg config.Config) string {
-	if !cfg.Review.Agent {
+// verifierSystemPrompt is what the agent Verifier is told it is for, for a
+// Project that asks for one. Nothing Owl puts in front of an Agent is hidden
+// (ADR-0017), and this is an Agent Owl starts.
+func (s *Service) verifierSystemPrompt(cfg config.Config) string {
+	if !cfg.Verification.Agent {
 		return ""
 	}
-	return agentverifier.SystemPrompt()
+	// The Verifier says what it tells its own Agent, so the seam between them
+	// stays the interface rather than the package (ADR-0005).
+	if says, ok := s.opts.AgentVerifier.(interface{ SystemPrompt() string }); ok {
+		return says.SystemPrompt()
+	}
+	return ""
 }
 
-// reviewRequest is what a reviewer is given: the plan the work was meant to
+// agentRequest is what the agent Verifier is given: the plan the work was meant to
 // carry out, what the branch changed, and the Account and settings the Run it
 // judges ran on (ADR-0013, ADR-0023).
 //
-// The diff is read here rather than by the reviewer, so that what it judges is
+// The diff is read here rather than by that Agent, so that what it judges is
 // what the branch changed against the base branch the Run started from, and
-// not whatever the Agent left the worktree looking at.
-func (s *Service) reviewRequest(j store.Job, details project.Details, req driver.Request) verifier.Request {
+// not whatever the Agent before it left the worktree looking at.
+func (s *Service) agentRequest(j store.Job, details project.Details, req driver.Request) verifier.Request {
 	out := verifier.Request{
-		WorkingDir: j.Worktree,
-		Review:     details.Config.Review,
-		Plan:       j.Plan,
+		WorkingDir:   j.Worktree,
+		Verification: details.Config.Verification,
+		Plan:         j.Plan,
 		Agent: verifier.Agent{
 			ConfigDir: req.ConfigDir,
 			Token:     req.Token,

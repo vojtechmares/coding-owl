@@ -342,10 +342,11 @@ func printJob(env Env, d client.JobDetails) {
 		_, _ = fmt.Fprintf(env.Stdout, "\nhandoff: %s\n", noValue)
 	}
 	_, _ = fmt.Fprintf(env.Stdout, "\nsystem prompt:\n%s\n", d.SystemPrompt)
-	// A Project that asked for a review gets a second Agent, with a contract
-	// of its own: nothing Owl puts in front of one is hidden (ADR-0017).
-	if d.ReviewSystemPrompt != "" {
-		_, _ = fmt.Fprintf(env.Stdout, "\nreview system prompt:\n%s\n", d.ReviewSystemPrompt)
+	// A Project that asked for the agent Verifier gets a second Agent, with a
+	// contract of its own: nothing Owl puts in front of one is hidden
+	// (ADR-0017).
+	if d.VerifierSystemPrompt != "" {
+		_, _ = fmt.Fprintf(env.Stdout, "\nverifier system prompt:\n%s\n", d.VerifierSystemPrompt)
 	}
 }
 
@@ -420,7 +421,7 @@ func printChecks(env Env, checks []client.CheckResult) {
 		}
 		_, _ = fmt.Fprintf(env.Stdout, "- %s: %s\n", c.Name, verdict)
 		// A check's output is evidence for a failure, and noise when it
-		// passed. A review's findings are its answer either way: a reviewer
+		// passed. The agent Verifier's findings are its answer either way: one
 		// that passed the work with a note wrote that note to be read
 		// (ADR-0013).
 		if c.Passed && c.Verifier != verifier.KindAgent {

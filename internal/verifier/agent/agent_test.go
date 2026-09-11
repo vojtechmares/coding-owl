@@ -3,11 +3,13 @@ package agent_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -57,7 +59,7 @@ func (d *fakeDriver) given() driver.Request {
 }
 
 // fakeExecutor stands in for a place an Agent runs. It writes what the test
-// told it to write, as a reviewer leaving its verdict, and ends how the test
+// told it to write, as an Agent leaving its verdict, and ends how the test
 // said it ends.
 type fakeExecutor struct {
 	// verdict is written into the working directory before the Agent exits,
@@ -78,8 +80,15 @@ type fakeExecutor struct {
 	// it can write there.
 	link string
 	// linkDir, when set, is what the Agent points the directory the verdict
-	// goes in at, which it can do while the review is already under way.
+	// goes in at, which it can do while the verification is already under way.
 	linkDir string
+	// fifo makes the verdict a named pipe, which is a thing an Agent can put
+	// where its answer belongs and which nobody ever writes to.
+	fifo bool
+	// sealAfterWriting makes the directory the verdict is in unwritable once
+	// the verdict is in it, which is an Agent that answered and then took the
+	// answer out of Owl's hands.
+	sealAfterWriting bool
 }
 
 func (*fakeExecutor) Name() string { return "fake" }
@@ -104,8 +113,21 @@ func (e *fakeExecutor) Start(ctx context.Context, inv agentpkg.Invocation) (agen
 			return nil, err
 		}
 	}
+	if e.fifo {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return nil, err
+		}
+		if err := syscall.Mkfifo(path, 0o600); err != nil {
+			return nil, err
+		}
+	}
 	if e.linkDir != "" {
 		if err := os.Symlink(e.linkDir, filepath.Dir(path)); err != nil {
+			return nil, err
+		}
+	}
+	if e.sealAfterWriting {
+		if err := os.Chmod(filepath.Dir(path), 0o500); err != nil {
 			return nil, err
 		}
 	}
@@ -134,17 +156,18 @@ func (p *fakeProcess) Wait() (int, error) {
 
 func (*fakeProcess) Stderr() string { return "" }
 
-// review runs one review over a temporary worktree and returns what it said.
+// review runs one verification over a temporary worktree and returns what it
+// said.
 func review(t *testing.T, d *fakeDriver, e *fakeExecutor, req verifier.Request) ([]verifier.Result, string, error) {
 	t.Helper()
 	worktree := t.TempDir()
 	req.WorkingDir = worktree
-	req.Review.Agent = true
+	req.Verification.Agent = true
 	results, err := agent.New(d, e).Verify(ctx, req)
 	return results, worktree, err
 }
 
-// only is the one Result a review produces.
+// only is the one Result a verification produces.
 func only(t *testing.T, results []verifier.Result, err error) verifier.Result {
 	t.Helper()
 	if err != nil {
@@ -166,7 +189,7 @@ func TestVerifyReportsAPassingVerdictWithWhatTheReviewerWrote(t *testing.T) {
 		t.Errorf("a passing verdict was reported as %+v", got)
 	}
 	if !strings.Contains(got.Output, "It does what the plan said.") {
-		t.Errorf("Output = %q, want what the reviewer wrote", got.Output)
+		t.Errorf("Output = %q, want what the agent wrote", got.Output)
 	}
 	if got.Reason != "" {
 		t.Errorf("Reason = %q, want none for a review that passed", got.Reason)
@@ -205,17 +228,17 @@ func TestVerifyGivesTheReviewerThePlanTheDiffAndWhereToWrite(t *testing.T) {
 	given := d.given()
 	for _, want := range []string{"Add the file and stop.", "+a line the agent added", agent.VerdictPath} {
 		if !strings.Contains(given.Prompt, want) {
-			t.Errorf("the reviewer's prompt does not carry %q:\n%s", want, given.Prompt)
+			t.Errorf("the prompt does not carry %q:\n%s", want, given.Prompt)
 		}
 	}
 	if given.ConfigDir != "/accounts/work" || given.Token != "sk-ant-oat01-x" {
-		t.Errorf("the reviewer runs as %+v, want the account the job runs on", given)
+		t.Errorf("the verifying agent runs as %+v, want the account the job runs on", given)
 	}
 	if given.Model != "opus" || given.Effort != "high" {
-		t.Errorf("the reviewer runs at %s/%s, want what the run it judges ran at", given.Model, given.Effort)
+		t.Errorf("the verifying agent runs at %s/%s, want what the run it judges ran at", given.Model, given.Effort)
 	}
 	if given.SystemPrompt == "" {
-		t.Error("the reviewer was given no system prompt of its own")
+		t.Error("the verifying agent was given no system prompt of its own")
 	}
 }
 
@@ -235,7 +258,7 @@ func TestVerifyCutsAPlanTooLongToCarryWhole(t *testing.T) {
 		t.Errorf("the prompt is %d bytes for a plan of %d, want the plan cut", len(given), len(plan))
 	}
 	if !strings.Contains(given, "too long to carry whole") {
-		t.Errorf("a reviewer given part of the plan is not told so:\n%s", given[:min(len(given), 600)])
+		t.Errorf("an agent given part of the plan is not told so:\n%s", given[:min(len(given), 600)])
 	}
 	// Cut at a whole line, so what is quoted reads as the plan as far as it
 	// goes rather than ending mid-sentence.
@@ -266,7 +289,7 @@ func TestVerifyKeepsThePromptToALengthAToolWillTake(t *testing.T) {
 		t.Errorf("the prompt is %d bytes, more than a tool will take in one argument", got)
 	}
 	if !strings.Contains(d.given().Prompt, "git diff") {
-		t.Errorf("a reviewer given no diff is not told how to read it:\n%s", d.given().Prompt)
+		t.Errorf("an agent given no diff is not told how to read it:\n%s", d.given().Prompt)
 	}
 }
 
@@ -279,7 +302,7 @@ func TestVerifySaysWhenTheDiffWasTooLongToCarryWhole(t *testing.T) {
 	}
 
 	if !strings.Contains(d.given().Prompt, "git diff") {
-		t.Errorf("a reviewer given half a diff is not told how to read the rest:\n%s", d.given().Prompt)
+		t.Errorf("an agent given half a diff is not told how to read the rest:\n%s", d.given().Prompt)
 	}
 }
 
@@ -305,7 +328,7 @@ func TestVerifyRefusesWhenTheReviewerLeftNoVerdict(t *testing.T) {
 	got := only(t, results, err)
 
 	if got.Passed {
-		t.Error("a review nobody answered was reported as passed")
+		t.Error("a verdict nobody left was reported as passed")
 	}
 	if !strings.Contains(got.Reason, "verdict") {
 		t.Errorf("Reason = %q, want it to say no verdict was left", got.Reason)
@@ -326,7 +349,7 @@ func TestVerifyRefusesAVerdictReachedThroughALinkedDirectory(t *testing.T) {
 	d, e := &fakeDriver{}, &fakeExecutor{}
 
 	results, err := agent.New(d, e).Verify(ctx, verifier.Request{
-		WorkingDir: worktree, Review: config.Review{Agent: true},
+		WorkingDir: worktree, Verification: config.Verification{Agent: true},
 	})
 	got := only(t, results, err)
 
@@ -365,16 +388,37 @@ func TestVerifyRefusesAVerdictThroughADirectoryTheAgentLinkedWhileItRan(t *testi
 	}
 }
 
+func TestVerifySaysWhenTheVerdictCouldNotBeTakenAway(t *testing.T) {
+	// Nothing else will say so until the next Run clears it, and a file left
+	// in the worktree is a worktree git reports as dirty (ADR-0015).
+	worktree := t.TempDir()
+	d := &fakeDriver{}
+	e := &fakeExecutor{verdict: "verdict: pass\n\nIt does what the plan said.\n", sealAfterWriting: true}
+
+	results, err := agent.New(d, e).Verify(ctx, verifier.Request{
+		WorkingDir: worktree, Verification: config.Verification{Agent: true},
+	})
+	got := only(t, results, err)
+
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(worktree, ".coding-owl"), 0o755) })
+	if !got.Passed {
+		t.Errorf("a verdict Owl could not take away was not honoured: %+v", got)
+	}
+	if !strings.Contains(got.Output, "could not take") {
+		t.Errorf("Output = %q, want it to say the verdict is still there", got.Output)
+	}
+}
+
 func TestVerifyRefusesWhenTheVerdictCannotBeClearedFirst(t *testing.T) {
-	// Whatever is at that path before the reviewer starts is somebody else's:
-	// an earlier Run's, or planted by the Agent whose work is being judged. A
-	// review that could not clear it is a review, not a verdict.
+	// Whatever is at that path before the Agent starts is somebody else's: an
+	// earlier Run's, or planted by the Agent whose work is being judged. One
+	// that could not be cleared is not this Agent's verdict.
 	worktree := t.TempDir()
 	owned := filepath.Join(worktree, ".coding-owl")
 	if err := os.MkdirAll(owned, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(owned, "REVIEW.md"), []byte("verdict: pass\nplanted\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(owned, "VERDICT.md"), []byte("verdict: pass\nplanted\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(owned, 0o500); err != nil {
@@ -384,7 +428,7 @@ func TestVerifyRefusesWhenTheVerdictCannotBeClearedFirst(t *testing.T) {
 	d, e := &fakeDriver{}, &fakeExecutor{}
 
 	results, err := agent.New(d, e).Verify(ctx, verifier.Request{
-		WorkingDir: worktree, Review: config.Review{Agent: true},
+		WorkingDir: worktree, Verification: config.Verification{Agent: true},
 	})
 	got := only(t, results, err)
 
@@ -392,7 +436,7 @@ func TestVerifyRefusesWhenTheVerdictCannotBeClearedFirst(t *testing.T) {
 		t.Errorf("a verdict nobody could clear first was reported as passed: %+v", got)
 	}
 	if d.given().Prompt != "" {
-		t.Error("a reviewer was started for a review Owl could not ask for")
+		t.Error("an agent was started for a verdict Owl could not ask for")
 	}
 }
 
@@ -424,6 +468,32 @@ func TestVerifyRefusesAVerdictThatIsALinkToSomewhereElse(t *testing.T) {
 	}
 }
 
+func TestVerifyRefusesAVerdictNobodyWillEverWrite(t *testing.T) {
+	// A fifo where the answer belongs is a read that never returns, and the
+	// daemon waits for its Runs before it stops: that is a daemon that cannot
+	// be stopped.
+	d, e := &fakeDriver{}, &fakeExecutor{fifo: true}
+
+	done := make(chan verifier.Result, 1)
+	go func() {
+		results, _, err := review(t, d, e, verifier.Request{})
+		if err != nil || len(results) != 1 {
+			done <- verifier.Result{Reason: fmt.Sprintf("Verify = %+v, %v", results, err)}
+			return
+		}
+		done <- results[0]
+	}()
+
+	select {
+	case got := <-done:
+		if got.Passed {
+			t.Error("a verdict nobody will ever write was reported as passed")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("reading a verdict nobody will ever write had not returned")
+	}
+}
+
 func TestVerifyRefusesAVerdictItCannotRead(t *testing.T) {
 	d, e := &fakeDriver{}, &fakeExecutor{verdict: "looks fine to me\n"}
 
@@ -444,17 +514,17 @@ func TestVerifyStopsAReviewerThatWillNotFinish(t *testing.T) {
 	d, e := &fakeDriver{}, &fakeExecutor{waitFor: true, verdict: "verdict: pass\n"}
 
 	started := time.Now()
-	results, _, err := review(t, d, e, verifier.Request{Review: config.Review{Timeout: 200 * time.Millisecond}})
+	results, _, err := review(t, d, e, verifier.Request{Verification: config.Verification{Timeout: 200 * time.Millisecond}})
 	got := only(t, results, err)
 
 	if took := time.Since(started); took > 10*time.Second {
-		t.Errorf("the review took %s, want the timeout to end it", took)
+		t.Errorf("the verification took %s, want the timeout to end it", took)
 	}
 	if got.Passed {
-		t.Error("a review that was stopped was reported as passed")
+		t.Error("a verdict from an agent that was stopped was reported as passed")
 	}
 	if !strings.Contains(got.Reason, "stopped") {
-		t.Errorf("Reason = %q, want it to say the reviewer was stopped", got.Reason)
+		t.Errorf("Reason = %q, want it to say the agent was stopped", got.Reason)
 	}
 }
 
@@ -498,7 +568,7 @@ func TestVerifyReportsAReviewerThatCouldNotBeStarted(t *testing.T) {
 	got := only(t, results, err)
 
 	if got.Passed {
-		t.Error("a reviewer that never ran was reported as passed")
+		t.Error("an agent that never ran was reported as passed")
 	}
 	if !strings.Contains(got.Reason, "no such tool") {
 		t.Errorf("Reason = %q, want it to say what went wrong", got.Reason)
@@ -514,9 +584,9 @@ func TestVerifyIsNothingForAProjectThatAsksForNoReview(t *testing.T) {
 		t.Fatalf("Verify: %v", err)
 	}
 	if len(results) != 0 {
-		t.Errorf("Verify = %+v, want nothing for a project that asked for no review", results)
+		t.Errorf("Verify = %+v, want nothing for a project that asked for no agent verifier", results)
 	}
 	if d.given().Prompt != "" {
-		t.Error("an agent was started for a project that asked for no review")
+		t.Error("an agent was started for a project that asked for no agent verifier")
 	}
 }

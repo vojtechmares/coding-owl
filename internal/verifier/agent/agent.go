@@ -1,5 +1,5 @@
 // Package agent is the Verifier that asks a fresh Agent Session to review the
-// work (ADR-0013). Fresh is the whole point: the reviewer must not carry the
+// work (ADR-0013). Fresh is the whole point: the Agent that judges must not carry the
 // context that produced the work, so it is a new Session on the Job's own
 // Driver and Account, given the plan and the diff and nothing else.
 //
@@ -25,27 +25,27 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/verifier"
 )
 
-// VerdictPath is where the reviewer is asked to leave its verdict, inside the
+// VerdictPath is where the Agent is asked to leave its verdict, inside the
 // Job's worktree. It sits beside the handoff, in the directory Owl already
 // owns there (ADR-0026), and Owl takes it away again once it has read it: what
-// the reviewer says is not the Job's work.
-const VerdictPath = ".coding-owl/REVIEW.md"
+// it says is not the Job's work.
+const VerdictPath = ".coding-owl/VERDICT.md"
 
 // verdictName is VerdictPath as this machine spells a path, which is what the
 // worktree's root is asked for.
 var verdictName = filepath.FromSlash(VerdictPath)
 
-// ResultName is what a review is called in a report, beside the Project's own
-// checks. It is the configuration's own constant, because that is where a
+// ResultName is what this Verifier is called in a report, beside the Project's
+// own checks. It is the configuration's own constant, because that is where a
 // check that tried to take the name is refused.
-const ResultName = config.ReviewName
+const ResultName = config.AgentVerifierName
 
-// DefaultTimeout bounds a reviewer that the Project did not bound. Reading a
-// diff is not a long job, and a reviewer nobody stops holds a Run open
+// DefaultTimeout bounds an Agent the Project did not bound. Reading a diff is
+// not a long job, and one nobody stops holds a Run open
 // (ADR-0030).
 const DefaultTimeout = 15 * time.Minute
 
-// maxOutput is how much of what the reviewer printed is kept for the message a
+// maxOutput is how much of what it printed is kept for the message a
 // failed review is reported with. The verdict is the file; this is for when
 // there is not one.
 const maxOutput = 4 << 10
@@ -60,7 +60,7 @@ type Verifier struct {
 	executor executor.Executor
 }
 
-// New returns the agent Verifier, which starts its reviewer on the same Driver
+// New returns the agent Verifier, which starts its Agent on the same Driver
 // and in the same place as the Run it judges.
 func New(d driver.Driver, e executor.Executor) *Verifier {
 	return &Verifier{driver: d, executor: e}
@@ -69,10 +69,10 @@ func New(d driver.Driver, e executor.Executor) *Verifier {
 // Name identifies the Verifier.
 func (*Verifier) Name() string { return verifier.KindAgent }
 
-// SystemPrompt is Owl's standing contract with a reviewer, which `owl jobs
-// show` prints for a Project that asks for one: nothing Owl puts in front of
-// an Agent is hidden from the user (ADR-0017).
-func SystemPrompt() string { return systemPrompt }
+// SystemPrompt is Owl's standing contract with the Agent this Verifier starts,
+// which `owl jobs show` prints for a Project that asks for one: nothing Owl
+// puts in front of an Agent is hidden from the user (ADR-0017).
+func (*Verifier) SystemPrompt() string { return systemPrompt }
 
 // Verify asks a fresh Agent Session for a verdict on the work, and reports
 // what it said. A Project that did not ask for a review gets nothing at all.
@@ -81,13 +81,13 @@ func SystemPrompt() string { return systemPrompt }
 // Job must not reach review because nobody was asked (ADR-0013), and the
 // reason says what happened.
 func (v *Verifier) Verify(ctx context.Context, req verifier.Request) ([]verifier.Result, error) {
-	if !req.Review.Agent {
+	if !req.Verification.Agent {
 		return nil, nil
 	}
 	return []verifier.Result{v.review(ctx, req)}, nil
 }
 
-// review carries out one review.
+// review carries out one verification by Agent.
 func (v *Verifier) review(ctx context.Context, req verifier.Request) verifier.Result {
 	out := verifier.Result{
 		Name:     ResultName,
@@ -96,7 +96,7 @@ func (v *Verifier) review(ctx context.Context, req verifier.Request) verifier.Re
 		Verifier: verifier.KindAgent,
 	}
 	// Everything Owl reads or removes in the worktree goes through a root, so
-	// no component of the path can be a link out of it: the reviewer writes in
+	// no component of the path can be a link out of it: that Agent writes in
 	// that worktree, and so did the Agent whose work it is judging.
 	root, err := os.OpenRoot(req.WorkingDir)
 	if err != nil {
@@ -105,7 +105,7 @@ func (v *Verifier) review(ctx context.Context, req verifier.Request) verifier.Re
 	}
 	defer func() { _ = root.Close() }()
 	// Anything left at that path by an earlier Run, or planted there by the
-	// Agent whose work is being judged, is not this reviewer's answer. Failing
+	// Agent whose work is being judged, is not this one's answer. Failing
 	// to clear it is failing the review: what is read afterwards would be
 	// somebody else's verdict.
 	if err := root.Remove(verdictName); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -114,7 +114,7 @@ func (v *Verifier) review(ctx context.Context, req verifier.Request) verifier.Re
 		return out
 	}
 
-	timeout := req.Review.Timeout
+	timeout := req.Verification.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
@@ -175,13 +175,13 @@ func (v *Verifier) review(ctx context.Context, req verifier.Request) verifier.Re
 	// rather than in a log nobody reads.
 	if code != 0 {
 		out.Output = strings.TrimRight(out.Output, "\n") +
-			fmt.Sprintf("\n\n(the reviewer exited %d after writing this.)\n", code)
+			fmt.Sprintf("\n\n(the verifying agent exited %d after writing this.)\n", code)
 	}
 	switch verdict {
 	case verdictPass:
 		out.Passed = true
 	case verdictFail:
-		out.Reason = "the reviewer refused the work"
+		out.Reason = "the verifying agent refused the work"
 	default:
 		out.Reason = fmt.Sprintf("left the verdict %q, which is neither %s nor %s",
 			verdict, verdictPass, verdictFail)
@@ -189,7 +189,7 @@ func (v *Verifier) review(ctx context.Context, req verifier.Request) verifier.Re
 	return out
 }
 
-// run starts the reviewer and waits for it, draining what it prints: an Agent
+// run starts that Agent and waits for it, draining what it prints: an Agent
 // nobody reads blocks on a full pipe.
 func (v *Verifier) run(ctx context.Context, inv agentpkg.Invocation) (printed string, code int, err error) {
 	p, err := v.executor.Start(ctx, inv)
@@ -199,7 +199,7 @@ func (v *Verifier) run(ctx context.Context, inv agentpkg.Invocation) (printed st
 	var b strings.Builder
 	_, _ = io.Copy(&b, io.LimitReader(p.Stdout(), maxOutput))
 	// Whatever is left is read and dropped whatever the first read did, so the
-	// reviewer is never waiting on a reader that stopped listening.
+	// Agent is never waiting on a reader that stopped listening.
 	_, _ = io.Copy(io.Discard, p.Stdout())
 	code, waitErr := p.Wait()
 	if waitErr != nil {
@@ -211,7 +211,7 @@ func (v *Verifier) run(ctx context.Context, inv agentpkg.Invocation) (printed st
 	return b.String(), code, nil
 }
 
-// verdictPass and verdictFail are what a reviewer may say.
+// verdictPass and verdictFail are what a verdict may say.
 const (
 	verdictPass = "pass"
 	verdictFail = "fail"
@@ -220,14 +220,18 @@ const (
 // verdictKey is the line Owl reads the verdict from.
 const verdictKey = "verdict:"
 
-// readVerdict reads the verdict the reviewer left and takes the file away
-// again. found is false for a reviewer that left nothing.
+// readVerdict reads the verdict it left and takes the file away
+// again. found is false when nothing was left.
 func readVerdict(root *os.Root) (verdict, findings string, found bool, err error) {
 	// The file is in a worktree an Agent writes, so it is opened through the
 	// worktree's own root and without following a link: a verdict Owl reads
 	// out of somebody's SSH key is not a verdict, and it would land in the
 	// database and in the report.
-	f, err := root.OpenFile(verdictName, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	// O_NONBLOCK as well as O_NOFOLLOW: a link is refused by one, and a fifo -
+	// which an Agent can make where its answer belongs - would otherwise hold
+	// the open until somebody wrote to it, which is the daemon stopped for
+	// good. What it is, is checked once it is open.
+	f, err := root.OpenFile(verdictName, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", "", false, nil
 	}
@@ -269,7 +273,7 @@ func stillThere(root *os.Root) bool {
 	return err == nil
 }
 
-// cutFold is strings.CutPrefix, ignoring case: a reviewer writing `Verdict:`
+// cutFold is strings.CutPrefix, ignoring case: an agent writing `Verdict:`
 // means what one writing `verdict:` means.
 func cutFold(s, prefix string) (string, bool) {
 	if len(s) < len(prefix) || !strings.EqualFold(s[:len(prefix)], prefix) {

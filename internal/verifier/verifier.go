@@ -27,8 +27,9 @@ type Result struct {
 	// a check that passed.
 	Reason string
 	// Verifier is which Verifier said it, so a report can tell a Project's own
-	// check from the review it asked for (ADR-0013). What a review says is its
-	// answer rather than evidence for a failure, and reads differently.
+	// check from the Agent it asked to judge the work (ADR-0013). What that
+	// Agent says is its answer rather than evidence for a failure, and reads
+	// differently.
 	Verifier string
 }
 
@@ -45,8 +46,9 @@ type Request struct {
 	WorkingDir string
 	// Checks are the Project's own checks, read from its base branch.
 	Checks []config.Check
-	// Review is what the Project asks of a reviewer (ADR-0013).
-	Review config.Review
+	// Verification is what the Project asks of Verification beyond its own
+	// checks (ADR-0013).
+	Verification config.Verification
 	// Plan is what the Job's planning Run decided, empty for a Job that was
 	// not planned (ADR-0026).
 	Plan string
@@ -62,8 +64,8 @@ type Request struct {
 }
 
 // Agent is the Account and the settings a Verifier starts its own Agent with.
-// It is what the Run it judges was given, so a reviewer is a second pair of
-// eyes on the same terms rather than on cheaper ones.
+// It is what the Run it judges was given, so the second pair of eyes reads on
+// the same terms rather than on cheaper ones.
 type Agent struct {
 	// ConfigDir is the Account's own tool configuration directory, and Token
 	// the credential to run on.

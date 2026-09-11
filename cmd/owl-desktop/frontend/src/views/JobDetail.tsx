@@ -194,7 +194,7 @@ export function JobDetail({ id, onBack }: { id: number; onBack: () => void }) {
           {tab === "verification" ? <Checks d={data} /> : null}
           {tab === "diff" ? <Diff d={data} /> : null}
           {tab === "log" ? <Log runs={data.Runs} /> : null}
-          {tab === "prompt" ? <Doc text={data.SystemPrompt} none="" /> : null}
+          {tab === "prompt" ? <Prompts d={data} /> : null}
         </Panel>
       ) : null}
     </>
@@ -207,6 +207,19 @@ function Field({ k, v, mono, wide }: { k: string; v: string; mono?: boolean; wid
       <div className="k">{k}</div>
       <div className={`v ${mono ? "mono" : ""}`}>{v}</div>
     </div>
+  );
+}
+
+// Prompts is what Owl put in front of every Agent it started for this Job: the
+// one that did the work, and the one that judged it (ADR-0017).
+function Prompts({ d }: { d: JobDetails }) {
+  if (!d.VerifierSystemPrompt) return <Doc text={d.SystemPrompt} none="" />;
+  return (
+    <>
+      <Doc text={d.SystemPrompt} none="" />
+      <h2>Verifier system prompt</h2>
+      <Doc text={d.VerifierSystemPrompt} none="" />
+    </>
   );
 }
 
