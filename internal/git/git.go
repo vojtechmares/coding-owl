@@ -688,6 +688,13 @@ func (c Conflict) Conflicted() bool { return len(c.Paths) > 0 }
 func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 	ctx, cancel := context.WithTimeout(ctx, rebaseTimeout)
 	defer cancel()
+
+	// Read before anything moves: a rebase detaches HEAD, so this is the only
+	// moment the branch to put the worktree back on can be asked for.
+	onBranch, err := HeadBranch(path)
+	if err != nil {
+		return Conflict{}, err
+	}
 	// The identity is Owl's own: a rebase can need one, and it must not depend
 	// on the user having configured one. The base is named as a ref rather
 	// than by its bare name, because a tag of the same name would otherwise
@@ -727,10 +734,10 @@ func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 	if listErr != nil {
 		return Conflict{}, listErr
 	}
-	// Whatever stopped it - a conflict, a commit that could not be signed, a
-	// hook that refused - the worktree must not be left in the middle of a
-	// rebase for the next Run to trip over.
-	if err := abortRebase(ctx, path); err != nil {
+	// Whatever stopped it - a conflict, a filter that refused, a hook - the
+	// worktree must not be left in the middle of a rebase for the next Run to
+	// trip over.
+	if err := abortRebase(ctx, path, onBranch); err != nil {
 		return Conflict{}, err
 	}
 	// Anything that is not a conflict is the caller's to report as it is.
@@ -744,7 +751,7 @@ func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 // abort at all. It runs whether or not what asked for the rebase is still
 // waiting - that is the point of it - but it is bounded, because a filter or
 // a hook the abort has to run through can hang as easily as the rebase could.
-func abortRebase(ctx context.Context, path string) error {
+func abortRebase(ctx context.Context, path, branch string) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abortTimeout)
 	defer cancel()
 	inProgress, err := RebaseInProgress(path)
@@ -755,10 +762,31 @@ func abortRebase(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	if code != 0 {
-		return fmt.Errorf("aborting the rebase in %s: %s", path, message(stderr))
+	if code == 0 {
+		return nil
 	}
-	return nil
+	// The abort's own reset can refuse - over a file the rebase wrote that
+	// the index does not know about, say. A worktree nobody can use is worse
+	// than files nobody asked to keep, so the rebase is dropped and the branch
+	// put back by force. Anything that was not committed is in the stash,
+	// where the autostash left it.
+	aborted := message(stderr)
+	if _, quitErr, quitCode, err := runContext(ctx, path, "rebase", "--quit"); err != nil {
+		return err
+	} else if quitCode != 0 {
+		return fmt.Errorf("aborting the rebase in %s (%s), and dropping it: %s", path, aborted, message(quitErr))
+	}
+	if branch == "" {
+		return fmt.Errorf("aborting the rebase in %s: %s; it was on no branch to put back", path, aborted)
+	}
+	if _, backErr, backCode, err := runContext(ctx, path, "checkout", "--force", "--", branch); err != nil {
+		return err
+	} else if backCode != 0 {
+		return fmt.Errorf("aborting the rebase in %s (%s), and putting %s back: %s",
+			path, aborted, branch, message(backErr))
+	}
+	return fmt.Errorf("the rebase in %s could not be undone cleanly (%s), so %s was put back by force; anything that was not committed is in the repository's stash",
+		path, aborted, branch)
 }
 
 // unmergedPaths are the paths a rebase left with conflicts to resolve.
