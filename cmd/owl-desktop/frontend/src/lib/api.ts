@@ -49,6 +49,8 @@ export const api = {
   jobs: (all: boolean): Promise<Job[]> => App.Jobs(all).then(list),
   job: (id: number): Promise<JobDetails> => App.Job(id).then(details),
   start: (): Promise<StartResult> => App.Start(),
+  pause: (): Promise<Run> => App.Pause(),
+  resume: (): Promise<Run> => App.Resume(),
   accept: (id: number, force: boolean): Promise<Job> => App.Accept(id, force),
   drop: (id: number, force: boolean): Promise<Job> => App.Drop(id, force),
   skills: (project: string): Promise<Skill[]> => App.Skills(project).then(list),
@@ -154,6 +156,19 @@ export function orNone(s: string | undefined): string {
   return s && s !== "" ? s : "(none)";
 }
 
+// runOutcome is what a Run is doing or how it ended: a frozen Run has not
+// ended, and says so (ADR-0011).
 export function runOutcome(r: Run): string {
-  return r.Outcome && r.Outcome !== "" ? r.Outcome : "running";
+  if (r.Outcome && r.Outcome !== "") return r.Outcome;
+  return r.Paused ? "paused" : "running";
+}
+
+// runPill is the pill for a Run's state: done for one that succeeded, paused
+// for one that is frozen, active for one still going, blocked otherwise.
+export function runPill(r: Run): string {
+  const o = runOutcome(r);
+  if (o === "succeeded") return "done";
+  if (o === "paused") return "paused";
+  if (o === "running") return "active";
+  return "blocked";
 }

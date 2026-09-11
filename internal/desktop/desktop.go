@@ -212,6 +212,21 @@ func (a *App) UpdateSkills(project string, names []string) (SkillUpdate, error) 
 	return SkillUpdate{Updated: updated, All: all, Files: files}, nil
 }
 
+// Pause freezes the Run in progress and everything its Agent started, and
+// starts the grace window (ADR-0011). The Run comes back with Paused set.
+func (a *App) Pause() (client.Run, error) {
+	ctx, cancel := a.call()
+	defer cancel()
+	return a.client.PauseRun(ctx)
+}
+
+// Resume continues the frozen Run where it was, in the same Run.
+func (a *App) Resume() (client.Run, error) {
+	ctx, cancel := a.call()
+	defer cancel()
+	return a.client.ResumeRun(ctx)
+}
+
 // follow is one log being followed: how to stop it, and whether the
 // frontend has seen any of it yet.
 type follow struct {

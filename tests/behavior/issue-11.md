@@ -153,3 +153,13 @@ When the window has passed and, before the Agent is killed, `owl pause` runs
 Then it exits non-zero and says the run is being ended
 And `owl resume` is refused the same way
 And the Run still ends `interrupted` a few seconds later, with its Job `pending`
+
+### S22 - the desktop app can pause and resume, and shows a frozen Run distinctly
+Given a running daemon, a Run in progress, and the desktop app bound to the daemon
+When the app pauses
+Then the Run it reports is frozen, and the Job's detail and the overview both show the Run as paused
+And the Agent's child has stopped
+When the app resumes
+Then the Run it reports is running again, with the same Run id, and nothing shows it as paused
+And the child is beating again
+And pausing with nothing running is an error the app passes on rather than a state it invents
