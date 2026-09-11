@@ -52,6 +52,10 @@ type Job struct {
 	// every Run whatever its outcome, and a Job with none left is exhausted
 	// rather than pending (ADR-0025).
 	TTL int
+	// Account is the Account the Job ran on, taken from its Project's
+	// configuration at its first Run and unchanged afterwards (ADR-0023). It
+	// is empty until the Job has run.
+	Account string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -61,7 +65,7 @@ type Job struct {
 
 // jobColumns is the select list every Job read shares, in scanJob's order.
 const jobColumns = `id, source, source_ref, project, prompt, state, branch, worktree,
-	planned, plan, model, effort, reason, ttl, position, created`
+	planned, plan, model, effort, reason, ttl, account, position, created`
 
 // UpsertJob produces j. A Job with that source and reference is not made
 // twice: the second production rewrites the prompt of the Job already in the
@@ -144,6 +148,13 @@ func (s *Store) SetJobState(ctx context.Context, id int64, state string) error {
 	return s.affectOneJob(ctx, id, `UPDATE jobs SET state = ?, reason = '' WHERE id = ?`, state, id)
 }
 
+// SetJobAccount records the Account a Job runs on. It is set at the Job's
+// first Run and does not change afterwards, so what a Job drew on stays
+// knowable for its whole life (ADR-0023).
+func (s *Store) SetJobAccount(ctx context.Context, id int64, account string) error {
+	return s.affectOneJob(ctx, id, `UPDATE jobs SET account = ? WHERE id = ?`, account, id)
+}
+
 // SetJobPlan records what a Job's planning Run decided, which is also what is
 // committed as the handoff on its branch (ADR-0026).
 func (s *Store) SetJobPlan(ctx context.Context, id int64, plan string) error {
@@ -206,7 +217,7 @@ func scanJob(sc scanner) (Job, error) {
 	var created string
 	if err := sc.Scan(&j.ID, &j.Source, &j.SourceRef, &j.Project, &j.Prompt, &j.State,
 		&j.Branch, &j.Worktree, &planned, &j.Plan, &j.Model, &j.Effort, &j.Reason,
-		&j.TTL, &position, &created); err != nil {
+		&j.TTL, &j.Account, &position, &created); err != nil {
 		return Job{}, err
 	}
 	j.Position = int(position.Int64)
