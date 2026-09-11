@@ -79,6 +79,9 @@ type JobDetails struct {
 	// SystemPrompt is the effective system prompt for the Job, exactly as the
 	// Agent is given it.
 	SystemPrompt string
+	// ReviewSystemPrompt is the contract with the reviewer the Project asked
+	// for, empty for a Project that asked for none (ADR-0013, ADR-0017).
+	ReviewSystemPrompt string
 	// Phases is what each phase of the Job runs at, in the order it passes
 	// through them.
 	Phases []PhaseSettings
@@ -129,10 +132,11 @@ func (c *Client) GetJob(ctx context.Context, id int64) (JobDetails, error) {
 		return JobDetails{}, c.wrap(err)
 	}
 	d := JobDetails{
-		Job:          jobFromProto(res.Msg.GetJob()),
-		SystemPrompt: res.Msg.GetSystemPrompt(),
-		Runs:         make([]Run, 0, len(res.Msg.GetRuns())),
-		Handoff:      res.Msg.GetHandoff(),
+		Job:                jobFromProto(res.Msg.GetJob()),
+		SystemPrompt:       res.Msg.GetSystemPrompt(),
+		ReviewSystemPrompt: res.Msg.GetReviewSystemPrompt(),
+		Runs:               make([]Run, 0, len(res.Msg.GetRuns())),
+		Handoff:            res.Msg.GetHandoff(),
 		Diff: DiffSummary{
 			Insertions: int(res.Msg.GetDiff().GetInsertions()),
 			Deletions:  int(res.Msg.GetDiff().GetDeletions()),

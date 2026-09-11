@@ -63,8 +63,16 @@ func cutAtLine(text string, max int) string {
 	if at := strings.LastIndexByte(cut, '\n'); at >= 0 {
 		return cut[:at+1]
 	}
-	return cut
+	// One very long line: cut it at a rune instead, so what is quoted is text
+	// rather than half a character.
+	return strings.ToValidUTF8(cut, "")
 }
+
+// maxPrompt is as long as the whole prompt may be. It is one argument to the
+// tool, and Linux takes at most 128 KiB in one of those; what a fence has to
+// grow to is decided by text an Agent wrote, so the assembled prompt is
+// measured rather than assumed.
+const maxPrompt = 100 << 10
 
 // prompt is what the reviewer is given: the plan the work was meant to carry
 // out, the diff it produced, and where to leave its verdict. Nothing of the
@@ -72,7 +80,31 @@ func cutAtLine(text string, max int) string {
 //
 // Both the plan and the diff were written by an Agent, so both are quoted
 // rather than spliced: what Owl asks is said in Owl's own voice, outside them.
+// What they may cost is bounded: quoted text that grows the fence it is quoted
+// inside is cut harder, and in the end dropped for an instruction to read it in
+// the repository, which the reviewer is standing in.
 func prompt(req verifier.Request) string {
+	for plan, diff := maxPlan, maxDiffText; ; plan, diff = plan/4, diff/4 {
+		out := build(req, plan, diff)
+		if len(out) <= maxPrompt {
+			return out
+		}
+		if diff/4 < minQuote {
+			return build(req, minQuote, 0)
+		}
+	}
+}
+
+// maxDiffText is how much of the diff the prompt quotes, and minQuote the
+// least it is worth quoting at all.
+const (
+	maxDiffText = 64 << 10
+	minQuote    = 1 << 10
+)
+
+// build assembles the prompt with the plan and the diff cut to those bounds. A
+// diff bound of zero quotes no diff at all.
+func build(req verifier.Request, maxPlan, maxDiff int) string {
 	var b strings.Builder
 	b.WriteString("Review the change on this branch. What follows is the work to judge; " +
 		"what Owl asks of you is at the end, outside everything quoted.\n\n")
@@ -87,17 +119,26 @@ func prompt(req verifier.Request) string {
 	}
 
 	diff := strings.TrimSpace(req.Diff)
+	complete := req.DiffComplete
+	if maxDiff == 0 {
+		diff = ""
+		complete = false
+	} else if len(diff) > maxDiff {
+		diff = cutAtLine(diff, maxDiff)
+		complete = false
+	}
 	switch {
-	case diff == "" && req.DiffComplete:
+	case diff == "" && complete:
 		b.WriteString("The branch changed no file at all. Read the repository and say whether that is right.\n\n")
 	case diff == "":
 		// Owl could not read what the branch changed - a base branch that
 		// moved under the Run, a repository it could not read. The reviewer
 		// works in the worktree, so it can read it for itself, and saying so
 		// is better than a reviewer that judges a diff nobody showed it.
-		b.WriteString("Owl could not read what this branch changed, so it is not quoted here: " +
-			"run `git diff` in this repository to see it, and say so in your findings if you cannot.\n\n")
-	case req.DiffComplete:
+		b.WriteString("What this branch changed is not quoted here - Owl could not read it, or it " +
+			"was too long to carry: run `git diff` in this repository to see it, and say so in " +
+			"your findings if you cannot.\n\n")
+	case complete:
 		b.WriteString(quote("This is what the branch changed against the base branch.", diff, diffFence))
 	default:
 		b.WriteString(quote("This is the beginning of what the branch changed against the base "+

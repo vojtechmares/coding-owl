@@ -382,3 +382,30 @@ func TestS11TheDesktopAppShowsTheReviewBesideTheChecks(t *testing.T) {
 		t.Errorf("the app does not carry the reviewer's findings: %q", findings)
 	}
 }
+
+func TestS12TheReviewersContractIsShown(t *testing.T) {
+	l, _ := reviewing(t, "verdict: pass\n\nThe change does what the plan said.\n")
+	daemonUp(t, l)
+	checkedProject(t, l, reviewedConfig)
+
+	out, _ := finishedJob(t, l)
+
+	// The reviewer is an Agent Owl starts with a contract of its own, and
+	// nothing Owl puts in front of an Agent is hidden (ADR-0017).
+	shown := section(t, out, "review system prompt:")
+	if !strings.Contains(shown, "reviewing somebody else's work") {
+		t.Errorf("owl jobs show does not print the reviewer's own contract:\n%s", out)
+	}
+	if !strings.Contains(section(t, out, "system prompt:"), "running unattended") {
+		t.Errorf("owl jobs show no longer prints the agent's own contract:\n%s", out)
+	}
+
+	// A Project that asks for no review has none to show.
+	other, _ := agentLayout(t, agentScript, 0)
+	daemonUp(t, other)
+	checkedProject(t, other, "apiVersion: codingowl.dev/v1\n")
+	plain, _ := finishedJob(t, other)
+	if strings.Contains(plain, "review system prompt:") {
+		t.Errorf("a project that asked for no review is shown a reviewer's contract:\n%s", plain)
+	}
+}

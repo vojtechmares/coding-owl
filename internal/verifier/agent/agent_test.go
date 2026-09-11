@@ -237,6 +237,37 @@ func TestVerifyCutsAPlanTooLongToCarryWhole(t *testing.T) {
 	if !strings.Contains(given, "too long to carry whole") {
 		t.Errorf("a reviewer given part of the plan is not told so:\n%s", given[:min(len(given), 600)])
 	}
+	// Cut at a whole line, so what is quoted reads as the plan as far as it
+	// goes rather than ending mid-sentence.
+	quoted, _, _ := strings.Cut(given, "----- plan -----\n")
+	if _, body, ok := strings.Cut(given[len(quoted):], "----- plan -----\n"); ok {
+		if plan, _, _ := strings.Cut(body, "----- plan -----"); !strings.HasSuffix(plan, "read\n") {
+			t.Errorf("the plan was cut mid-line, ending %q", plan[max(len(plan)-40, 0):])
+		}
+	}
+}
+
+func TestVerifyKeepsThePromptToALengthAToolWillTake(t *testing.T) {
+	// The fence grows until the text does not hold it, and the text is an
+	// Agent's: a diff that is the fence and then dashes would otherwise make
+	// the prompt longer than the diff it quotes.
+	d, e := &fakeDriver{}, &fakeExecutor{verdict: "verdict: pass\n"}
+	hostile := "----- diff -----" + strings.Repeat("-", 64<<10)
+
+	_, _, err := review(t, d, e, verifier.Request{
+		Plan: strings.Repeat("-", 64<<10), Diff: hostile, DiffComplete: true,
+	})
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+
+	// 128 KiB is what Linux takes in one argument, and the prompt is one.
+	if got := len(d.given().Prompt); got > 128<<10 {
+		t.Errorf("the prompt is %d bytes, more than a tool will take in one argument", got)
+	}
+	if !strings.Contains(d.given().Prompt, "git diff") {
+		t.Errorf("a reviewer given no diff is not told how to read it:\n%s", d.given().Prompt)
+	}
 }
 
 func TestVerifySaysWhenTheDiffWasTooLongToCarryWhole(t *testing.T) {
