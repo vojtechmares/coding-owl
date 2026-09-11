@@ -17,8 +17,9 @@ const DefaultGraceWindow = 15 * time.Minute
 const expiredReason = "the grace window passed while this run was paused"
 
 // killAfterTerm is how long an Agent the grace window ended has to go before it
-// is killed outright. ADR-0011 escalates to SIGTERM; an Agent that will not act
-// on it would otherwise hold its Job for ever, with no verb that reaches it.
+// is killed outright. ADR-0011 escalates to SIGTERM and ADR-0034 past it: an
+// Agent that will not act on being asked would otherwise hold its Job for
+// ever, with no verb that reaches it.
 const killAfterTerm = 5 * time.Second
 
 // live is a Run this daemon can still reach: the Agent it started, and whether
