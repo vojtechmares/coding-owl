@@ -795,7 +795,10 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 // version by editing the lock in its worktree (ADR-0014).
 func (s *Service) placeSkills(ctx context.Context, j store.Job, details project.Details) (skill.Placement, []store.RunSkill, error) {
 	declared := skill.Declare(details.Config)
-	if len(declared) == 0 && s.opts.Skills == nil {
+	if len(declared) == 0 {
+		// Nothing declared, so nothing is fetched, nothing is placed, and the
+		// Project's own repository is not reconfigured. A Project that wants no
+		// Skills should not be able to tell that Skills exist.
 		return skill.Placement{}, nil, nil
 	}
 	if s.opts.Skills == nil {

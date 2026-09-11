@@ -13,7 +13,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/vojtechmares/coding-owl/internal/config"
-	"github.com/vojtechmares/coding-owl/internal/git"
 )
 
 // Service manages a Project's Skills: what it declares, what that resolved to,
@@ -57,9 +56,13 @@ func (s *Service) Prepare(ctx context.Context, declared []Declared, locked Lock)
 			return nil, Lock{}, err
 		}
 		commit, digest := "", ""
-		if was, ok := locked.Skills[name]; ok && was.Source == d.Source && !d.AutoUpdate {
-			// Pinned: the lock is the answer, and the source is not asked
-			// again (ADR-0024).
+		// Pinned: the lock is the answer, and the source is not asked again
+		// (ADR-0024) - but only while the lock is an answer to the question the
+		// manifest is asking. A ref somebody deliberately changed is a new
+		// question, and answering the old one would record the new ref against
+		// the old commit.
+		if was, ok := locked.Skills[name]; ok && was.Source == d.Source &&
+			sameRef(was.Ref, d.Ref) && !d.AutoUpdate {
 			commit, digest = was.Commit, was.Digest
 		}
 		if commit == "" {
@@ -84,6 +87,13 @@ func (s *Service) Prepare(ctx context.Context, declared []Declared, locked Lock)
 	return out, used, nil
 }
 
+// sameRef reports whether a locked ref answers the manifest's. An empty
+// declared ref means the source's default branch, which is what the lock
+// records the name of: the two agree unless the manifest names something else.
+func sameRef(locked, declared string) bool {
+	return declared == "" || locked == declared
+}
+
 // Add resolves a source at a ref, fetches it, and returns what to record. It
 // does not write anything: where a Project's files live is the caller's to
 // know.
@@ -92,20 +102,21 @@ func (s *Service) Add(ctx context.Context, source, ref string, autoUpdate bool) 
 		return Resolved{}, Declared{}, err
 	}
 	d := Declared{Source: strings.TrimSpace(source), Ref: strings.TrimSpace(ref), AutoUpdate: autoUpdate}
-	if d.Source == "" {
-		return Resolved{}, Declared{}, invalid("a skill needs a source: a repository to fetch it from")
+	parsed, err := ParseSource(d.Source)
+	if err != nil {
+		return Resolved{}, Declared{}, err
 	}
 	if strings.HasPrefix(d.Ref, "-") {
 		return Resolved{}, Declared{}, invalid("the ref %q may not start with a dash", d.Ref)
 	}
-	if err := CheckName(d.Name()); err != nil {
+	if err := CheckName(parsed.Name()); err != nil {
 		return Resolved{}, Declared{}, err
 	}
 	commit, err := s.cache.Resolve(d.Source, d.Ref)
 	if err != nil {
 		return Resolved{}, Declared{}, err
 	}
-	got, err := s.cache.Fetch(d.Name(), d.Source, d.Ref, commit, "")
+	got, err := s.cache.Fetch(parsed.Name(), d.Source, d.Ref, commit, "")
 	if err != nil {
 		return Resolved{}, Declared{}, err
 	}
@@ -113,9 +124,9 @@ func (s *Service) Add(ctx context.Context, source, ref string, autoUpdate bool) 
 	// default branch, and the manifest records which branch that is rather
 	// than "HEAD", so that the file says what is actually being followed.
 	if d.Ref == "" {
-		branch, err := git.DefaultBranch(d.Source)
+		branch, err := s.cache.DefaultBranch(d.Source)
 		if err != nil {
-			return Resolved{}, Declared{}, &InvalidError{Err: err}
+			return Resolved{}, Declared{}, err
 		}
 		d.Ref = branch
 	}
@@ -174,14 +185,36 @@ func WriteManifest(path string, declared []Declared) error {
 	} else {
 		setKey(root, "skills", skillsNode(declared))
 	}
-	out, err := yaml.Marshal(&doc)
+	out, err := render(&doc)
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	if string(out) == string(data) {
+		// Nothing about the file changed, so it is left exactly as it is:
+		// rewriting it would put a diff in front of the user over lines they
+		// did not touch.
+		return nil
+	}
 	return os.WriteFile(path, out, 0o644)
+}
+
+// render writes a document back out the way it was written: yaml.Marshal
+// indents sequences four spaces, and a configuration file a person wrote and
+// has to commit should not be reindented by Owl editing one key of it.
+func render(doc *yaml.Node) ([]byte, error) {
+	var out strings.Builder
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		return nil, err
+	}
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+	return []byte(out.String()), nil
 }
 
 // skillsNode is the `skills` value: one entry per Skill, in the order they were

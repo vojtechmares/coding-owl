@@ -2,6 +2,7 @@ package skill
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -66,12 +67,23 @@ func ParseLock(source string, data []byte) (Lock, error) {
 			return Lock{}, fmt.Errorf("%s: skill %q records the digest %q, which Owl did not write",
 				source, name, e.Digest)
 		}
+		// The commit reaches git as an argument and is printed back to the
+		// user, so anything that is not an object name is a lockfile Owl did
+		// not write.
+		if !commitRE.MatchString(e.Commit) {
+			return Lock{}, fmt.Errorf("%s: skill %q records the commit %q, which is not an object name",
+				source, name, e.Commit)
+		}
 		out.Skills[name] = Locked{
 			Name: name, Source: e.Source, Ref: e.Ref, Commit: e.Commit, Digest: e.Digest,
 		}
 	}
 	return out, nil
 }
+
+// commitRE is what a commit looks like: git's object names are hex, and the
+// length varies only with the hash the repository uses.
+var commitRE = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 
 // Render writes a lockfile, in a fixed order so that two runs of the same
 // commands produce the same file and a diff shows only what changed.

@@ -771,6 +771,9 @@ func TestSetWorktreeExcludesHidesAPathInThatWorktreeAlone(t *testing.T) {
 }
 
 func TestGlobalExcludesReadsWhatTheRepositoryWasAlreadyTold(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	dir := newRepo(t)
 
 	before, err := git.GlobalExcludes(dir)
@@ -784,10 +787,89 @@ func TestGlobalExcludesReadsWhatTheRepositoryWasAlreadyTold(t *testing.T) {
 	}
 
 	if before != "" {
-		t.Errorf("GlobalExcludes with none configured = %q, want nothing", before)
+		t.Errorf("GlobalExcludes with none configured and no default file = %q, want nothing", before)
 	}
 	if after != "/somewhere/theirs" {
 		t.Errorf("GlobalExcludes = %q, want what the repository was told", after)
+	}
+}
+
+func TestGlobalExcludesFindsTheFileGitWouldHaveRead(t *testing.T) {
+	// git falls back to $XDG_CONFIG_HOME/git/ignore when nothing is
+	// configured, and `git config --get` never reports that: pointing a
+	// worktree somewhere else would stop it applying without anyone being told.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	theirs := filepath.Join(home, ".config", "git", "ignore")
+	if err := os.MkdirAll(filepath.Dir(theirs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(theirs, []byte("secrets.env\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := newRepo(t)
+
+	got, err := git.GlobalExcludes(dir)
+
+	if err != nil {
+		t.Fatalf("GlobalExcludes: %v", err)
+	}
+	if got != theirs {
+		t.Errorf("GlobalExcludes = %q, want the file git would have read %q", got, theirs)
+	}
+}
+
+func TestGlobalExcludesExpandsAHomeRelativePath(t *testing.T) {
+	// The canonical snippet is `core.excludesfile = ~/.gitignore_global`, and
+	// a caller reading that path literally finds nothing.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	dir := newRepo(t)
+	run(t, dir, "config", "core.excludesFile", "~/.gitignore_global")
+
+	got, err := git.GlobalExcludes(dir)
+
+	if err != nil {
+		t.Fatalf("GlobalExcludes: %v", err)
+	}
+	if got != filepath.Join(home, ".gitignore_global") {
+		t.Errorf("GlobalExcludes = %q, want it expanded to the home directory", got)
+	}
+}
+
+func TestEnableWorktreeConfigRefusesARepositoryItWouldChange(t *testing.T) {
+	// Enabling it stops git sharing these between worktrees, and git says they
+	// must be moved by hand. Owl does not quietly reconfigure such a
+	// repository.
+	for _, setting := range [][2]string{
+		{"core.bare", "true"},
+		{"core.worktree", "/somewhere"},
+		{"core.sparseCheckout", "true"},
+	} {
+		dir := newRepo(t)
+		run(t, dir, "config", setting[0], setting[1])
+
+		err := git.EnableWorktreeConfig(dir)
+
+		if err == nil {
+			t.Errorf("EnableWorktreeConfig on a repository setting %s = nil, want it refused", setting[0])
+			continue
+		}
+		if !strings.Contains(err.Error(), setting[0]) {
+			t.Errorf("the error %q does not name the setting", err)
+		}
+	}
+}
+
+func TestEnableWorktreeConfigDoesNotMindTheDefaults(t *testing.T) {
+	// `git init` writes core.bare=false into every ordinary repository, which
+	// is the default either way.
+	dir := newRepo(t)
+
+	if err := git.EnableWorktreeConfig(dir); err != nil {
+		t.Errorf("EnableWorktreeConfig on an ordinary repository = %v", err)
 	}
 }
 

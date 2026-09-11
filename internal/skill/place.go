@@ -12,10 +12,14 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/git"
 )
 
-// markerName is the file Owl leaves beside the Skills it placed, naming them.
-// It is what lets a later Run tell an entry Owl made from one the repository
-// carries itself, which Owl will not touch (ADR-0033).
-const markerName = ".owl-skills"
+// markerName is the file naming the Skills Owl placed. It is what lets a later
+// Run tell an entry Owl made from one the repository carries itself, which Owl
+// will not touch (ADR-0033).
+//
+// It lives beside the exclude file, outside the worktree, because everything
+// inside the worktree is writable by the Agent and by whatever the base branch
+// carries - which is precisely what it is evidence against.
+const markerName = "skills-placed"
 
 // excludesName is the exclude file Owl owns for one worktree, kept beside the
 // worktree rather than in it so that it is not something an Agent can edit.
@@ -39,16 +43,13 @@ type Placement struct {
 // skills of its own at that path still works, and Owl says so rather than
 // taking it (ADR-0033).
 func Place(repo, worktree, skillsDir, ownedDir string, skills []Resolved) (Placement, error) {
-	into := filepath.Join(worktree, filepath.FromSlash(skillsDir))
-	if err := hide(repo, worktree, skillsDir, ownedDir); err != nil {
-		return Placement{}, err
-	}
-	mine, err := placedHere(into)
+	mine, err := placedBefore(ownedDir)
 	if err != nil {
 		return Placement{}, err
 	}
-	if err := os.MkdirAll(into, 0o755); err != nil {
-		return Placement{}, fmt.Errorf("creating %s: %w", into, err)
+	into, err := skillsIn(worktree, skillsDir)
+	if err != nil {
+		return Placement{}, err
 	}
 
 	wanted := map[string]bool{}
@@ -64,7 +65,14 @@ func Place(repo, worktree, skillsDir, ownedDir string, skills []Resolved) (Place
 				"%s is already there and Owl did not create it; remove it, or rename the skill, and Owl will leave it alone",
 				link)
 		}
-		if err := relink(link, s.Path); err != nil {
+	}
+	// Nothing is written until every entry has been found to be Owl's: a Run
+	// that is going to be refused leaves the worktree exactly as it was.
+	if err := hide(repo, worktree, skillsDir, ownedDir); err != nil {
+		return Placement{}, err
+	}
+	for _, s := range skills {
+		if err := relink(filepath.Join(into, s.Name), s.Path); err != nil {
 			return Placement{}, err
 		}
 	}
@@ -78,7 +86,7 @@ func Place(repo, worktree, skillsDir, ownedDir string, skills []Resolved) (Place
 			return Placement{}, err
 		}
 	}
-	if err := writeMarker(into, skills); err != nil {
+	if err := writeMarker(ownedDir, skills); err != nil {
 		return Placement{}, err
 	}
 	return Placement{Skills: skills, Dir: into}, nil
@@ -123,10 +131,36 @@ func relink(link, target string) error {
 	return nil
 }
 
-// placedHere is the Skills a previous placement made in a directory, read from
-// the marker Owl leaves. A directory with no marker holds nothing of Owl's.
-func placedHere(into string) ([]string, error) {
-	data, err := os.ReadFile(filepath.Join(into, markerName))
+// skillsIn is the Driver's skills directory inside a worktree, made if it is
+// not there and checked to be really inside it. A path that resolves outside -
+// through a symlink the base branch carries, or one an Agent left in an
+// earlier Run - is refused: everything below this point writes and deletes.
+func skillsIn(worktree, skillsDir string) (string, error) {
+	into := filepath.Join(worktree, filepath.FromSlash(skillsDir))
+	if err := os.MkdirAll(into, 0o755); err != nil {
+		return "", fmt.Errorf("creating %s: %w", into, err)
+	}
+	root, err := filepath.EvalSymlinks(worktree)
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(into)
+	if err != nil {
+		return "", err
+	}
+	if real != root && !strings.HasPrefix(real, root+string(filepath.Separator)) {
+		return "", invalid(
+			"%s leads to %s, which is outside the job's worktree; Owl will not place skills through it",
+			into, real)
+	}
+	return into, nil
+}
+
+// placedBefore is the Skills a previous placement made, read from the marker
+// Owl keeps outside the worktree. A name that is not one Owl could have
+// written is ignored: this list decides what gets deleted.
+func placedBefore(ownedDir string) ([]string, error) {
+	data, err := os.ReadFile(filepath.Join(ownedDir, markerName))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -135,27 +169,36 @@ func placedHere(into string) ([]string, error) {
 	}
 	var names []string
 	for _, ln := range strings.Split(string(data), "\n") {
-		if name := strings.TrimSpace(ln); name != "" && !strings.HasPrefix(name, "#") {
-			names = append(names, name)
+		name := strings.TrimSpace(ln)
+		if name == "" || strings.HasPrefix(name, "#") {
+			continue
 		}
+		if err := CheckName(name); err != nil {
+			return nil, fmt.Errorf("%s names a skill Owl could not have placed: %w",
+				filepath.Join(ownedDir, markerName), err)
+		}
+		names = append(names, name)
 	}
 	return names, nil
 }
 
 // writeMarker records what this placement made, so the next one knows what is
 // Owl's to replace.
-func writeMarker(into string, skills []Resolved) error {
+func writeMarker(ownedDir string, skills []Resolved) error {
 	names := make([]string, 0, len(skills))
 	for _, s := range skills {
 		names = append(names, s.Name)
 	}
 	sort.Strings(names)
-	body := "# Written by Owl: the skills it placed here, which it may replace.\n" +
+	body := "# Written by Owl: the skills it placed, which it may replace.\n" +
 		strings.Join(names, "\n")
 	if len(names) > 0 {
 		body += "\n"
 	}
-	return os.WriteFile(filepath.Join(into, markerName), []byte(body), 0o600)
+	if err := os.MkdirAll(ownedDir, dirMode); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(ownedDir, markerName), []byte(body), 0o600)
 }
 
 // hide keeps the Skills out of the review diff: per-worktree configuration is

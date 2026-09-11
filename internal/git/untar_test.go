@@ -5,11 +5,23 @@ package git
 
 import (
 	"archive/tar"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// openArchive reads back an archive written for a test.
+func openArchive(t *testing.T, path string) io.Reader {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	return f
+}
 
 // archiveOf writes a tar holding those entries and returns its path.
 func archiveOf(t *testing.T, entries ...*tar.Header) string {
@@ -47,7 +59,7 @@ func TestUntarRefusesAPathThatWouldLandOutside(t *testing.T) {
 	}
 
 	for _, name := range []string{"../escaped.txt", "/etc/escaped", "a/../../escaped.txt"} {
-		err := untar(archiveOf(t, &tar.Header{Name: name, Typeflag: tar.TypeReg, Size: 1}), into)
+		err := untar(openArchive(t, archiveOf(t, &tar.Header{Name: name, Typeflag: tar.TypeReg, Size: 1})), into)
 
 		if err == nil {
 			t.Errorf("untar of %q = nil, want it refused", name)
@@ -61,9 +73,9 @@ func TestUntarRefusesAPathThatWouldLandOutside(t *testing.T) {
 func TestUntarRefusesASymlink(t *testing.T) {
 	// A symlink in a skill is a way of reaching whatever it points at from
 	// inside a worktree an Agent works in.
-	err := untar(archiveOf(t, &tar.Header{
+	err := untar(openArchive(t, archiveOf(t, &tar.Header{
 		Name: "link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd",
-	}), t.TempDir())
+	})), t.TempDir())
 
 	if err == nil {
 		t.Fatal("untar of a symlink = nil, want it refused")
@@ -74,9 +86,9 @@ func TestUntarRefusesASymlink(t *testing.T) {
 }
 
 func TestUntarRefusesAFileLargerThanASkillsMayBe(t *testing.T) {
-	err := untar(archiveOf(t, &tar.Header{
+	err := untar(openArchive(t, archiveOf(t, &tar.Header{
 		Name: "huge", Typeflag: tar.TypeReg, Size: maxEntry + 1,
-	}), t.TempDir())
+	})), t.TempDir())
 
 	if err == nil {
 		t.Fatal("untar of an oversized file = nil, want it refused")
@@ -86,9 +98,9 @@ func TestUntarRefusesAFileLargerThanASkillsMayBe(t *testing.T) {
 func TestUntarWritesFilesOnlyItsOwnerCanRead(t *testing.T) {
 	into := t.TempDir()
 
-	if err := untar(archiveOf(t, &tar.Header{
+	if err := untar(openArchive(t, archiveOf(t, &tar.Header{
 		Name: "SKILL.md", Typeflag: tar.TypeReg, Size: 4, Mode: 0o777,
-	}), into); err != nil {
+	})), into); err != nil {
 		t.Fatalf("untar: %v", err)
 	}
 

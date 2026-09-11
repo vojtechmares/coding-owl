@@ -17,33 +17,27 @@ const maxEntry = 64 << 20
 // nobody vetted cannot fill a disk with empty files.
 const maxEntries = 10_000
 
-// untar unpacks an archive into a directory, refusing anything that would land
-// outside it. The archive comes from `git archive`, which writes only the tree
+// untar unpacks an archive as it arrives into a directory, refusing anything
+// that would land outside it. The archive comes from `git archive`, which writes only the tree
 // of one commit, but what is in that tree is somebody else's to decide: a
 // Skill is a code-execution vector (ADR-0024), so what it may write is bounded
 // here rather than trusted.
-func untar(archive, into string) error {
-	f, err := os.Open(archive)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-
+func untar(archive io.Reader, into string) error {
 	root, err := filepath.EvalSymlinks(into)
 	if err != nil {
 		return err
 	}
-	r := tar.NewReader(f)
+	r := tar.NewReader(archive)
 	for n := 0; ; n++ {
 		header, err := r.Next()
 		if err == io.EOF {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("reading %s: %w", archive, err)
+			return fmt.Errorf("reading the archive: %w", err)
 		}
 		if n >= maxEntries {
-			return fmt.Errorf("%s holds more than %d files, which is not a skill", archive, maxEntries)
+			return fmt.Errorf("the archive holds more than %d files, which is not a skill", maxEntries)
 		}
 		path, err := safePath(root, header.Name)
 		if err != nil {
@@ -60,8 +54,8 @@ func untar(archive, into string) error {
 			}
 		case tar.TypeReg:
 			if header.Size > maxEntry {
-				return fmt.Errorf("%s in %s is %d bytes, which is larger than a skill's file may be",
-					header.Name, archive, header.Size)
+				return fmt.Errorf("%s is %d bytes, which is larger than a skill's file may be",
+					header.Name, header.Size)
 			}
 			if err := writeEntry(path, r, header.Size); err != nil {
 				return err
@@ -69,7 +63,7 @@ func untar(archive, into string) error {
 		default:
 			// A symlink, a device, a hard link: a Skill is files, and anything
 			// else is a way of reaching outside the directory it lands in.
-			return fmt.Errorf("%s in %s is not a file or a directory, which a skill may not hold", header.Name, archive)
+			return fmt.Errorf("%s is not a file or a directory, which a skill may not hold", header.Name)
 		}
 	}
 }
