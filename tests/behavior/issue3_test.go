@@ -92,9 +92,10 @@ func daemonUp(t *testing.T, l *layout) *daemonProc {
 	t.Helper()
 	p := startDaemon(t, l)
 	waitForSocket(t, l.socket())
-	if !strings.Contains(p.out(), `store="file `) {
-		t.Fatalf("the daemon is not keeping credentials in a file of its own:\n%s", p.out())
-	}
+	// The socket is there before the daemon has said which credential store it
+	// chose, so this waits for the line rather than reading whatever has been
+	// logged so far.
+	waitForLog(t, p, `store="file `)
 	return p
 }
 

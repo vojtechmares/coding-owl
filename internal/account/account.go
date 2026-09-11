@@ -137,12 +137,12 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Account, error) {
 	if err := CheckName(req.Name); err != nil {
 		return Account{}, err
 	}
-	name := req.Driver
-	if name == "" {
-		name = drivers.Default
+	driverName := req.Driver
+	if driverName == "" {
+		driverName = drivers.Default
 	}
-	if _, ok := drivers.Lookup(name); !ok {
-		return Account{}, &InvalidError{Err: drivers.Unknown(name)}
+	if _, ok := drivers.Lookup(driverName); !ok {
+		return Account{}, &InvalidError{Err: drivers.Unknown(driverName)}
 	}
 	if strings.TrimSpace(req.Token) == "" {
 		return Account{}, invalid("account %s has no token; run the tool's own token setup and paste what it prints", req.Name)
@@ -151,7 +151,7 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Account, error) {
 	ref := RefFor(req.Name)
 	row := store.Account{
 		Name:            req.Name,
-		Driver:          name,
+		Driver:          driverName,
 		ConfigDir:       dir,
 		CredentialRef:   ref,
 		FailoverAllowed: req.FailoverAllowed,
@@ -174,10 +174,17 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Account, error) {
 	}, nil
 }
 
+// undoTimeout bounds taking back an Account that could not be finished.
+const undoTimeout = 10 * time.Second
+
 // undo takes back the row of an Account that could not be finished, and says
 // so when it cannot: an Account left behind that way can run nothing, and the
-// user has to hear about it rather than meet it at the next Run.
+// user has to hear about it rather than meet it at the next Run. It does not
+// run under the request's own context, because the likeliest reason to be here
+// is that the request was cancelled.
 func (s *Service) undo(ctx context.Context, name string, cause error) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), undoTimeout)
+	defer cancel()
 	if err := s.store.DeleteAccount(ctx, name); err != nil {
 		return fmt.Errorf("%w (and account %s could not be taken back out, so it is recorded without a credential: %v)",
 			cause, name, err)

@@ -125,7 +125,7 @@ func nameIsFree(cmd *cobra.Command, env Env, name string) error {
 	}
 	for _, a := range accounts {
 		if strings.EqualFold(a.Name, name) {
-			return fmt.Errorf("%s: account %s is already there; remove it first, or add one under another name",
+			return fmt.Errorf("%w: account %s is already there; remove it first, or add one under another name",
 				store.ErrAccountNameTaken, a.Name)
 		}
 	}
