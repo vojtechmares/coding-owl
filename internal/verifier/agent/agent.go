@@ -135,11 +135,19 @@ func (v *Verifier) review(ctx context.Context, req verifier.Request) verifier.Re
 
 	verdict, findings, found, err := readVerdict(root)
 	out.Output = findings
-	// A Session Owl had to stop did not finish reading, so whatever it had
-	// written by then is not a verdict on the whole of the work: being unable
-	// to tell is a finding of its own, not a pass.
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	// A Session that did not finish - stopped on the deadline, or ended in a
+	// way Owl could not read - did not finish reading either, so whatever it
+	// had written by then is not a verdict on the whole of the work: being
+	// unable to tell is a finding of its own, not a pass.
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		out.Reason = fmt.Sprintf("was stopped after %s, before it had finished", timeout)
+		return out
+	case runErr != nil:
+		out.Reason = fmt.Sprintf("could not be run: %v", runErr)
+		if out.Output == "" {
+			out.Output = printed
+		}
 		return out
 	}
 	if err != nil {
@@ -147,13 +155,16 @@ func (v *Verifier) review(ctx context.Context, req verifier.Request) verifier.Re
 		return out
 	}
 	if !found {
-		if runErr != nil {
-			out.Reason = fmt.Sprintf("could not be run: %v", runErr)
-		} else {
-			out.Reason = fmt.Sprintf("left no verdict in %s", VerdictPath)
-		}
+		out.Reason = fmt.Sprintf("left no verdict in %s", VerdictPath)
 		out.Output = printed
 		return out
+	}
+	// An exit status is not the verdict - the file is - but a Session that
+	// ended badly and still left one is worth saying so about, in the report
+	// rather than in a log nobody reads.
+	if code != 0 {
+		out.Output = strings.TrimRight(out.Output, "\n") +
+			fmt.Sprintf("\n\n(the reviewer exited %d after writing this.)\n", code)
 	}
 	switch verdict {
 	case verdictPass:

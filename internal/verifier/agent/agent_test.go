@@ -67,8 +67,10 @@ type fakeExecutor struct {
 	// reviewer that will not finish is exercised.
 	waitFor bool
 	// exitCode is what it exits with, and startErr refuses to start it.
+	// waitErr is an Agent whose end Owl could not read at all.
 	exitCode int
 	startErr error
+	waitErr  error
 	// stdout is what it prints.
 	stdout string
 	// link, when set, is what the Agent points the verdict at instead of
@@ -107,7 +109,7 @@ func (e *fakeExecutor) Start(ctx context.Context, inv agentpkg.Invocation) (agen
 			return nil, err
 		}
 	}
-	return &fakeProcess{ctx: ctx, wait: e.waitFor, code: e.exitCode, out: e.stdout}, nil
+	return &fakeProcess{ctx: ctx, wait: e.waitFor, code: e.exitCode, out: e.stdout, err: e.waitErr}, nil
 }
 
 type fakeProcess struct {
@@ -115,6 +117,7 @@ type fakeProcess struct {
 	wait bool
 	code int
 	out  string
+	err  error
 }
 
 func (p *fakeProcess) Stdout() io.Reader { return strings.NewReader(p.out) }
@@ -126,7 +129,7 @@ func (p *fakeProcess) Wait() (int, error) {
 		<-p.ctx.Done()
 		return -1, p.ctx.Err()
 	}
-	return p.code, nil
+	return p.code, p.err
 }
 
 func (*fakeProcess) Stderr() string { return "" }
@@ -213,6 +216,26 @@ func TestVerifyGivesTheReviewerThePlanTheDiffAndWhereToWrite(t *testing.T) {
 	}
 	if given.SystemPrompt == "" {
 		t.Error("the reviewer was given no system prompt of its own")
+	}
+}
+
+func TestVerifyCutsAPlanTooLongToCarryWhole(t *testing.T) {
+	// The prompt is one argument to the tool, and an argument has a length the
+	// operating system will take.
+	d, e := &fakeDriver{}, &fakeExecutor{verdict: "verdict: pass\n"}
+	plan := strings.Repeat("a plan line nobody will read\n", 4000)
+
+	_, _, err := review(t, d, e, verifier.Request{Plan: plan, DiffComplete: true})
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+
+	given := d.given().Prompt
+	if len(given) > len(plan) {
+		t.Errorf("the prompt is %d bytes for a plan of %d, want the plan cut", len(given), len(plan))
+	}
+	if !strings.Contains(given, "too long to carry whole") {
+		t.Errorf("a reviewer given part of the plan is not told so:\n%s", given[:min(len(given), 600)])
 	}
 }
 
@@ -401,6 +424,38 @@ func TestVerifyStopsAReviewerThatWillNotFinish(t *testing.T) {
 	}
 	if !strings.Contains(got.Reason, "stopped") {
 		t.Errorf("Reason = %q, want it to say the reviewer was stopped", got.Reason)
+	}
+}
+
+func TestVerifySaysWhenAReviewerThatLeftAVerdictExitedBadly(t *testing.T) {
+	// The file is the verdict, not the exit status - but a Session that ended
+	// badly and still left one is worth saying so about where it is read.
+	d, e := &fakeDriver{}, &fakeExecutor{verdict: "verdict: pass\n\nIt does what the plan said.\n", exitCode: 3}
+
+	results, _, err := review(t, d, e, verifier.Request{})
+	got := only(t, results, err)
+
+	if !got.Passed {
+		t.Errorf("a verdict from a session that exited 3 was not honoured: %+v", got)
+	}
+	if !strings.Contains(got.Output, "exited 3") {
+		t.Errorf("Output = %q, want it to say the reviewer did not exit cleanly", got.Output)
+	}
+}
+
+func TestVerifyRefusesAVerdictFromASessionThatEndedBadly(t *testing.T) {
+	// A Session Owl could not read the end of did not finish reading the work
+	// either, whatever it had written by then.
+	d, e := &fakeDriver{}, &fakeExecutor{verdict: "verdict: pass\n", waitErr: errors.New("no such process")}
+
+	results, _, err := review(t, d, e, verifier.Request{})
+	got := only(t, results, err)
+
+	if got.Passed {
+		t.Error("a verdict from a session that ended badly was reported as passed")
+	}
+	if !strings.Contains(got.Reason, "no such process") {
+		t.Errorf("Reason = %q, want it to say what went wrong", got.Reason)
 	}
 }
 

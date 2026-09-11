@@ -52,8 +52,10 @@ const maxHandoff = 256 << 10
 
 // maxDiff is how much of what a Run changed is carried into a reviewer's
 // prompt. A reviewer given more than this is told to read the rest itself,
-// which it can: it works in the worktree (ADR-0013).
-const maxDiff = 256 << 10
+// which it can: it works in the worktree (ADR-0013). The whole prompt is one
+// argument to the tool, and Linux takes at most 128 KiB in one of those, so
+// this leaves room for the plan and for what Owl says around both.
+const maxDiff = 64 << 10
 
 // stderrTail is how much of a failed Agent's standard error is quoted in the
 // reason the Job is blocked with.
@@ -1099,7 +1101,13 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64, details 
 			return ""
 		}
 		if err != nil {
-			return fmt.Sprintf("verification could not be carried out: %v", err)
+			// A review that could not be carried out is a failure of its own,
+			// recorded beside the checks that did run: what a Project's own
+			// checks said is worth keeping whatever became of the review.
+			got = []verifier.Result{{
+				Name: config.ReviewName, Verifier: verifier.KindAgent, ExitCode: store.NoExitCode,
+				Reason: fmt.Sprintf("could not be carried out: %v", err),
+			}}
 		}
 		results = append(results, got...)
 	}
