@@ -164,6 +164,7 @@ func accountToken(cmd *cobra.Command, env Env, setup setupCommand, dataDir, name
 	// The tool talks to the person at the terminal, so it gets the terminal:
 	// its output is theirs to read and its questions theirs to answer.
 	run := exec.CommandContext(cmd.Context(), inv.Path, inv.Args...)
+	run.Dir = inv.Dir
 	run.Env = append(os.Environ(), inv.Env...)
 	run.Stdin, run.Stdout, run.Stderr = env.stdin(), env.Stdout, env.Stderr
 	if err := run.Run(); err != nil {
