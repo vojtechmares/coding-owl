@@ -3,6 +3,7 @@ package run
 import (
 	"context"
 	"slices"
+	"sync"
 
 	"github.com/vojtechmares/coding-owl/internal/gc"
 	"github.com/vojtechmares/coding-owl/internal/git"
@@ -36,6 +37,11 @@ type Overview struct {
 	// true now rather than what was true at the last collection.
 	Unfinished []gc.Unfinished
 }
+
+// DisposalLock is the lock that serialises deciding a Job's fate. Garbage
+// collection accepts a Job whose work is already merged (ADR-0015), which is
+// such a decision, and takes this for the same reason accept and drop do.
+func (s *Service) DisposalLock() sync.Locker { return &s.disposing }
 
 // Accept finishes a Job whose work is wanted: the branch stays where it is and
 // the worktree is reclaimed (ADR-0015). Owl never pushes it anywhere.

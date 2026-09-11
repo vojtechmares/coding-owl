@@ -178,6 +178,24 @@ func (s *Store) InterruptRunsInProgress(ctx context.Context, at time.Time, outco
 	return int(n), err
 }
 
+// LatestRunEnd is when a Job's most recent Run ended, and false when it has no
+// Run that has. A Job reaches review when its Run ends (ADR-0013), so this is
+// when it started waiting for a decision.
+func (s *Store) LatestRunEnd(ctx context.Context, jobID int64) (time.Time, bool, error) {
+	var ended sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT MAX(ended) FROM runs WHERE job_id = ? AND ended != ''`, jobID).Scan(&ended)
+	if err != nil || !ended.Valid || ended.String == "" {
+		return time.Time{}, false, err
+	}
+	t, err := time.Parse(timeFormat, ended.String)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("job %d has a run with an unreadable end time %q: %w",
+			jobID, ended.String, err)
+	}
+	return t, true, nil
+}
+
 // RunInProgress returns the Run that has not ended yet, if there is one. Only
 // one Agent runs at a time in this milestone (ADR-0029).
 func (s *Store) RunInProgress(ctx context.Context) (Run, bool, error) {

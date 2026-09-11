@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/git"
@@ -115,6 +116,16 @@ type Options struct {
 	// ReviewAfter is how long a Job may wait for a decision before it is
 	// reported. Zero is DefaultReviewAfter.
 	ReviewAfter time.Duration
+	// Carrying reports whether the daemon has a Run going for a Job. An active
+	// Job nothing is carrying is one a dead daemon left behind (ADR-0015). A
+	// Service without it reports every active Job with no Run in progress,
+	// which is what a daemon that carries nothing would say anyway.
+	Carrying func(jobID int64) bool
+	// Disposing is the lock that serialises deciding a Job's fate. Accepting a
+	// Job whose work is merged is such a decision, and takes it for the same
+	// reason owl jobs accept and owl jobs drop do: two deciders at once would
+	// each pass their own check (ADR-0015).
+	Disposing sync.Locker
 	// Logger receives what a collection nobody asked for has to say.
 	Logger *slog.Logger
 }
@@ -139,6 +150,14 @@ func NewService(opts Options) *Service {
 		opts.ReviewAfter = DefaultReviewAfter
 	}
 	return &Service{opts: opts, now: time.Now}
+}
+
+// Decides tells the Service how to find out whether the daemon is carrying a
+// Job, and what to take before deciding one's fate. Both come from the service
+// that runs Jobs, which is built after this one.
+func (s *Service) Decides(carrying func(jobID int64) bool, disposing sync.Locker) {
+	s.opts.Carrying = carrying
+	s.opts.Disposing = disposing
 }
 
 // Collect runs one collection and reports what it did. An error is something
@@ -172,7 +191,7 @@ func (s *Service) Collect(ctx context.Context) (Report, error) {
 	jobs = s.accept(ctx, projects, jobs, &report)
 	s.reconcile(ctx, projects, jobs, candidates, &report)
 	s.prune(projects, &report)
-	s.report(jobs, running, &report)
+	s.report(ctx, jobs, running, &report)
 	return report, nil
 }
 
@@ -182,7 +201,9 @@ func (s *Service) Collect(ctx context.Context) (Report, error) {
 func (s *Service) Unfinished(ctx context.Context) ([]Unfinished, error) {
 	candidates, err := s.candidates()
 	if err != nil {
-		return nil, err
+		// A worktree directory nobody can read is worth knowing about, but it
+		// is not a reason to answer nothing at all about the Jobs.
+		s.opts.Logger.Error("reading the worktree directory", "error", err)
 	}
 	jobs, running, err := s.opts.Store.JobsAndRunsInProgress(ctx)
 	if err != nil {
@@ -190,7 +211,7 @@ func (s *Service) Unfinished(ctx context.Context) ([]Unfinished, error) {
 	}
 	var report Report
 	s.worktrees(jobs, candidates, &report)
-	s.report(jobs, running, &report)
+	s.report(ctx, jobs, running, &report)
 	return report.Unfinished, nil
 }
 
@@ -270,6 +291,13 @@ func (s *Service) walk(jobs []store.Job, candidates []string, visit func(path st
 // branch, and returns the Jobs as they now stand. Merging through ordinary git
 // tooling is an accept: Owl does not ask for a second gesture (ADR-0015).
 func (s *Service) accept(ctx context.Context, projects []store.Project, jobs []store.Job, report *Report) []store.Job {
+	// Deciding a Job's fate is serialised, so that an accept here and an
+	// `owl jobs drop` in a terminal cannot each pass their own check and leave
+	// a Job done with its branch deleted.
+	if s.opts.Disposing != nil {
+		s.opts.Disposing.Lock()
+		defer s.opts.Disposing.Unlock()
+	}
 	byName := projectsByName(projects)
 	out := make([]store.Job, 0, len(jobs))
 	for _, j := range jobs {
@@ -295,8 +323,17 @@ func (s *Service) accept(ctx context.Context, projects []store.Project, jobs []s
 			out = append(out, j)
 			continue
 		}
-		if err := s.opts.Store.SetJobState(ctx, j.ID, string(queue.StateDone)); err != nil {
+		// Still in review is a condition of the write, not only of the read
+		// above: the Jobs were read before the lock was taken.
+		moved, err := s.opts.Store.MoveJobState(ctx, j.ID,
+			string(queue.StateReview), string(queue.StateDone))
+		if err != nil {
 			s.opts.Logger.Error("accepting a job whose work is merged", "job", j.ID, "error", err)
+			out = append(out, j)
+			continue
+		}
+		if !moved {
+			// Somebody decided about it first, which is their decision to make.
 			out = append(out, j)
 			continue
 		}
@@ -337,9 +374,13 @@ func (s *Service) reconcile(ctx context.Context, projects []store.Project, jobs 
 			return
 		}
 		if owned && j.Worktree != "" {
+			// The worktree is already gone, so recording it is not the
+			// caller's to cancel: a client that hangs up here would otherwise
+			// leave the Job pointing at a directory that is not there.
+			book := context.WithoutCancel(ctx)
 			// The Job no longer has a worktree, and saying so is what keeps
 			// the next collection from looking for it.
-			if err := s.opts.Store.SetJobWorkspace(ctx, j.ID, j.Branch, ""); err != nil {
+			if err := s.opts.Store.SetJobWorkspace(book, j.ID, j.Branch, ""); err != nil {
 				s.opts.Logger.Error("recording that a job's worktree went", "job", j.ID, "error", err)
 			}
 		}
@@ -410,7 +451,7 @@ func (s *Service) stale(p store.Project) ([]string, error) {
 
 // report adds the Jobs nothing is going to resolve on its own: one that has
 // waited too long for a decision, and one left active by a daemon that died.
-func (s *Service) report(jobs []store.Job, running []store.Run, report *Report) {
+func (s *Service) report(ctx context.Context, jobs []store.Job, running []store.Run, report *Report) {
 	inProgress := map[int64]bool{}
 	for _, r := range running {
 		inProgress[r.JobID] = true
@@ -419,22 +460,25 @@ func (s *Service) report(jobs []store.Job, running []store.Run, report *Report) 
 	for _, j := range jobs {
 		switch queue.State(j.State) {
 		case queue.StateReview:
-			// A Job's own clock is when it was produced: Owl records no time
-			// of entering review, and the difference only matters for a Job
-			// nobody has looked at for a working cycle.
-			if waited := now.Sub(j.Created); waited >= s.opts.ReviewAfter {
+			// A Job enters review when its Run ends (ADR-0013), so that is
+			// when it started waiting for a decision - not when it was
+			// produced, which may have been weeks of queueing earlier.
+			if waited := s.waiting(ctx, j, now); waited >= s.opts.ReviewAfter {
 				report.Unfinished = append(report.Unfinished, Unfinished{
 					Job: j.ID, Project: j.Project, Reason: ReasonWaiting, Since: waited,
 				})
 			}
 		case queue.StateActive:
 			// Every Agent is a child of the daemon (ADR-0012), so an active
-			// Job with no Run in progress is one whose daemon died: nothing is
-			// carrying it, and nothing will.
-			if !inProgress[j.ID] {
+			// Job this daemon is not carrying is one whose daemon died:
+			// nothing is running it, and nothing will. Asking the daemon
+			// rather than reading two tables is what keeps a Job from looking
+			// abandoned in the moment between its Run ending and the Job being
+			// moved on.
+			if !inProgress[j.ID] && !s.carrying(j.ID) {
 				report.Unfinished = append(report.Unfinished, Unfinished{
 					Job: j.ID, Project: j.Project, Reason: ReasonAbandoned,
-					Since: now.Sub(j.Created),
+					Since: s.waiting(ctx, j, now),
 				})
 			}
 		}
@@ -442,6 +486,25 @@ func (s *Service) report(jobs []store.Job, running []store.Run, report *Report) 
 	sort.SliceStable(report.Unfinished, func(a, b int) bool {
 		return report.Unfinished[a].Job < report.Unfinished[b].Job
 	})
+}
+
+// waiting is how long a Job has been where it is: since its most recent Run
+// ended, and since it was produced for a Job that has never run.
+func (s *Service) waiting(ctx context.Context, j store.Job, now time.Time) time.Duration {
+	ended, ok, err := s.opts.Store.LatestRunEnd(ctx, j.ID)
+	if err != nil {
+		s.opts.Logger.Warn("reading when a job's last run ended", "job", j.ID, "error", err)
+		return now.Sub(j.Created)
+	}
+	if !ok {
+		return now.Sub(j.Created)
+	}
+	return now.Sub(ended)
+}
+
+// carrying reports whether the daemon has a Run going for that Job.
+func (s *Service) carrying(jobID int64) bool {
+	return s.opts.Carrying != nil && s.opts.Carrying(jobID)
 }
 
 // finishedWith reports whether a Job has no further use for its worktree:
@@ -501,33 +564,4 @@ func resolve(path string) string {
 		return filepath.Clean(r)
 	}
 	return filepath.Clean(path)
-}
-
-// Describe renders one piece of unfinished work as a sentence, which is what
-// owl gc and owl status both print.
-func (u Unfinished) Describe() string {
-	what := u.Path
-	if what == "" {
-		what = fmt.Sprintf("job %d", u.Job)
-	}
-	line := fmt.Sprintf("%s %s", what, u.Reason)
-	if u.Since > 0 {
-		line += " for " + humanDuration(u.Since)
-	}
-	return line
-}
-
-// humanDuration renders how long something has been waiting the way a person
-// says it, rather than as a duration with three units in it.
-func humanDuration(d time.Duration) string {
-	switch {
-	case d >= 48*time.Hour:
-		return fmt.Sprintf("%d days", int(d.Hours()/24))
-	case d >= 2*time.Hour:
-		return fmt.Sprintf("%d hours", int(d.Hours()))
-	case d >= 2*time.Minute:
-		return fmt.Sprintf("%d minutes", int(d.Minutes()))
-	default:
-		return "less than a minute"
-	}
 }
