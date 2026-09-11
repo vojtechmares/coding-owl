@@ -178,5 +178,7 @@ func reachedAt(raw string) string {
 	if err != nil {
 		return "the provider"
 	}
-	return at.Scheme + "://" + at.Host + at.Path
+	// The path as it was written, not as it decodes: a message is read by a
+	// person, and %0d%0a decoded is two lines of something they did not write.
+	return at.Scheme + "://" + at.Host + at.EscapedPath()
 }

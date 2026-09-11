@@ -107,7 +107,9 @@ func (s *Service) Send(ctx context.Context, req SendRequest, emit func(Delta) er
 		})
 		done()
 		if addErr != nil {
-			return conversation, addErr
+			// Why the answer stopped is what the user asked about; that it
+			// could not be written down as well is the second half of it.
+			return conversation, errors.Join(err, addErr)
 		}
 	}
 	return conversation, err
@@ -205,22 +207,60 @@ func (s *Service) open(ctx context.Context, req SendRequest, text string) (int64
 // in a row. The Anthropic API refuses both, and a conversation that carries one
 // would be refused every time it was opened again. Neither is the user's doing,
 // so neither is theirs to live with.
-//
-// These are the turns as the conversation kept them, which are text and nothing
-// else: no tool call is ever left without the turn that asked for it.
 func shaped(turns []Turn) []Turn {
 	out := make([]Turn, 0, len(turns))
+	// Calls on a turn dropped for coming before the conversation starts: their
+	// results go with them, because a result the provider cannot attach to a
+	// call is a request it refuses for a second reason.
+	dropped := map[string]bool{}
 	for _, t := range turns {
 		if len(out) == 0 && t.Role != RoleUser {
+			for _, call := range t.ToolCalls {
+				dropped[call.ID] = true
+			}
+			continue
+		}
+		t = without(t, dropped)
+		if empty(t) {
 			continue
 		}
 		if last := len(out) - 1; last >= 0 && out[last].Role == t.Role {
-			out[last].Text = strings.TrimSpace(out[last].Text + "\n\n" + t.Text)
+			out[last] = joined(out[last], t)
 			continue
 		}
 		out = append(out, t)
 	}
 	return out
+}
+
+// joined is two turns of one role as one turn: everything both of them said,
+// in the order they said it. Nothing is merged away.
+func joined(into, t Turn) Turn {
+	into.Text = strings.TrimSpace(into.Text + "\n\n" + t.Text)
+	into.ToolCalls = append(append([]ToolCall(nil), into.ToolCalls...), t.ToolCalls...)
+	into.ToolResults = append(append([]ToolResult(nil), into.ToolResults...), t.ToolResults...)
+	return into
+}
+
+// without is a turn with the results of calls that are no longer there taken
+// out.
+func without(t Turn, dropped map[string]bool) Turn {
+	if len(dropped) == 0 || len(t.ToolResults) == 0 {
+		return t
+	}
+	kept := make([]ToolResult, 0, len(t.ToolResults))
+	for _, result := range t.ToolResults {
+		if !dropped[result.CallID] {
+			kept = append(kept, result)
+		}
+	}
+	t.ToolResults = kept
+	return t
+}
+
+// empty is a turn with nothing left in it to send.
+func empty(t Turn) bool {
+	return strings.TrimSpace(t.Text) == "" && len(t.ToolCalls) == 0 && len(t.ToolResults) == 0
 }
 
 // errTooLong stops a provider that will not stop talking. It is Owl's own, so
@@ -258,6 +298,13 @@ func (s *Service) converse(ctx context.Context, client Client, provider store.Ch
 			return answer.String(), fmt.Errorf("%s: %w", provider.Name, err)
 		}
 		if len(reply.ToolCalls) == 0 {
+			if answer.Len() == 0 && strings.TrimSpace(reply.Text) == "" {
+				// Something answered, and none of it was an answer: a captive
+				// portal, a base url pointing somewhere that is not the API.
+				// Silence with nothing said about it is the one thing the user
+				// cannot act on.
+				return "", fmt.Errorf("%s sent nothing Owl could read as an answer", provider.Name)
+			}
 			return answer.String(), nil
 		}
 		// What the model asked for goes back to it as another turn, so the

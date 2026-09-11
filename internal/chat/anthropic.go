@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -106,7 +107,7 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, emit func(str
 				call, input = nil, strings.Builder{}
 			}
 		case "error":
-			return invalid("the provider refused: %s", strings.TrimSpace(ev.Error.Message))
+			return fmt.Errorf("the provider refused: %s", strings.TrimSpace(ev.Error.Message))
 		}
 		return nil
 	})
