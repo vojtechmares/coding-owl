@@ -339,6 +339,7 @@ td.faint,
 /* A Skill is pinned unless it was declared to move on its own (ADR-0024). */
 .pill.pinned { color: var(--color-state-done); }
 .pill.tracking { color: var(--color-state-active); border-color: var(--color-state-active); }
+.pill.paused { color: var(--color-state-paused); border-color: var(--color-state-paused); border-style: dashed; }
 .pill.pass { color: var(--color-pass); background: var(--color-pass-bg); }
 .pill.fail { color: var(--color-fail); background: var(--color-fail-bg); }
 

@@ -2,8 +2,8 @@
 // waiting for a decision.
 
 import { useState } from "react";
-import { api, ago, errorText, type Job, type Overview as OverviewData } from "../lib/api";
-import { Banner, Button, Empty, Panel, Tile } from "../components/ui";
+import { api, ago, errorText, runOutcome, runPill, type Job, type Overview as OverviewData } from "../lib/api";
+import { Banner, Button, Empty, Panel, StatePill, Tile } from "../components/ui";
 import { JobsTable } from "./JobsTable";
 
 export function Overview({
@@ -41,9 +41,23 @@ export function Overview({
         return res.started ? `Started run ${res.run.ID} for job ${res.job.ID}` : "Nothing pending to run";
       },
     );
+  const pause = () =>
+    act(
+      () => api.pause(),
+      (r) => `Paused run ${(r as { ID: number }).ID}; the machine is yours`,
+    );
+  const resume = () =>
+    act(
+      () => api.resume(),
+      (r) => `Resumed run ${(r as { ID: number }).ID}`,
+    );
   const accept = (j: Job) => act(() => api.accept(j.ID, false), () => `Accepted job ${j.ID}`);
   const drop = (j: Job) => act(() => api.drop(j.ID, false), () => `Dropped job ${j.ID}`);
 
+  // One Agent runs at a time (ADR-0029), so pause and resume take no
+  // argument: they act on the Run in progress, whichever it is.
+  const frozen = data?.Running.some((r) => r.Run.Paused) ?? false;
+  const going = data?.Running.some((r) => !r.Run.Paused) ?? false;
   const counts = data?.Counts ?? [];
   const empty = data && data.Running.length === 0 && counts.length === 0 && data.Unfinished.length === 0;
 
@@ -52,6 +66,16 @@ export function Overview({
       <div className="page-title">
         <h1>Overview</h1>
         <div className="actions">
+          {going ? (
+            <Button onClick={pause} disabled={busy}>
+              Pause
+            </Button>
+          ) : null}
+          {frozen ? (
+            <Button kind="primary" onClick={resume} disabled={busy}>
+              Resume
+            </Button>
+          ) : null}
           <Button kind="primary" onClick={start} disabled={busy}>
             Start next
           </Button>
@@ -71,6 +95,7 @@ export function Overview({
                 <th>Job</th>
                 <th>Project</th>
                 <th>Phase</th>
+                <th>Agent</th>
                 <th>Attempt</th>
                 <th>Started</th>
                 <th>Prompt</th>
@@ -83,6 +108,9 @@ export function Overview({
                   <td className="mono">{r.Job.ID}</td>
                   <td>{r.Job.Project}</td>
                   <td>{r.Run.Phase || "-"}</td>
+                  <td>
+                    <StatePill state={runPill(r.Run)} /> <span className="dim">{runOutcome(r.Run)}</span>
+                  </td>
                   <td>{r.Run.Attempt}</td>
                   <td className="dim">{ago(r.Run.Started)}</td>
                   <td className="prompt">{r.Job.Prompt}</td>

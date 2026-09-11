@@ -45,6 +45,7 @@
   --color-state-blocked: hsl(252 70% 72%);
   --color-state-cancelled: hsl(220 15% 50%);
   --color-state-exhausted: hsl(258 60% 68%);
+  --color-state-paused: hsl(232 70% 76%);
   --color-state-bg: hsl(216 40% 60% / 0.12);
 
   /* Verdicts. */

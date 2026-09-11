@@ -26,8 +26,16 @@ export function Overview() {
   return window['go']['desktop']['App']['Overview']();
 }
 
+export function Pause() {
+  return window['go']['desktop']['App']['Pause']();
+}
+
 export function Projects() {
   return window['go']['desktop']['App']['Projects']();
+}
+
+export function Resume() {
+  return window['go']['desktop']['App']['Resume']();
 }
 
 export function Shutdown() {

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vojtechmares/coding-owl/internal/client"
 	"github.com/vojtechmares/coding-owl/internal/store"
 )
 
@@ -764,4 +765,73 @@ func TestS21ARunTheWindowEndedCannotBeFrozenAgain(t *testing.T) {
 		t.Errorf("state = %q, want pending", got)
 	}
 	b.gone(t)
+}
+
+func TestS22DesktopPausesAndResumesAndShowsTheFrozenRun(t *testing.T) {
+	b := beatingLayout(t, "")
+	daemonUp(t, b.l)
+	app, _ := desktopApp(t, b.l)
+	r := project(t, b.l, "api")
+	addJob(t, b.l, r.dir, "work", "--no-plan")
+	run, job := startRun(t, b.l)
+	b.started(t)
+
+	paused, err := app.Pause()
+	if err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	if got := strconv.FormatInt(paused.ID, 10); got != run || !paused.Paused {
+		t.Errorf("Pause reported run %d paused=%v, want run %s frozen", paused.ID, paused.Paused, run)
+	}
+	if !b.still(t) {
+		t.Errorf("the agent's child is still beating after the app paused")
+	}
+	// What the app shows is what the daemon says, read back rather than
+	// remembered (ADR-0009): the Job's own detail and the overview agree.
+	details, err := app.Job(id(t, job))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runInDetails(details, paused.ID).Paused {
+		t.Errorf("the job's detail does not show run %d as paused", paused.ID)
+	}
+	overview, err := app.Overview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.Running) != 1 || !overview.Running[0].Run.Paused {
+		t.Errorf("the overview does not show the frozen run as paused: %+v", overview.Running)
+	}
+
+	resumed, err := app.Resume()
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if resumed.ID != paused.ID || resumed.Paused {
+		t.Errorf("Resume reported run %d paused=%v, want run %d running", resumed.ID, resumed.Paused, paused.ID)
+	}
+	b.growing(t)
+	details, err = app.Job(id(t, job))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runInDetails(details, paused.ID).Paused {
+		t.Errorf("the job's detail still shows run %d as paused", paused.ID)
+	}
+
+	b.stub.let(t)
+	waitRun(t, b.l, job, run)
+	if _, err := app.Pause(); err == nil {
+		t.Errorf("Pause with nothing running returned no error")
+	}
+}
+
+// runInDetails is the Run with the given id in what the app reports for a Job.
+func runInDetails(d client.JobDetails, runID int64) client.Run {
+	for _, r := range d.Runs {
+		if r.ID == runID {
+			return r
+		}
+	}
+	return client.Run{}
 }

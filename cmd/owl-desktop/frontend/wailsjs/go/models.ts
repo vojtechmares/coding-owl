@@ -187,6 +187,7 @@ export namespace client {
 	    LogPath: string;
 	    Phase: string;
 	    Skills: Skill[];
+	    Paused: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Run(source);
@@ -205,6 +206,7 @@ export namespace client {
 	        this.LogPath = source["LogPath"];
 	        this.Phase = source["Phase"];
 	        this.Skills = this.convertValues(source["Skills"], Skill);
+	        this.Paused = source["Paused"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

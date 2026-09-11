@@ -1,6 +1,7 @@
 // JobDetail is owl jobs show: the Job, its Runs, and tabs for the plan, the
 // handoff, what Verification said, what the branch changed, the live log and
-// the system prompt. Accept, drop and start are the daemon's RPCs.
+// the system prompt. Accept, drop, start, pause and resume are the daemon's
+// RPCs.
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -9,6 +10,7 @@ import {
   errorText,
   orNone,
   runOutcome,
+  runPill,
   usePoll,
   useEvent,
   when,
@@ -52,7 +54,8 @@ export function JobDetail({ id, onBack }: { id: number; onBack: () => void }) {
   };
 
   const j = data?.Job;
-  const running = data?.Runs.some((r) => !r.Outcome) ?? false;
+  const inProgress = data?.Runs.find((r) => !r.Outcome);
+  const running = inProgress !== undefined;
 
   return (
     <>
@@ -64,6 +67,16 @@ export function JobDetail({ id, onBack }: { id: number; onBack: () => void }) {
           Job {id} {j ? <StatePill state={j.State} /> : null}
         </h1>
         <div className="actions">
+          {inProgress && !inProgress.Paused ? (
+            <Button onClick={() => act(() => api.pause(), "Paused; the machine is yours")} disabled={busy}>
+              Pause
+            </Button>
+          ) : null}
+          {inProgress && inProgress.Paused ? (
+            <Button kind="primary" onClick={() => act(() => api.resume(), "Resumed")} disabled={busy}>
+              Resume
+            </Button>
+          ) : null}
           {j && j.State === "pending" ? (
             <Button
               kind="primary"
@@ -98,6 +111,12 @@ export function JobDetail({ id, onBack }: { id: number; onBack: () => void }) {
       </div>
       {error ? <Banner>{error}</Banner> : null}
       {note ? <Banner>{note}</Banner> : null}
+      {inProgress && inProgress.Paused ? (
+        <Banner>
+          Run {inProgress.ID} is paused: the Agent and everything it started are frozen. Resume continues it where
+          it was; left for the whole grace window, it is ended and the Job goes back in the queue.
+        </Banner>
+      ) : null}
 
       {j ? (
         <Panel>
@@ -141,8 +160,7 @@ export function JobDetail({ id, onBack }: { id: number; onBack: () => void }) {
                     <td>{r.Attempt}</td>
                     <td>{r.Phase || "-"}</td>
                     <td>
-                      <StatePill state={runOutcome(r) === "succeeded" ? "done" : runOutcome(r) === "running" ? "active" : "blocked"} />{" "}
-                      <span className="dim">{runOutcome(r)}</span>
+                      <StatePill state={runPill(r)} /> <span className="dim">{runOutcome(r)}</span>
                     </td>
                     <td className="mono">{r.ExitCode < 0 ? "-" : r.ExitCode}</td>
                     <td className="dim">{ago(r.Started)}</td>

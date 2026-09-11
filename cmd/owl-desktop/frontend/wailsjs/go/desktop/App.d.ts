@@ -15,7 +15,11 @@ export function Jobs(arg1:boolean):Promise<Array<client.Job>>;
 
 export function Overview():Promise<client.Overview>;
 
+export function Pause():Promise<client.Run>;
+
 export function Projects():Promise<Array<client.Project>>;
+
+export function Resume():Promise<client.Run>;
 
 export function Shutdown():Promise<void>;
 
