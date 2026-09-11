@@ -29,6 +29,8 @@ export function Resume():Promise<client.Run>;
 
 export function Send(arg1:number,arg2:string,arg3:string):Promise<number>;
 
+export function SendTo(arg1:number,arg2:string,arg3:string,arg4:string):Promise<number>;
+
 export function Shutdown():Promise<void>;
 
 export function Skills(arg1:string):Promise<Array<client.Skill>>;

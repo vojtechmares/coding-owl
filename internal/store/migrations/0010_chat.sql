@@ -18,8 +18,14 @@ CREATE TABLE conversations (
     -- model is what was last spoken to, so a conversation reopens where it was.
     model   TEXT NOT NULL DEFAULT '',
     created TEXT NOT NULL,
-    updated TEXT NOT NULL
+    updated TEXT NOT NULL,
+    -- updated_unix is when it was last spoken to, in nanoseconds, because a
+    -- time written as text does not sort as a time and this column is what
+    -- orders the list a reader sees.
+    updated_unix INTEGER NOT NULL DEFAULT 0
 ) STRICT;
+
+CREATE INDEX conversations_by_spoken_to ON conversations (updated_unix DESC, id DESC);
 
 CREATE TABLE chat_messages (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -122,8 +122,9 @@ func scanChatProvider(row interface{ Scan(...any) error }) (ChatProvider, error)
 // StartConversation records a new conversation and returns it with its id.
 func (s *Store) StartConversation(ctx context.Context, c Conversation) (Conversation, error) {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO conversations (title, model, created, updated) VALUES (?, ?, ?, ?)`,
-		c.Title, c.Model, c.Created.UTC().Format(timeFormat), c.Updated.UTC().Format(timeFormat))
+		`INSERT INTO conversations (title, model, created, updated, updated_unix) VALUES (?, ?, ?, ?, ?)`,
+		c.Title, c.Model, c.Created.UTC().Format(timeFormat), c.Updated.UTC().Format(timeFormat),
+		c.Updated.UTC().UnixNano())
 	if err != nil {
 		return Conversation{}, err
 	}
@@ -138,8 +139,8 @@ func (s *Store) StartConversation(ctx context.Context, c Conversation) (Conversa
 // TouchConversation records that a conversation was spoken to, and what with.
 func (s *Store) TouchConversation(ctx context.Context, id int64, model string, at time.Time) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE conversations SET updated = ?, model = ? WHERE id = ?`,
-		at.UTC().Format(timeFormat), model, id)
+		`UPDATE conversations SET updated = ?, updated_unix = ?, model = ? WHERE id = ?`,
+		at.UTC().Format(timeFormat), at.UTC().UnixNano(), model, id)
 	return err
 }
 
@@ -155,10 +156,13 @@ func (s *Store) GetConversation(ctx context.Context, id int64) (Conversation, er
 }
 
 // ListConversations returns every conversation, the most recently spoken to
-// first, which is the order a reader wants them in.
+// first, which is the order a reader wants them in. The order comes from the
+// nanoseconds column rather than the text one: a time written as text does not
+// sort as a time.
 func (s *Store) ListConversations(ctx context.Context) ([]Conversation, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, title, model, created, updated FROM conversations ORDER BY updated DESC, id DESC`)
+		`SELECT id, title, model, created, updated FROM conversations
+		 ORDER BY updated_unix DESC, id DESC`)
 	if err != nil {
 		return nil, err
 	}

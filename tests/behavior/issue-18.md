@@ -21,14 +21,15 @@ a provider is pointed at with `--base-url`. No scenario reaches the network.
 
 ### S1 - a provider is configured from the CLI, and its key is not in the database
 Given a running daemon
-When `owl providers add anthropic --key sk-ant-test --base-url <fake>` runs
+When `owl providers add anthropic --key-stdin --base-url <fake>` runs with the key on standard input
 Then it exits 0 and says the provider was added
 And `owl providers list` reports it with the models it offers
 And the key is nowhere in `owl.db`
+And adding one without `--key-stdin` is refused, saying where a key is read from
 
 ### S2 - an OpenRouter provider carries the models it is to offer
 Given a running daemon
-When `owl providers add openrouter --key sk-or-test --model anthropic/claude-sonnet-4.5 --model openai/gpt-5` runs
+When `owl providers add openrouter --key-stdin --model anthropic/claude-sonnet-4.5 --model openai/gpt-5` runs
 Then `owl providers list` reports both models against `openrouter`
 And a provider added with no model at all is refused, naming the flag
 
@@ -111,5 +112,5 @@ And the daemon refuses a message for a provider that is not configured, saying s
 ### S16 - the app's window offers the chat, with a model picker
 Given the frontend sources under `cmd/owl-desktop/frontend/src`
 When they are scanned
-Then a chat view sends through the app's bindings, listens for what it emits, and offers the models the daemon reports
+Then a chat view sends through the app's bindings, naming the provider the model comes from, listens for what it emits, and offers the models the daemon reports
 And the window's navigation offers that view

@@ -121,6 +121,9 @@ message SendMessageRequest {
   string model = 2;
   // Text is what the user said.
   string text = 3;
+  // Provider is where that model comes from, for a model two providers offer.
+  // Empty takes whichever provider offers it.
+  string provider = 4;
 }
 
 message SendMessageResponse {

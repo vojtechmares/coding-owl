@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"text/tabwriter"
 
@@ -35,18 +37,28 @@ OpenRouter, which carries whatever your account has.`,
 }
 
 func newProvidersAddCmd(env Env) *cobra.Command {
-	var key, baseURL string
+	var baseURL string
 	var models []string
+	var keyStdin bool
 	cmd := &cobra.Command{
 		Use:   "add <provider>",
 		Short: "Configure a way to reach models",
 		Long: `Configure a way to reach models.
 
-The key is put in the credential store; the database records only that it is
-there. Configuring a provider that is already configured replaces it, which is
-how a key is rotated.`,
+The key is read from standard input rather than taken as a flag, so it is not
+in the shell history or in what every process on the machine can see:
+
+    owl providers add anthropic --key-stdin < key.txt
+
+It is put in the credential store; the database records only that it is there.
+Configuring a provider that is already configured replaces it, which is how a
+key is rotated.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			key, err := providerKey(env, keyStdin)
+			if err != nil {
+				return err
+			}
 			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
 				p, err := c.AddProvider(ctx, args[0], key, baseURL, models)
 				if err != nil {
@@ -58,12 +70,33 @@ how a key is rotated.`,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&key, "key", "", "the credential to reach the provider with")
+	cmd.Flags().BoolVar(&keyStdin, "key-stdin", false, "read the key from standard input")
 	cmd.Flags().StringVar(&baseURL, "base-url", "", "where to reach it (default: the provider's own)")
 	cmd.Flags().StringArrayVar(&models, "model", nil,
 		"a model it is to offer; repeat for more (required for openrouter)")
 	return cmd
 }
+
+// providerKey is the key to configure, read from standard input. A key is not
+// taken as a flag: an argument is in the shell history and in what every
+// process on the machine can see, and this is a credential (ADR-0019).
+func providerKey(env Env, fromStdin bool) (string, error) {
+	if !fromStdin {
+		return "", errors.New("a provider's key is read from standard input: pass --key-stdin")
+	}
+	key, err := io.ReadAll(io.LimitReader(env.stdin(), maxKey))
+	if err != nil {
+		return "", fmt.Errorf("reading the key from standard input: %w", err)
+	}
+	if strings.TrimSpace(string(key)) == "" {
+		return "", errors.New("nothing was on standard input to read as a key")
+	}
+	return strings.TrimSpace(string(key)), nil
+}
+
+// maxKey bounds what is read as a key, so a mistaken `--key-stdin < some-huge-file`
+// is refused rather than held in memory.
+const maxKey = 64 << 10
 
 func newProvidersListCmd(env Env) *cobra.Command {
 	cmd := &cobra.Command{

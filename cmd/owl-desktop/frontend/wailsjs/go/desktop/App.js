@@ -54,6 +54,10 @@ export function Send(arg1, arg2, arg3) {
   return window['go']['desktop']['App']['Send'](arg1, arg2, arg3);
 }
 
+export function SendTo(arg1, arg2, arg3, arg4) {
+  return window['go']['desktop']['App']['SendTo'](arg1, arg2, arg3, arg4);
+}
+
 export function Shutdown() {
   return window['go']['desktop']['App']['Shutdown']();
 }
