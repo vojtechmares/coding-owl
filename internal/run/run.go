@@ -260,7 +260,7 @@ func (s *Service) Start(ctx context.Context) (job queue.Job, run Run, started bo
 		return queue.Job{}, Run{}, false,
 			refused("a run for job %d is already in progress; only one agent runs at a time", r.JobID)
 	}
-	j, ok, err := s.opts.Store.NextQueued(ctx, string(queue.StatePending))
+	j, ok, err := s.nextRunnable(ctx)
 	if err != nil || !ok {
 		return queue.Job{}, Run{}, false, err
 	}
@@ -644,6 +644,35 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateReview), ""); err != nil {
 			s.opts.Logger.Error("recording where a job got to", "job", r.JobID, "error", err)
 		}
+	}
+}
+
+// nextRunnable takes the Job at the head of the queue, passing over one that
+// has no attempts left and reporting it as exhausted on the way. A Job only
+// reaches the queue with attempts to spend, so this holds that invariant
+// rather than expecting to find a Job it catches: at zero a Job is never
+// scheduled (ADR-0025), whatever put it there.
+func (s *Service) nextRunnable(ctx context.Context) (store.Job, bool, error) {
+	for {
+		j, ok, err := s.opts.Store.NextQueued(ctx, string(queue.StatePending))
+		if err != nil || !ok {
+			return store.Job{}, false, err
+		}
+		if j.TTL > 0 {
+			return j, true, nil
+		}
+		state, err := s.opts.Store.ReturnJobToQueue(ctx, j.ID,
+			string(queue.StatePending), string(queue.StateExhausted))
+		if err != nil {
+			return store.Job{}, false, err
+		}
+		if queue.State(state) != queue.StateExhausted {
+			// The Job is still at the head of the queue, so looking again
+			// would find it again. Stopping says so instead of spinning.
+			return store.Job{}, false, fmt.Errorf(
+				"job %d has no attempts left but is %s", j.ID, state)
+		}
+		s.opts.Logger.Warn("a job out of attempts was still queued", "job", j.ID)
 	}
 }
 

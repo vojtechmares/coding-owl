@@ -50,14 +50,30 @@ func TestS3TTLThatIsNotANumberOfAttemptsIsRefused(t *testing.T) {
 	daemonUp(t, l)
 	r := project(t, l, "api")
 
-	for _, ttl := range []string{"0", "-1", "many"} {
-		res := runOwlIn(t, l, r.dir, "add", "work", "--ttl", ttl)
+	for _, c := range []struct {
+		ttl string
+		// says is what the message has to tell the user beyond naming the flag
+		// and the value it would not take: what a ttl is instead. A value that
+		// is not a number at all never reaches that check, because the flag
+		// itself refuses it in its own words.
+		says string
+	}{
+		{ttl: "0", says: "count from one"},
+		{ttl: "-1", says: "count from one"},
+		{ttl: "many"},
+	} {
+		res := runOwlIn(t, l, r.dir, "add", "work", "--ttl", c.ttl)
 
 		if res.code == 0 {
-			t.Errorf("owl add --ttl %s exited 0\nstdout:\n%s", ttl, res.stdout)
+			t.Errorf("owl add --ttl %s exited 0\nstdout:\n%s", c.ttl, res.stdout)
 		}
-		if strings.TrimSpace(res.stderr) == "" {
-			t.Errorf("owl add --ttl %s said nothing about what was wrong", ttl)
+		// Saying something is not saying what was wrong: a flag that does not
+		// exist would say something too.
+		said := strings.TrimSpace(res.stderr)
+		for _, want := range []string{"ttl", c.ttl, c.says} {
+			if !strings.Contains(said, want) {
+				t.Errorf("owl add --ttl %s said %q, which does not name %q", c.ttl, said, want)
+			}
 		}
 	}
 	if rows := queueList(t, l); len(rows) != 0 {
