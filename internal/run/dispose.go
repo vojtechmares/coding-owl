@@ -25,10 +25,11 @@ type Running struct {
 // and - the morning question - what is waiting for a decision and what is
 // blocked (ADR-0015).
 type Overview struct {
-	Running  []Running
-	Counts   []StateCount
-	Awaiting []queue.Job
-	Blocked  []queue.Job
+	Running   []Running
+	Counts    []StateCount
+	Awaiting  []queue.Job
+	Blocked   []queue.Job
+	Exhausted []queue.Job
 }
 
 // Accept finishes a Job whose work is wanted: the branch stays where it is and
@@ -152,6 +153,8 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 			out.Awaiting = append(out.Awaiting, queue.FromStore(j))
 		case queue.StateBlocked:
 			out.Blocked = append(out.Blocked, queue.FromStore(j))
+		case queue.StateExhausted:
+			out.Exhausted = append(out.Exhausted, queue.FromStore(j))
 		}
 	}
 	// The states are reported in the order a Job passes through them, so the

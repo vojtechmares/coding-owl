@@ -34,6 +34,9 @@ service JobService {
   // GetOverview reports what is running, how the Jobs stand, and which of them
   // are waiting for a decision.
   rpc GetOverview(GetOverviewRequest) returns (GetOverviewResponse) {}
+  // ExtendJob gives a Job more attempts, returning it to the queue if it had
+  // run out (ADR-0025).
+  rpc ExtendJob(ExtendJobRequest) returns (ExtendJobResponse) {}
 }
 
 // JobState is the lifecycle of a Job (ADR-0025, ADR-0027).
@@ -88,6 +91,10 @@ message Job {
   // command that failed before an Agent started, or the checks that refused
   // the work.
   string reason = 13;
+  // Ttl is how many Runs the Job may still take. One is spent at the end of
+  // every Run whatever its outcome, and a Job with none left is exhausted
+  // rather than pending (ADR-0025).
+  int32 ttl = 14;
 }
 
 // PlanMode is whether a Job is planned before it is executed. Planning is the
@@ -179,6 +186,9 @@ message AddJobRequest {
   // leaves it to the Project and the defaults.
   string model = 5;
   string effort = 6;
+  // Ttl is how many Runs the Job may take. Zero asks for no particular number
+  // and takes the default of ten (ADR-0025).
+  int32 ttl = 7;
 }
 
 message AddJobResponse {
@@ -272,6 +282,17 @@ message DropJobResponse {
   Job job = 1;
 }
 
+message ExtendJobRequest {
+  int64 id = 1;
+  // Ttl is how many attempts to add. Zero asks for no particular number and
+  // adds the default of ten.
+  int32 ttl = 2;
+}
+
+message ExtendJobResponse {
+  Job job = 1;
+}
+
 message GetOverviewRequest {}
 
 // JobStateCount is how many Jobs are in one state.
@@ -297,4 +318,7 @@ message GetOverviewResponse {
   repeated Job awaiting = 3;
   // Blocked is the Jobs stuck on something wrong with the work.
   repeated Job blocked = 4;
+  // Exhausted is the Jobs that have run out of attempts. Nothing is wrong with
+  // them; they want more attempts or a decision (ADR-0025).
+  repeated Job exhausted = 5;
 }

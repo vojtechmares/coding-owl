@@ -299,6 +299,9 @@ func TestS16WhatIsLeftSurvivesARestart(t *testing.T) {
 	addJob(t, l, r.dir, "work", "--no-plan", "--ttl", "4")
 	_, job := finishedJob(t, l)
 	before := attempts(t, l, job)
+	if before != 3 {
+		t.Fatalf("the job has %d attempts after one run of the four it was given, want three", before)
+	}
 
 	stopDaemon(t, d)
 	daemonUp(t, l)

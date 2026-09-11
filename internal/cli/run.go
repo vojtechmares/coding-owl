@@ -109,7 +109,7 @@ func newJobsCmd(env Env) *cobra.Command {
 		Use:   "jobs",
 		Short: "Inspect Jobs and what running them involves",
 	}
-	cmd.AddCommand(newJobsShowCmd(env), newJobsAcceptCmd(env), newJobsDropCmd(env))
+	cmd.AddCommand(newJobsShowCmd(env), newJobsExtendCmd(env), newJobsAcceptCmd(env), newJobsDropCmd(env))
 	return cmd
 }
 
@@ -177,6 +177,43 @@ drop it anyway.`,
 		})
 }
 
+func newJobsExtendCmd(env Env) *cobra.Command {
+	var ttl int
+	cmd := &cobra.Command{
+		Use:   "extend <id>",
+		Short: "Give a Job more attempts",
+		Long: `Give a Job more attempts.
+
+A Job may take ten Runs before it is exhausted, and a Run that was
+interrupted costs one exactly as a failure does. Extending adds to what is
+left rather than replacing it, and a Job that had run out goes back into
+the queue at the place it kept.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := jobID(args[0])
+			if err != nil {
+				return err
+			}
+			// Zero is how the daemon is told to add its own default, so an
+			// explicit zero is refused here rather than read as one.
+			if cmd.Flags().Changed("ttl") && ttl < 1 {
+				return fmt.Errorf("attempts count from one; --ttl %d is not a number of runs to add", ttl)
+			}
+			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
+				j, err := c.ExtendJob(ctx, id, ttl)
+				if err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintf(env.Stdout, "job %d is %s with %s left\n",
+					j.ID, j.State, plural(j.TTL, "attempt"))
+				return nil
+			})
+		},
+	}
+	cmd.Flags().IntVar(&ttl, "ttl", 0, "how many Runs to add (default: ten)")
+	return cmd
+}
+
 func newJobsShowCmd(env Env) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <id>",
@@ -211,6 +248,7 @@ func printJob(env Env, d client.JobDetails) {
 		{"id", strconv.FormatInt(d.Job.ID, 10)},
 		{"project", d.Job.Project},
 		{"state", d.Job.State},
+		{"attempts", strconv.Itoa(d.Job.TTL) + " left"},
 		{"prompt", d.Job.Prompt},
 		{"branch", orNone(d.Job.Branch)},
 		{"worktree", orNone(d.Job.Worktree)},

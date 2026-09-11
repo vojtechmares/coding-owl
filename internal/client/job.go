@@ -38,6 +38,10 @@ type Job struct {
 	Plan string
 	// Reason is why the Job is where it is when no Run explains it.
 	Reason string
+	// TTL is how many Runs the Job may still take. One is spent at the end of
+	// every Run whatever its outcome, and a Job with none left is exhausted
+	// (ADR-0025).
+	TTL int
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -57,10 +61,16 @@ type AddJobRequest struct {
 	// Model and Effort override what every phase of this Job runs at.
 	Model  string
 	Effort string
+	// TTL is how many Runs the Job may take. Zero asks for no particular
+	// number and takes the daemon's default of ten.
+	TTL int
 }
 
 // AddJob queues a Job.
 func (c *Client) AddJob(ctx context.Context, req AddJobRequest) (Job, error) {
+	if err := attemptsFitTheWire(req.TTL); err != nil {
+		return Job{}, err
+	}
 	mode := codingowlv1.PlanMode_PLAN_MODE_UNSPECIFIED
 	if req.Plan != nil {
 		mode = codingowlv1.PlanMode_PLAN_MODE_PLAN
@@ -75,6 +85,7 @@ func (c *Client) AddJob(ctx context.Context, req AddJobRequest) (Job, error) {
 		PlanMode:   mode,
 		Model:      req.Model,
 		Effort:     req.Effort,
+		Ttl:        int32(req.TTL),
 	}))
 	if err != nil {
 		return Job{}, c.wrap(err)
@@ -122,6 +133,34 @@ func (c *Client) ReorderJob(ctx context.Context, id int64, position int) (Job, e
 	return jobFromProto(res.Msg.GetJob()), nil
 }
 
+// attemptsFitTheWire refuses a number of attempts the wire cannot carry. The
+// count travels as a 32-bit number, so a wider one would arrive truncated -
+// and a Job would silently get a number of attempts nobody asked for.
+func attemptsFitTheWire(ttl int) error {
+	if ttl < 0 || ttl > math.MaxInt32 {
+		return &StatusError{
+			Kind:    KindInvalid,
+			Message: fmt.Sprintf("attempts count from one; %d is not a number of runs a job can take", ttl),
+		}
+	}
+	return nil
+}
+
+// ExtendJob gives a Job more attempts, returning it to the queue if it had run
+// out. Zero asks for no particular number and adds the daemon's default.
+func (c *Client) ExtendJob(ctx context.Context, id int64, ttl int) (Job, error) {
+	if err := attemptsFitTheWire(ttl); err != nil {
+		return Job{}, err
+	}
+	res, err := c.jobs.ExtendJob(ctx, connect.NewRequest(&codingowlv1.ExtendJobRequest{
+		Id: id, Ttl: int32(ttl),
+	}))
+	if err != nil {
+		return Job{}, c.wrap(err)
+	}
+	return jobFromProto(res.Msg.GetJob()), nil
+}
+
 // jobStates translates the wire's state back into the daemon's vocabulary,
 // which is what the CLI and the desktop app show.
 var jobStates = map[codingowlv1.JobState]string{
@@ -155,6 +194,7 @@ func jobFromProto(j *codingowlv1.Job) Job {
 		Planned:   j.GetPlanned(),
 		Plan:      j.GetPlan(),
 		Reason:    j.GetReason(),
+		TTL:       int(j.GetTtl()),
 		Position:  int(j.GetPosition()),
 		Created:   j.GetCreated().AsTime(),
 	}
@@ -202,6 +242,8 @@ type Overview struct {
 	Awaiting []Job
 	// Blocked is the Jobs stuck on something wrong with the work.
 	Blocked []Job
+	// Exhausted is the Jobs that have run out of attempts.
+	Exhausted []Job
 }
 
 // Empty reports whether there is nothing at all to say.
@@ -233,6 +275,9 @@ func (c *Client) GetOverview(ctx context.Context) (Overview, error) {
 	}
 	for _, j := range res.Msg.GetBlocked() {
 		o.Blocked = append(o.Blocked, jobFromProto(j))
+	}
+	for _, j := range res.Msg.GetExhausted() {
+		o.Exhausted = append(o.Exhausted, jobFromProto(j))
 	}
 	return o, nil
 }

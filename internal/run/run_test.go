@@ -206,12 +206,19 @@ func gitIn(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// queueJob puts one pending Job in the store.
+// queueJob puts one pending Job in the store, with the attempts a Job arrives
+// from the queue with (ADR-0025).
 func queueJob(t *testing.T, st *store.Store, prompt string) store.Job {
+	t.Helper()
+	return queueJobWithAttempts(t, st, prompt, queue.DefaultTTL)
+}
+
+// queueJobWithAttempts puts one pending Job in the store that may take n Runs.
+func queueJobWithAttempts(t *testing.T, st *store.Store, prompt string, n int) store.Job {
 	t.Helper()
 	j, err := st.UpsertJob(context.Background(), store.Job{
 		Source: "local", SourceRef: prompt, Project: "repo", Prompt: prompt,
-		State: string(queue.StatePending), Created: time.Now().UTC(),
+		State: string(queue.StatePending), TTL: n, Created: time.Now().UTC(),
 	})
 	if err != nil {
 		t.Fatalf("UpsertJob: %v", err)
@@ -409,6 +416,37 @@ func TestCloseInterruptsARunAndReturnsTheJobToTheQueue(t *testing.T) {
 	// kept while it ran (ADR-0011, ADR-0025).
 	if queue.State(after.State) != queue.StatePending {
 		t.Errorf("state = %q, want the job back in the queue", after.State)
+	}
+	if after.Position != 1 {
+		t.Errorf("position = %d, want the place it held while it ran", after.Position)
+	}
+}
+
+func TestARunThatSpendsTheLastAttemptLeavesTheJobExhausted(t *testing.T) {
+	ctx := context.Background()
+	started := make(chan struct{})
+	svc, st, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{hold: make(chan struct{}), started: started})
+	j := queueJobWithAttempts(t, st, "work", 1)
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started
+
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	after, err := st.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	// Nothing is wrong with the work: the Job has simply had its Runs, so it
+	// waits for a decision rather than for another night (ADR-0025).
+	if queue.State(after.State) != queue.StateExhausted {
+		t.Errorf("state = %q, want exhausted", after.State)
+	}
+	if after.TTL != 0 {
+		t.Errorf("the job has %d attempts left, want none", after.TTL)
 	}
 	if after.Position != 1 {
 		t.Errorf("position = %d, want the place it held while it ran", after.Position)

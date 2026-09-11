@@ -69,6 +69,9 @@ func printOverview(env Env, o client.Overview) {
 	}
 	printJobList(env, "awaiting a decision", o.Awaiting, false)
 	printJobList(env, "blocked", o.Blocked, true)
+	// Out of attempts is its own list, not part of blocked: nothing is wrong
+	// with this work, it has simply had its Runs (ADR-0025).
+	printJobList(env, "out of attempts", o.Exhausted, false)
 }
 
 // printJobList names the Jobs a person has to do something about. The reason

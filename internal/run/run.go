@@ -625,9 +625,7 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 	case outcome == OutcomeInterrupted:
 		// The Run did not finish, so the Job goes back into the queue at the
 		// place it kept while it ran (ADR-0011, ADR-0025).
-		if err := s.opts.Store.SetJobState(ctx, r.JobID, string(queue.StatePending)); err != nil {
-			s.opts.Logger.Error("returning an interrupted job to the queue", "job", r.JobID, "error", err)
-		}
+		s.requeue(ctx, r.JobID, "returning an interrupted job to the queue")
 	case outcome == OutcomeFailed:
 		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateBlocked), ""); err != nil {
 			s.opts.Logger.Error("blocking a job", "job", r.JobID, "error", err)
@@ -635,9 +633,7 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 	case phase == PhasePlan:
 		// The Job is planned, not finished: it waits its turn to be carried
 		// out, in the place it already holds.
-		if err := s.opts.Store.SetJobState(ctx, r.JobID, string(queue.StatePending)); err != nil {
-			s.opts.Logger.Error("returning a planned job to the queue", "job", r.JobID, "error", err)
-		}
+		s.requeue(ctx, r.JobID, "returning a planned job to the queue")
 	case refused != "":
 		// Verification refused the work. There is no retry: the Job waits for
 		// the user with everything that is wrong attached (ADR-0013).
@@ -648,6 +644,23 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateReview), ""); err != nil {
 			s.opts.Logger.Error("recording where a job got to", "job", r.JobID, "error", err)
 		}
+	}
+}
+
+// requeue puts a Job back in the queue after a Run that did not finish with
+// it. A Job that has spent its last attempt is exhausted instead: it is not
+// stuck on anything, it has simply had its Runs, and it wants a decision or
+// owl jobs extend rather than another night (ADR-0025). what names the step
+// for the log when it cannot be done.
+func (s *Service) requeue(ctx context.Context, jobID int64, what string) {
+	state, err := s.opts.Store.ReturnJobToQueue(ctx, jobID,
+		string(queue.StatePending), string(queue.StateExhausted))
+	if err != nil {
+		s.opts.Logger.Error(what, "job", jobID, "error", err)
+		return
+	}
+	if queue.State(state) == queue.StateExhausted {
+		s.opts.Logger.Info("job out of attempts", "job", jobID)
 	}
 }
 
