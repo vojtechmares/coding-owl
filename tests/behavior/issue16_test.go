@@ -867,7 +867,8 @@ func TestS24TheDesktopAppUpdatesSkills(t *testing.T) {
 	if !seen {
 		t.Errorf("owl skills list does not report the commit the app resolved:\n%+v", rows)
 	}
-	if !got.Files.InRepo || !strings.Contains(got.Files.Lock, lockName) {
+	if !got.Files.InRepo || !strings.Contains(got.Files.Lock, lockName) ||
+		!strings.Contains(got.Files.Manifest, ".coding-owl.yaml") {
 		t.Errorf("the app reports %+v, want the files the project has to commit", got.Files)
 	}
 	if _, err := app.UpdateSkills(filepath.Base(r.dir), []string{"nothing"}); err == nil {
