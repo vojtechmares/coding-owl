@@ -113,6 +113,7 @@ Given a daemon whose `graceWindow` is `2s`, and a frozen Run
 When one second has passed
 Then the Run is still in progress
 And after the window has passed the Run is `interrupted`
+And it ended no sooner than two seconds after the pause, and not materially later: the window that fired is the one that was configured
 
 ### S11 - a grace window that is not a duration is refused
 Given a Run in progress, and a daemon configuration that then sets `graceWindow` to `soon`
