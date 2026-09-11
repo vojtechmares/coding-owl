@@ -283,9 +283,10 @@ func TestS7GraceWindowEndsAFrozenRun(t *testing.T) {
 
 	started := time.Now()
 	row := waitRun(t, b.l, job, run)
-	// A few seconds: a one second window takes about one, and a window that
-	// fires late is a window nobody can rely on.
-	if took := time.Since(started); took > 4*time.Second {
+	// About one second, with room for the Agent to act on being asked: a
+	// window that fires late is a window nobody can rely on, and one that is
+	// not the configured second is caught here or by S10's bounds.
+	if took := time.Since(started); took > 2500*time.Millisecond {
 		t.Errorf("the run took %s to end on a one second window", took.Round(100*time.Millisecond))
 	}
 
@@ -362,14 +363,28 @@ func TestS10GraceWindowIsConfigurable(t *testing.T) {
 	b := beatingLayout(t, "apiVersion: codingowl.dev/v1\ngraceWindow: 2s\n")
 	daemonUp(t, b.l)
 	run, job := b.frozen(t)
+	// frozen returns the moment owl pause has, which is when the window opens.
+	paused := time.Now()
 
 	sleep(time.Second)
 
 	if row := runRowOf(t, b.l, job, run); row.outcome != "running" && row.outcome != "paused" {
 		t.Errorf("run state = %q one second into a two second window, want it still in progress", row.outcome)
 	}
-	if row := waitRun(t, b.l, job, run); row.outcome != "interrupted" {
+	row := waitRun(t, b.l, job, run)
+	took := time.Since(paused)
+	if row.outcome != "interrupted" {
 		t.Errorf("run outcome = %q once the window passed, want interrupted", row.outcome)
+	}
+	// The window that fires is the one that was configured: not before two
+	// seconds, and not materially after. S7 pins a one second window to well
+	// under this, so a window that is a constant, or the setting plus or
+	// times something, fails one of the two.
+	if took < 2*time.Second {
+		t.Errorf("the run ended %s after it was paused, before the two second window had passed", took.Round(100*time.Millisecond))
+	}
+	if took > 3500*time.Millisecond {
+		t.Errorf("the run took %s to end on a two second window", took.Round(100*time.Millisecond))
 	}
 }
 
