@@ -230,6 +230,7 @@ func toRunProto(r run.Run) *codingowlv1.Run {
 		Phase:    string(r.Phase),
 		Skills:   toRunSkillsProto(r.Skills),
 		Paused:   r.Paused,
+		Stage:    string(r.Stage),
 	}
 	if !r.Ended.IsZero() {
 		out.Ended = timestamppb.New(r.Ended)

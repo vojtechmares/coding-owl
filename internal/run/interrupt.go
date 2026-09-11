@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"fmt"
 	"syscall"
 	"time"
 
@@ -153,17 +154,39 @@ func (s *Service) onlyLive(ctx context.Context, what string) (int64, *live, erro
 	}
 	// A Run whose Agent has exited is still in progress until its Project's
 	// checks have had their say (ADR-0013), and those are nobody's to freeze:
-	// saying there is no run at all would not be true.
+	// saying there is no run at all would not be true. The same goes for the
+	// moments before the Agent runs and after everything has.
 	r, ok, err := s.opts.Store.RunInProgress(ctx)
 	switch {
 	case err != nil:
 		// Not knowing is not the same as knowing there is nothing.
 		return 0, nil, err
-	case ok:
+	case !ok:
+		return 0, nil, refused("there is no run in progress")
+	}
+	switch s.stages[r.ID] {
+	case StageVerifying:
 		return 0, nil, refused(
 			"run %d is being verified rather than carried out by an agent, and cannot be %s", r.ID, what)
+	case StageFinishing:
+		return 0, nil, refused(
+			"run %d is being finished: its agent has exited, and it cannot be %s", r.ID, what)
+	default:
+		return 0, nil, refused(
+			"run %d is starting: its agent is not running yet, and it cannot be %s", r.ID, what)
 	}
-	return 0, nil, refused("there is no run in progress")
+}
+
+// setStage records where a Run in progress is once its Agent is no longer
+// the answer; an empty stage forgets the Run.
+func (s *Service) setStage(runID int64, stage Stage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if stage == "" {
+		delete(s.stages, runID)
+		return
+	}
+	s.stages[runID] = stage
 }
 
 // runOf reads a Run back, so what a caller is told is what the daemon recorded
@@ -176,12 +199,23 @@ func (s *Service) runOf(ctx context.Context, runID int64) (Run, error) {
 	return s.withPaused(toRun(r)), nil
 }
 
-// withPaused says whether a Run that has not ended is frozen. Only this daemon
-// knows: the Agent is its own child, and a restart ends every Run anyway.
+// withPaused says where a Run that has not ended is, and whether it is frozen.
+// Only this daemon knows: the Agent is its own child, and a restart ends every
+// Run anyway. The caller holds the lock.
 func (s *Service) withPaused(r Run) Run {
+	if r.Outcome != "" {
+		return r
+	}
 	if l, ok := s.live[r.ID]; ok {
 		r.Paused = l.paused
+		r.Stage = StageAgent
+		return r
 	}
+	if stage, ok := s.stages[r.ID]; ok {
+		r.Stage = stage
+		return r
+	}
+	r.Stage = StageStarting
 	return r
 }
 
@@ -274,11 +308,10 @@ func (s *Service) graceWindow() (time.Duration, error) {
 // It asks what is active rather than what the Runs it just ended belonged to,
 // which means a daemon that died halfway through recovering finishes the job
 // next time rather than stranding a Job in a state no command can reach.
-func (s *Service) requeueLeftOver(ctx context.Context) {
+func (s *Service) requeueLeftOver(ctx context.Context) error {
 	jobs, err := s.opts.Store.ListAllJobs(ctx)
 	if err != nil {
-		s.opts.Logger.Error("reading the jobs an earlier daemon left behind", "error", err)
-		return
+		return fmt.Errorf("reading the jobs an earlier daemon left behind: %w", err)
 	}
 	for _, j := range jobs {
 		// Anything else has been decided since, and a decision is not
@@ -289,4 +322,5 @@ func (s *Service) requeueLeftOver(ctx context.Context) {
 		s.requeue(ctx, j.ID, "returning a job an earlier daemon was carrying out to the queue")
 		s.opts.Logger.Info("a job an earlier daemon was carrying out is queued again", "job", j.ID)
 	}
+	return nil
 }

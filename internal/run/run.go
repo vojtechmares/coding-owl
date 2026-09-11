@@ -104,7 +104,28 @@ type Run struct {
 	// Paused is whether the Run is frozen right now. Only a Run this daemon is
 	// carrying out can be (ADR-0011).
 	Paused bool
+	// Stage is where a Run that has not ended is. Only the daemon carrying it
+	// out knows, and it is empty once the Run has ended.
+	Stage Stage
 }
+
+// Stage is where a Run in progress is: an Agent is only one part of it.
+type Stage string
+
+const (
+	// StageStarting is between the Run being recorded and its Agent running:
+	// the log being opened, the Driver building the command.
+	StageStarting Stage = "starting"
+	// StageAgent is the Agent running, which is the only stage that can be
+	// frozen (ADR-0011).
+	StageAgent Stage = "agent"
+	// StageVerifying is the Project's checks running on what the Agent left
+	// (ADR-0013).
+	StageVerifying Stage = "verifying"
+	// StageFinishing is what comes after the Agent, and after Verification
+	// where there was any: recording the plan, and the Run's end.
+	StageFinishing Stage = "finishing"
+)
 
 // Details is a Job with its Runs, the system prompt in force for it, and what
 // each of its phases would run at.
@@ -216,6 +237,9 @@ type Service struct {
 	mu      sync.Mutex
 	brokers map[int64]*broker
 	live    map[int64]*live
+	// stages is where each Run in progress is once its Agent has exited; a
+	// Run in live is at its Agent, and one in neither is starting.
+	stages map[int64]Stage
 
 	// carrying is the Jobs this daemon has a Run going for, which is what
 	// makes "no daemon is running it" a question somebody can answer rather
@@ -237,6 +261,7 @@ func NewService(opts Options) *Service {
 		cancel:   cancel,
 		brokers:  map[int64]*broker{},
 		live:     map[int64]*live{},
+		stages:   map[int64]Stage{},
 		carrying: map[int64]bool{},
 	}
 }
@@ -291,8 +316,7 @@ func (s *Service) Recover(ctx context.Context) error {
 	if n > 0 {
 		s.opts.Logger.Info("runs left over from an earlier daemon", "interrupted", n)
 	}
-	s.requeueLeftOver(ctx)
-	return nil
+	return s.requeueLeftOver(ctx)
 }
 
 // Start takes the Job at the head of the queue and runs it. started is false
@@ -735,6 +759,7 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 	defer s.carry(j.ID, false)
 	outcome, reason, code := s.execute(r, req, b)
 	s.closeBroker(r.ID)
+	defer s.setStage(r.ID, "")
 
 	// An Agent exiting cleanly says nothing about whether its work is any
 	// good, so the Project's own checks decide (ADR-0013). They run under the
@@ -743,8 +768,11 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 	// itself still succeeded: the Agent did its part, and Verification is what
 	// refused it.
 	refused := ""
+	s.setStage(r.ID, StageFinishing)
 	if outcome == OutcomeSucceeded && phase == PhaseExecute {
+		s.setStage(r.ID, StageVerifying)
 		refused = s.verify(s.ctx, j, r.ID, cfg)
+		s.setStage(r.ID, StageFinishing)
 		if s.ctx.Err() != nil {
 			// The daemon stopped before Verification could finish, so nothing
 			// has judged this work yet.

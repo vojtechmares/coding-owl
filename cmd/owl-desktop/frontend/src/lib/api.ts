@@ -160,7 +160,10 @@ export function orNone(s: string | undefined): string {
 // ended, and says so (ADR-0011).
 export function runOutcome(r: Run): string {
   if (r.Outcome && r.Outcome !== "") return r.Outcome;
-  return r.Paused ? "paused" : "running";
+  if (r.Paused) return "paused";
+  // Where the Run is when its Agent is not the answer, in the daemon's words.
+  if (r.Stage && r.Stage !== "" && r.Stage !== "agent") return r.Stage;
+  return "running";
 }
 
 // runPill is the pill for a Run's state: done for one that succeeded, paused
@@ -169,6 +172,6 @@ export function runPill(r: Run): string {
   const o = runOutcome(r);
   if (o === "succeeded") return "done";
   if (o === "paused") return "paused";
-  if (o === "running") return "active";
+  if (o === "running" || o === "starting" || o === "verifying" || o === "finishing") return "active";
   return "blocked";
 }
