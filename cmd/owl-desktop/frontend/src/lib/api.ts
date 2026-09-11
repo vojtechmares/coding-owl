@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as App from "../../wailsjs/go/desktop/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
-import type { client, desktop } from "../../wailsjs/go/models";
+import { client, type desktop } from "../../wailsjs/go/models";
 
 export type Job = client.Job;
 export type JobDetails = client.JobDetails;
@@ -15,12 +15,37 @@ export type Overview = client.Overview;
 export type Status = desktop.Status;
 export type StartResult = desktop.StartResult;
 
+// Go marshals a nil slice as null, so every list that crosses the bindings
+// is made an array here, once, and the views never have to ask.
+function list<T>(v: T[] | null | undefined): T[] {
+  return v ?? [];
+}
+
+function overview(o: Overview): Overview {
+  o.Running = list(o.Running);
+  o.Counts = list(o.Counts);
+  o.Awaiting = list(o.Awaiting);
+  o.Blocked = list(o.Blocked);
+  o.Exhausted = list(o.Exhausted);
+  o.Unfinished = list(o.Unfinished);
+  return o;
+}
+
+function details(d: JobDetails): JobDetails {
+  d.Runs = list(d.Runs);
+  d.Phases = list(d.Phases);
+  d.Checks = list(d.Checks);
+  if (!d.Diff) d.Diff = new client.DiffSummary({ Files: [], Insertions: 0, Deletions: 0 });
+  d.Diff.Files = list(d.Diff.Files);
+  return d;
+}
+
 export const api = {
   status: (): Promise<Status> => App.Status(),
-  projects: (): Promise<Project[]> => App.Projects(),
-  overview: (): Promise<Overview> => App.Overview(),
-  jobs: (all: boolean): Promise<Job[]> => App.Jobs(all),
-  job: (id: number): Promise<JobDetails> => App.Job(id),
+  projects: (): Promise<Project[]> => App.Projects().then(list),
+  overview: (): Promise<Overview> => App.Overview().then(overview),
+  jobs: (all: boolean): Promise<Job[]> => App.Jobs(all).then(list),
+  job: (id: number): Promise<JobDetails> => App.Job(id).then(details),
   start: (): Promise<StartResult> => App.Start(),
   accept: (id: number, force: boolean): Promise<Job> => App.Accept(id, force),
   drop: (id: number, force: boolean): Promise<Job> => App.Drop(id, force),

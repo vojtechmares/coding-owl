@@ -84,7 +84,7 @@ export default function App() {
           {jobId !== undefined ? (
             <JobDetail id={jobId} onBack={close} />
           ) : view === "overview" ? (
-            <Overview data={overview.data} error={overview.error} refresh={overview.refresh} onOpen={open} />
+            <Overview data={overview.data} error={down ? undefined : overview.error} refresh={overview.refresh} onOpen={open} />
           ) : view === "projects" ? (
             <Projects />
           ) : view === "queue" ? (
