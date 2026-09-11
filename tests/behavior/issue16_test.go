@@ -53,6 +53,13 @@ func (s *source) commit(ref string) string {
 	return strings.TrimSpace(s.repo.git("rev-parse", ref+"^{commit}"))
 }
 
+// moveTag points the source's tag at what its branch has come to, which is
+// what a publisher does when a release moves.
+func (s *source) moveTag() {
+	s.t.Helper()
+	s.repo.git("tag", "-f", "-a", "v1.0.0", "-m", "v1.0.0 again")
+}
+
 // path is the source's own directory, which is what owl skills add is given.
 func (s *source) path() string { return s.repo.dir }
 
@@ -166,6 +173,65 @@ func materialised(t *testing.T, worktree, name string) string {
 		t.Fatalf("the skill %s was not materialised: %v", name, err)
 	}
 	return string(data)
+}
+
+// runSkillCommit is the commit owl jobs show records for one Skill of one Run.
+// The section carries a block per Run, headed by RUN and its id, so a scenario
+// about a second Run can ask what that Run ran with rather than what any Run
+// did.
+func runSkillCommit(t *testing.T, out, run, name string) string {
+	t.Helper()
+	var at string
+	for _, ln := range strings.Split(section(t, out, "skills:"), "\n") {
+		f := strings.Fields(ln)
+		if len(f) == 0 {
+			continue
+		}
+		if f[0] == "RUN" {
+			at = f[1]
+			continue
+		}
+		if at == run && f[0] == name {
+			return f[len(f)-1]
+		}
+	}
+	t.Fatalf("owl jobs show records no %s for run %s:\n%s", name, run, out)
+	return ""
+}
+
+// setDigest rewrites the digest a lockfile records, so that an edit naming
+// another commit is not given away by the digest beside it.
+func setDigest(lock, digest string) string {
+	lines := strings.Split(lock, "\n")
+	for i, ln := range lines {
+		if before, _, ok := strings.Cut(ln, "digest:"); ok {
+			lines[i] = before + "digest: " + digest
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// digestIn is the digest a lockfile with one Skill records.
+func digestIn(t *testing.T, lock string) string {
+	t.Helper()
+	for _, ln := range strings.Split(lock, "\n") {
+		if _, value, ok := strings.Cut(ln, "digest:"); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	t.Fatalf("no digest in:\n%s", lock)
+	return ""
+}
+
+// digestOf is what Owl records for a source at a ref, taken from a Project of
+// its own so that a scenario can write a lockfile Owl would believe.
+func digestOf(t *testing.T, l *layout, src *source, ref string) string {
+	t.Helper()
+	r := newRepo(t, l, "elsewhere")
+	r.commit(".coding-owl.yaml", "apiVersion: codingowl.dev/v1\n", "configure owl")
+	addProject(t, l, r)
+	addSkill(t, l, r.dir, src.path(), "--ref", ref)
+	return digestIn(t, lockfile(t, r))
 }
 
 func TestS1SkillsAddRecordsTheSourceAndWhatItResolvedTo(t *testing.T) {
@@ -385,15 +451,19 @@ func TestS11EditingTheLockfileInTheWorktreeChangesNothing(t *testing.T) {
 	addJob(t, l, r.dir, "work")
 	out, job := finishedJob(t, l)
 	worktree := line(t, out, "worktree")
-	pinned := src.commit("v1.0.0")
+	pinned, forged := src.commit("v1.0.0"), src.commit("main")
 
-	// The Agent rewrites the lock in its own worktree to name another commit.
+	// The Agent rewrites the lock in its own worktree to name another commit,
+	// with the digest Owl itself records for it: an edit the digest gives away
+	// would prove only that the digest is checked.
+	credible := digestOf(t, l, src, "main")
 	lock := filepath.Join(worktree, lockName)
 	data, err := os.ReadFile(lock)
 	if err != nil {
 		t.Fatalf("reading the lockfile in the worktree: %v", err)
 	}
-	if err := os.WriteFile(lock, []byte(strings.ReplaceAll(string(data), pinned, src.commit("main"))), 0o644); err != nil {
+	edited := setDigest(strings.ReplaceAll(string(data), pinned, forged), credible)
+	if err := os.WriteFile(lock, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	run, _ := startRun(t, l)
@@ -401,6 +471,14 @@ func TestS11EditingTheLockfileInTheWorktreeChangesNothing(t *testing.T) {
 
 	if got := materialised(t, worktree, "go-review"); !strings.Contains(got, "Be kind.\n") || strings.Contains(got, "Be kinder.") {
 		t.Errorf("the second run used the lockfile the agent edited:\n%s", got)
+	}
+	shown := mustOwl(t, l, "jobs", "show", job).stdout
+	if got := runSkillCommit(t, shown, run, "go-review"); !strings.HasPrefix(pinned, got) {
+		t.Errorf("run %s records %s for go-review, want the base branch's %s:\n%s",
+			run, got, pinned[:12], shown)
+	}
+	if strings.Contains(section(t, shown, "skills:"), forged[:12]) {
+		t.Errorf("a run records the commit the agent wrote into its own worktree:\n%s", shown)
 	}
 }
 
@@ -448,20 +526,33 @@ func TestS14SkillsUpdateTakesASkillByName(t *testing.T) {
 	other := newSource(t, l, "house-style")
 	addSkill(t, l, r.dir, src.path(), "--ref", "v1.0.0")
 	addSkill(t, l, r.dir, other.path(), "--auto-update")
-	was := other.commit("main")
+	was, untouched := src.commit("v1.0.0"), other.commit("main")
+	// The release go-review is pinned at moves, so naming it has something to
+	// do: a pinned skill that is already where its ref points would prove
+	// nothing about the command.
+	src.write("Be kindest.\n")
+	src.moveTag()
 	other.write("In our house.\n")
+	moved := src.commit("v1.0.0")
+	if moved == was {
+		t.Fatal("the tag did not move, so this proves nothing")
+	}
 
 	res := mustOwlIn(t, l, r.dir, "skills", "update", "go-review")
 
 	lock := lockfile(t, r)
-	if !strings.Contains(lock, src.commit("v1.0.0")) {
-		t.Errorf("the lockfile does not record what go-review's ref resolves to:\n%s", lock)
+	if !strings.Contains(lock, moved) {
+		t.Errorf("the lockfile does not record what go-review's ref now resolves to (%s):\n%s", moved, lock)
 	}
-	if !strings.Contains(lock, was) {
+	if strings.Contains(lock, was) {
+		t.Errorf("the lockfile still records go-review's old commit %s:\n%s", was, lock)
+	}
+	if !strings.Contains(lock, untouched) {
 		t.Errorf("house-style was updated too:\n%s", lock)
 	}
-	if !strings.Contains(res.stdout, "go-review") {
-		t.Errorf("owl skills update does not name what it looked at:\n%s", res.stdout)
+	updated := section(t, res.stdout, "updated:")
+	if !strings.Contains(updated, "go-review") || strings.Contains(updated, "house-style") {
+		t.Errorf("owl skills update go-review reports updating %q:\n%s", updated, res.stdout)
 	}
 }
 
@@ -488,18 +579,35 @@ func TestS15AnAutoUpdateSkillIsResolvedAtRunStart(t *testing.T) {
 
 func TestS16APinnedSkillIsNotResolvedAtRunStart(t *testing.T) {
 	l, r, src := twoRunLayout(t)
-	addSkill(t, l, r.dir, src.path(), "--ref", "v1.0.0")
+	// Neither --ref nor --auto-update: it follows main, and a moving branch is
+	// what tells pinning apart from re-resolving at the start of every Run.
+	addSkill(t, l, r.dir, src.path())
 	commitSkills(t, r)
+	locked := src.commit("main")
 	addJob(t, l, r.dir, "work")
 	out, job := finishedJob(t, l)
 	worktree := line(t, out, "worktree")
+	first := runRows(t, out)[0].id
 
 	src.write("Be newest.\n")
+	if src.commit("main") == locked {
+		t.Fatal("the source's main did not move, so this proves nothing")
+	}
 	run, _ := startRun(t, l)
 	waitRun(t, l, job, run)
 
-	if got := materialised(t, worktree, "go-review"); strings.Contains(got, "Be newest.") {
-		t.Errorf("a pinned skill moved when the source did:\n%s", got)
+	if got := materialised(t, worktree, "go-review"); !strings.Contains(got, "Be kinder.") || strings.Contains(got, "Be newest.") {
+		t.Errorf("a skill nobody asked to move moved when its branch did:\n%s", got)
+	}
+	shown := mustOwl(t, l, "jobs", "show", job).stdout
+	for _, id := range []string{first, run} {
+		if got := runSkillCommit(t, shown, id, "go-review"); !strings.HasPrefix(locked, got) {
+			t.Errorf("run %s records %s for go-review, want the locked %s:\n%s",
+				id, got, locked[:12], shown)
+		}
+	}
+	if strings.Contains(section(t, shown, "skills:"), src.commit("main")[:12]) {
+		t.Errorf("a run records a commit that was made after it was locked:\n%s", shown)
 	}
 }
 
