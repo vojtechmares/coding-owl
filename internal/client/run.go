@@ -74,6 +74,28 @@ type JobDetails struct {
 	// Checks is what Verification said about the Job's most recent verified
 	// Run.
 	Checks []CheckResult
+	// Handoff is the document on the Job's branch carrying intent and
+	// progress from one Run to the next (ADR-0026), empty until a Run has
+	// written one.
+	Handoff string
+	// Diff is what the Job's branch changed against the Project's base
+	// branch, empty for a Job without a branch or whose branch is gone.
+	Diff DiffSummary
+}
+
+// DiffFile is one file a Job's branch changed. A binary file is reported with
+// no lines.
+type DiffFile struct {
+	Path       string
+	Insertions int
+	Deletions  int
+}
+
+// DiffSummary is what a Job's branch changed, per file and in total.
+type DiffSummary struct {
+	Files      []DiffFile
+	Insertions int
+	Deletions  int
 }
 
 // StartRun runs the Job at the head of the queue. started is false when the
@@ -99,6 +121,16 @@ func (c *Client) GetJob(ctx context.Context, id int64) (JobDetails, error) {
 		Job:          jobFromProto(res.Msg.GetJob()),
 		SystemPrompt: res.Msg.GetSystemPrompt(),
 		Runs:         make([]Run, 0, len(res.Msg.GetRuns())),
+		Handoff:      res.Msg.GetHandoff(),
+		Diff: DiffSummary{
+			Insertions: int(res.Msg.GetDiff().GetInsertions()),
+			Deletions:  int(res.Msg.GetDiff().GetDeletions()),
+		},
+	}
+	for _, f := range res.Msg.GetDiff().GetFiles() {
+		d.Diff.Files = append(d.Diff.Files, DiffFile{
+			Path: f.GetPath(), Insertions: int(f.GetInsertions()), Deletions: int(f.GetDeletions()),
+		})
 	}
 	for _, r := range res.Msg.GetRuns() {
 		d.Runs = append(d.Runs, runFromProto(r))

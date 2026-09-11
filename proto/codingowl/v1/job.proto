@@ -253,6 +253,27 @@ message GetJobResponse {
   // Phases is what each phase of the Job runs at, in the order it passes
   // through them.
   repeated PhaseSettings phases = 4;
+  // Handoff is the document on the Job's branch carrying intent and progress
+  // from one Run to the next (ADR-0026), empty until a Run has written one.
+  string handoff = 6;
+  // Diff summarises what the Job's branch changed against the Project's base
+  // branch. It is empty for a Job without a branch, or whose branch is gone.
+  DiffSummary diff = 7;
+}
+
+// DiffSummary is what a Job's branch changed, per file and in total.
+message DiffSummary {
+  repeated DiffFile files = 1;
+  int32 insertions = 2;
+  int32 deletions = 3;
+}
+
+// DiffFile is one file a Job's branch changed. A binary file counts as changed
+// with no lines.
+message DiffFile {
+  string path = 1;
+  int32 insertions = 2;
+  int32 deletions = 3;
 }
 
 message StreamRunLogRequest {
