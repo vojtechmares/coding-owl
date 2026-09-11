@@ -230,9 +230,8 @@ func TestS5ConflictLeavesNoRebaseInProgress(t *testing.T) {
 
 	runOwl(t, rb.l, "start")
 
-	status := gitIn(t, rb.repo, worktree, "status")
-	if strings.Contains(status, "rebase in progress") {
-		t.Errorf("the worktree is still mid-rebase:\n%s", status)
+	if midRebase(t, rb.repo, worktree) {
+		t.Errorf("the worktree is still mid-rebase:\n%s", gitIn(t, rb.repo, worktree, "status"))
 	}
 	if got := strings.TrimSpace(gitIn(t, rb.repo, worktree, "rev-parse", "HEAD")); got != before {
 		t.Errorf("the worktree is at %s, want the commit the agent left, %s", got, before)
@@ -404,8 +403,8 @@ func TestS13AWorktreeLeftMidRebaseIsReported(t *testing.T) {
 	if reason := line(t, out, "reason"); !strings.Contains(reason, "already in progress") {
 		t.Errorf("the reason does not say a rebase is already in progress: %q", reason)
 	}
-	if status := gitIn(t, rb.repo, worktree, "status"); !strings.Contains(status, "rebase in progress") {
-		t.Errorf("owl finished somebody else's rebase:\n%s", status)
+	if !midRebase(t, rb.repo, worktree) {
+		t.Errorf("owl finished somebody else's rebase:\n%s", gitIn(t, rb.repo, worktree, "status"))
 	}
 }
 
@@ -683,3 +682,4 @@ func TestS18AWorktreeThatIsGoneBlocksTheJobNotTheQueue(t *testing.T) {
 // sleepABit gives the daemon a moment to write down what it decided, where
 // waiting for a condition would be waiting for something not to happen.
 func sleepABit() { time.Sleep(500 * time.Millisecond) }
+
