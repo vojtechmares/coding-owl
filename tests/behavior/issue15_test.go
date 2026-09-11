@@ -278,13 +278,13 @@ func TestS10GCReportsAJobWaitingTooLongForADecision(t *testing.T) {
 	}
 }
 
-func TestS11GCReportsAJobLeftActiveByADeadDaemon(t *testing.T) {
+func TestS11AJobLeftActiveByADeadDaemonIsQueuedAgainNotReported(t *testing.T) {
 	script := []string{agentScript[0], "#wait", agentScript[2]}
 	l, _ := agentLayout(t, script, 0)
 	globalConfig(t, l, onDemand)
 	p := daemonUp(t, l)
 	runnableJob(t, l, "work")
-	_, job := startRun(t, l)
+	run, job := startRun(t, l)
 	if err := p.cmd.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
@@ -293,15 +293,17 @@ func TestS11GCReportsAJobLeftActiveByADeadDaemon(t *testing.T) {
 
 	out := gcReport(t, l)
 
-	unfinished := section(t, out, "unfinished work:")
-	if !strings.Contains(unfinished, job) {
-		t.Errorf("owl gc does not report job %s, which no daemon is running:\n%s", job, out)
+	// The daemon that starts up ends the Run and queues the Job again
+	// (ADR-0011), so there is nothing for garbage collection to report: the
+	// Job is not stuck, it is waiting its turn.
+	if strings.Contains(out, "job "+job) || strings.Contains(out, "no daemon is running it") {
+		t.Errorf("owl gc reports job %s, which the daemon has already queued again:\n%s", job, out)
 	}
-	if !strings.Contains(unfinished, "running") {
-		t.Errorf("owl gc does not say what is unfinished about it:\n%s", out)
+	if got := jobState(t, l, job); got != "pending" {
+		t.Errorf("state = %q, want pending: the job goes back in the queue", got)
 	}
-	if got := jobState(t, l, job); got != "active" {
-		t.Errorf("state = %q, want the job left where it was", got)
+	if got := runRowOf(t, l, job, run).outcome; got != "interrupted" {
+		t.Errorf("run outcome = %q, want interrupted", got)
 	}
 }
 
@@ -335,9 +337,10 @@ func TestS12StatusListsUnfinishedWork(t *testing.T) {
 		t.Fatalf("state = %q, want a job awaiting a decision:\n%s", got, waitingOut)
 	}
 
-	// A Job left active by a daemon that died, which is S11's kind. The stub
-	// is held first, so the Run is certainly still in progress when the daemon
-	// is killed rather than being a race against it finishing.
+	// A Job left active by a daemon that died, which is S11's kind: the next
+	// daemon queues it again (ADR-0011), so it is not unfinished work. The
+	// stub is held first, so the Run is certainly still in progress when the
+	// daemon is killed rather than being a race against it finishing.
 	hold(t, l)
 	addJob(t, l, r.dir, "interrupted", "--no-plan")
 	_, abandoned := startRun(t, l)
@@ -353,10 +356,16 @@ func TestS12StatusListsUnfinishedWork(t *testing.T) {
 	status := mustOwl(t, l, "status").stdout
 
 	unfinished := section(t, status, "unfinished work:")
-	for _, want := range []string{worktree, "committed", "job " + abandoned, "running"} {
+	for _, want := range []string{worktree, "committed"} {
 		if !strings.Contains(unfinished, want) {
 			t.Errorf("owl status does not report %q as unfinished work:\n%s", want, status)
 		}
+	}
+	if strings.Contains(unfinished, "job "+abandoned) {
+		t.Errorf("owl status reports job %s as unfinished work, but the daemon queued it again:\n%s", abandoned, status)
+	}
+	if got := jobState(t, l, abandoned); got != "pending" {
+		t.Errorf("state = %q, want pending: what a dead daemon was carrying out is queued again", got)
 	}
 	// What is merely waiting for a person is its own list, and has been since
 	// issue #8; unfinished work is what nothing is going to resolve on its own.

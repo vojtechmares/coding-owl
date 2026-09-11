@@ -82,16 +82,17 @@ When `owl gc` runs
 Then stdout lists the Job as unfinished work, saying it is waiting for a decision
 And the Job is still `review`, and its worktree is still there
 
-### S11 - a Job left active by a daemon that died is reported
+### S11 - a Job left active by a daemon that died is queued again, not reported
 Given a Job whose Run was in progress when the daemon was killed outright, and a daemon running again
 When `owl gc` runs
-Then stdout lists the Job as unfinished work, saying no daemon is running it
-And the Job is still `active`
+Then stdout does not list the Job: the daemon that started up ended its Run `interrupted` and returned it to `pending` (ADR-0011, issue #11 S17)
+And garbage collection would report it only if no daemon had done so
 
 ### S12 - owl status lists unfinished work
-Given the unfinished work of S5 and S11
+Given the unfinished work of S5, and a Job a dead daemon left active as in S11
 When `owl status` runs
-Then it lists both, each with what is unfinished about it
+Then it lists the unfinished work with what is unfinished about it
+And the Job the next daemon queued again is not among it
 And what is merely awaiting a decision is listed apart from them
 
 ### S13 - owl gc with nothing to do says so
