@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/git"
+	"github.com/vojtechmares/coding-owl/internal/skill"
 	"github.com/vojtechmares/coding-owl/internal/store"
 )
 
@@ -90,6 +92,24 @@ type Details struct {
 	// empty when no file was found.
 	ConfigSource string
 	Config       config.Config
+	// Lock is what the Project's lockfile records, read from the same place
+	// and the same branch as the configuration (ADR-0033).
+	Lock skill.Lock
+}
+
+// Files is where a Project's manifest and lockfile are on disk: the working
+// copies `owl skills` edits, as opposed to the base-branch versions the daemon
+// reads. A Project configured in its own repository has them in the user's
+// checkout, to be committed; one configured through the config home has them
+// where Owl owns them.
+type Files struct {
+	// Manifest is the configuration file the Skills are declared in.
+	Manifest string
+	// Lock is the lockfile beside it.
+	Lock string
+	// InRepo is whether they are in the Project's own repository, which is
+	// what decides whether the user has to commit them.
+	InRepo bool
 }
 
 // AddRequest is what owl project add carries.
@@ -150,7 +170,64 @@ func (s *Service) Show(ctx context.Context, name string) (Details, error) {
 	if err != nil {
 		return Details{}, err
 	}
-	return Details{Project: Project(p), ConfigSource: source, Config: cfg}, nil
+	lock, err := s.lock(Project(p))
+	if err != nil {
+		return Details{}, err
+	}
+	return Details{Project: Project(p), ConfigSource: source, Config: cfg, Lock: lock}, nil
+}
+
+// lock reads the Project's lockfile from its base branch, in the same
+// discovery order as its configuration, and falls back to the config home
+// (ADR-0033). A Project with no lockfile has no Skills locked, which is not a
+// failure.
+func (s *Service) lock(p Project) (skill.Lock, error) {
+	for _, dir := range lockDirs {
+		data, found, err := git.ShowFileOnBranch(p.Path, p.BaseBranch, path.Join(dir, skill.LockName))
+		if err != nil {
+			return skill.Lock{}, &InvalidError{Err: err}
+		}
+		if !found {
+			continue
+		}
+		lock, err := skill.ParseLock(p.BaseBranch+":"+path.Join(dir, skill.LockName), data)
+		if err != nil {
+			return skill.Lock{}, &InvalidError{Err: err}
+		}
+		return lock, nil
+	}
+	return skill.ReadLock(s.lockPath(p.Name))
+}
+
+// lockDirs is where a lockfile is looked for inside a repository, in the same
+// order as the configuration's own in-repo forms (ADR-0033).
+var lockDirs = []string{".", ".config", ".meta"}
+
+// lockPath is the per-Project fallback lockfile, beside the fallback
+// configuration.
+func (s *Service) lockPath(name string) string {
+	return filepath.Join(s.configDir(name), skill.LockName)
+}
+
+// FilesFor is where a Project's manifest and lockfile are on disk. A Project
+// configured in its own repository keeps them there; one configured through
+// the config home, or not configured at all, keeps them under the config home,
+// which is Owl's to write.
+func (s *Service) FilesFor(ctx context.Context, name string) (Files, error) {
+	d, err := s.Show(ctx, name)
+	if err != nil {
+		return Files{}, err
+	}
+	branch, inRepo, ok := strings.Cut(d.ConfigSource, ":")
+	if ok && branch == d.BaseBranch {
+		dir := path.Dir(inRepo)
+		return Files{
+			Manifest: filepath.Join(d.Path, filepath.FromSlash(inRepo)),
+			Lock:     filepath.Join(d.Path, filepath.FromSlash(path.Join(dir, skill.LockName))),
+			InRepo:   true,
+		}, nil
+	}
+	return Files{Manifest: s.configPath(name), Lock: s.lockPath(name)}, nil
 }
 
 // discover walks the ADR-0014 order and returns the first configuration file

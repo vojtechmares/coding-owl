@@ -278,6 +278,7 @@ func printJob(env Env, d client.JobDetails) {
 		}
 		_ = w.Flush()
 	}
+	printRunSkills(env, d.Runs)
 	printChecks(env, d.Checks)
 	printPhases(env, d.Phases)
 	if plan := strings.TrimRight(d.Job.Plan, "\n"); plan != "" {
@@ -291,6 +292,29 @@ func printJob(env Env, d client.JobDetails) {
 		_, _ = fmt.Fprintf(env.Stdout, "\nhandoff: %s\n", noValue)
 	}
 	_, _ = fmt.Fprintf(env.Stdout, "\nsystem prompt:\n%s\n", d.SystemPrompt)
+}
+
+// printRunSkills reports what each Run read, so that what an Agent did is
+// attributable to the instructions it had (ADR-0024). The most recent Run
+// comes first, because that is the one a reader is asking about.
+func printRunSkills(env Env, runs []client.Run) {
+	var reported bool
+	for i := len(runs) - 1; i >= 0; i-- {
+		r := runs[i]
+		if len(r.Skills) == 0 {
+			continue
+		}
+		if !reported {
+			_, _ = fmt.Fprintln(env.Stdout, "\nskills:")
+			reported = true
+		}
+		w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintf(w, "RUN %d\tSOURCE\tREF\tCOMMIT\n", r.ID)
+		for _, s := range r.Skills {
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, s.Source, orNone(s.Ref), short(s.Commit))
+		}
+		_ = w.Flush()
+	}
 }
 
 // printPhases reports what each phase of the Job would run at, and where each

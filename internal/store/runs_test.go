@@ -499,3 +499,72 @@ func TestLatestRunReportsAJobThatHasNeverRun(t *testing.T) {
 		t.Error("LatestRun found a run for a job that has never run")
 	}
 }
+
+func TestSetRunSkillsRecordsWhatARunReadWith(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := queuedJob(t, s, "work", "a")
+	r, err := s.StartRun(ctx, store.Run{JobID: j.ID, Started: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	skills := []store.RunSkill{
+		{Name: "go-review", Source: "x/go-review", Ref: "v1.0.0", Commit: "abc", Digest: "sha256:1"},
+		{Name: "house-style", Source: "me/house-style", Ref: "main", Commit: "def", Digest: "sha256:2"},
+	}
+
+	if err := s.SetRunSkills(ctx, r.ID, skills); err != nil {
+		t.Fatalf("SetRunSkills: %v", err)
+	}
+
+	got, err := s.ListRunSkills(ctx, r.ID)
+	if err != nil {
+		t.Fatalf("ListRunSkills: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListRunSkills = %+v, want both", got)
+	}
+	if got[0] != skills[0] || got[1] != skills[1] {
+		t.Errorf("ListRunSkills = %+v, want %+v", got, skills)
+	}
+}
+
+func TestSetRunSkillsReplacesWhatWasRecorded(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := queuedJob(t, s, "work", "a")
+	r, err := s.StartRun(ctx, store.Run{JobID: j.ID, Started: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if err := s.SetRunSkills(ctx, r.ID, []store.RunSkill{
+		{Name: "go-review", Source: "x", Ref: "main", Commit: "abc", Digest: "sha256:1"},
+	}); err != nil {
+		t.Fatalf("SetRunSkills: %v", err)
+	}
+
+	if err := s.SetRunSkills(ctx, r.ID, []store.RunSkill{
+		{Name: "house-style", Source: "y", Ref: "main", Commit: "def", Digest: "sha256:2"},
+	}); err != nil {
+		t.Fatalf("SetRunSkills again: %v", err)
+	}
+
+	got, err := s.ListRunSkills(ctx, r.ID)
+	if err != nil {
+		t.Fatalf("ListRunSkills: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "house-style" {
+		t.Errorf("ListRunSkills = %+v, want only what was recorded second", got)
+	}
+}
+
+func TestListRunSkillsForARunWithNoneIsEmpty(t *testing.T) {
+	got, err := jobStore(t).ListRunSkills(context.Background(), 999)
+
+	if err != nil {
+		t.Fatalf("ListRunSkills: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("ListRunSkills = %+v, want nothing", got)
+	}
+}

@@ -29,6 +29,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/run"
+	"github.com/vojtechmares/coding-owl/internal/skill"
 	"github.com/vojtechmares/coding-owl/internal/store"
 	"github.com/vojtechmares/coding-owl/internal/verifier/command"
 	"github.com/vojtechmares/coding-owl/internal/xdg"
@@ -43,8 +44,12 @@ const (
 	// the platform has no keychain to keep them in instead (ADR-0019).
 	credentialsName = "credentials.json"
 	worktreesDir    = "worktrees"
-	logsDir         = "logs"
-	configName      = "config.yaml"
+	// skillsDir holds the fetched Skills, each under its content digest, and
+	// ownedDir the exclude file Owl owns for each Job's worktree (ADR-0033).
+	skillsDir  = "skills"
+	ownedDir   = "worktree-config"
+	logsDir    = "logs"
+	configName = "config.yaml"
 )
 
 // ErrAlreadyListening is returned by Run when another daemon answers on the
@@ -121,6 +126,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	projects := project.NewService(db, opts.Paths.ConfigDir)
 	accounts := account.NewService(db, creds, opts.Paths.DataDir)
+	skills := skill.NewService(skill.NewCache(filepath.Join(opts.Paths.DataDir, skillsDir)))
 	worktrees := filepath.Join(opts.Paths.DataDir, worktreesDir)
 	collector := gc.NewService(gc.Options{
 		Store:       db,
@@ -133,6 +139,8 @@ func Run(ctx context.Context, opts Options) error {
 		Projects:    projects,
 		Accounts:    accounts,
 		Collector:   collector,
+		Skills:      skills,
+		SkillsDir:   filepath.Join(opts.Paths.DataDir, ownedDir),
 		Driver:      claudecode.New(),
 		Executor:    host.New(),
 		Verifier:    command.New(),
@@ -162,6 +170,9 @@ func Run(ctx context.Context, opts Options) error {
 	}))
 	mux.Handle(codingowlv1connect.NewGarbageCollectionServiceHandler(&gcService{
 		gc: collector,
+	}))
+	mux.Handle(codingowlv1connect.NewSkillServiceHandler(&skillService{
+		skills: project.NewSkillService(projects, skills),
 	}))
 	mux.Handle(codingowlv1connect.NewJobServiceHandler(&jobService{
 		jobs: queue.NewService(db, queue.Local{}),

@@ -232,3 +232,10 @@ func TestSetupTokenRunsInTheAccountsDirectoryRatherThanWhereverItWasTyped(t *tes
 		t.Errorf("the setup runs in %q, want the account's own directory", inv.Dir)
 	}
 }
+
+func TestSkillsDirIsWhereClaudeCodeReadsSkills(t *testing.T) {
+	// Not the plugins directory, which is a different thing (ADR-0033).
+	if got := claudecode.New().SkillsDir(); got != ".claude/skills" {
+		t.Errorf("SkillsDir = %q, want .claude/skills", got)
+	}
+}

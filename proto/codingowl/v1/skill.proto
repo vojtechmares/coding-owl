@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package codingowl.v1;
+
+// SkillService manages the Skills a Project gives every Agent that works in it
+// (ADR-0024). A Skill is declared by source and ref in the Project's
+// configuration; what that ref resolved to is recorded in a lockfile beside it
+// (ADR-0033). Skills are per Project only: there is no global scope.
+service SkillService {
+  // AddSkill resolves a source at a ref, fetches it, and records it in the
+  // Project's manifest and lockfile.
+  rpc AddSkill(AddSkillRequest) returns (AddSkillResponse) {}
+  // ListSkills returns what a Project declares, with what each resolved to.
+  rpc ListSkills(ListSkillsRequest) returns (ListSkillsResponse) {}
+  // RemoveSkill takes a Skill out of both files.
+  rpc RemoveSkill(RemoveSkillRequest) returns (RemoveSkillResponse) {}
+  // UpdateSkill re-resolves the Skills that may move, and any named outright.
+  rpc UpdateSkill(UpdateSkillRequest) returns (UpdateSkillResponse) {}
+}
+
+// Skill is one Skill as the daemon reports it: what the manifest declares, and
+// what the lockfile records it resolved to.
+message Skill {
+  // Name is what it is called, which is its source's last path element. It is
+  // also the directory it is placed in inside a worktree.
+  string name = 1;
+  // Source is the repository it comes from.
+  string source = 2;
+  // Ref is the branch or tag it follows.
+  string ref = 3;
+  // Commit is what that ref resolved to, empty for a Skill nothing has
+  // resolved yet.
+  string commit = 4;
+  // Digest is of the content fetched at that commit.
+  string digest = 5;
+  // AutoUpdate is whether it is re-resolved at the start of every Run. A Skill
+  // without it is pinned, which is the default (ADR-0024).
+  bool auto_update = 6;
+}
+
+// SkillFiles is where a Project's manifest and lockfile are, so that a caller
+// can say what to commit.
+message SkillFiles {
+  string manifest = 1;
+  string lock = 2;
+  // InRepo is whether they are in the Project's own repository, which is what
+  // decides whether the user has to commit them.
+  bool in_repo = 3;
+}
+
+message AddSkillRequest {
+  // Project names the Project to add to. Empty means the Project the working
+  // directory is in.
+  string project = 1;
+  // WorkingDir is an absolute path to the directory the caller ran in.
+  string working_dir = 2;
+  // Source is the repository the Skill comes from.
+  string source = 3;
+  // Ref is the branch or tag to follow. Empty is the source's default branch.
+  string ref = 4;
+  // AutoUpdate asks for it to be re-resolved at the start of every Run.
+  bool auto_update = 5;
+}
+
+message AddSkillResponse {
+  Skill skill = 1;
+  SkillFiles files = 2;
+}
+
+message ListSkillsRequest {
+  string project = 1;
+  string working_dir = 2;
+}
+
+message ListSkillsResponse {
+  repeated Skill skills = 1;
+  SkillFiles files = 2;
+}
+
+message RemoveSkillRequest {
+  string project = 1;
+  string working_dir = 2;
+  // Name is the Skill to remove.
+  string name = 3;
+}
+
+message RemoveSkillResponse {
+  Skill skill = 1;
+  SkillFiles files = 2;
+}
+
+message UpdateSkillRequest {
+  string project = 1;
+  string working_dir = 2;
+  // Names are the Skills to re-resolve outright, pinned or not. Empty
+  // re-resolves only the Skills that may move on their own.
+  repeated string names = 3;
+}
+
+message UpdateSkillResponse {
+  // Updated is the Skills whose recorded commit changed.
+  repeated Skill updated = 1;
+  // Skills is all of them as they now stand.
+  repeated Skill skills = 2;
+  SkillFiles files = 3;
+}

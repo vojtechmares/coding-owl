@@ -56,13 +56,32 @@ func (s *source) commit(ref string) string {
 // path is the source's own directory, which is what owl skills add is given.
 func (s *source) path() string { return s.repo.dir }
 
-// skillLayout is a layout whose daemon can run an Agent, with a Project and a
-// Skill source ready to add.
+// skillLayout is a layout whose daemon can run an Agent, with a Project
+// configured in its own repository - which is where `owl skills` then writes -
+// and a Skill source ready to add.
 func skillLayout(t *testing.T) (*layout, *repo, *source) {
 	t.Helper()
 	l, _ := agentLayout(t, agentScript, 0)
+	return withSkillProject(t, l)
+}
+
+// twoRunLayout is skillLayout for the scenarios that run a Job twice: the stub
+// writes a handoff, so the planning Run succeeds and the Job comes back to the
+// queue to be carried out (ADR-0026).
+func twoRunLayout(t *testing.T) (*layout, *repo, *source) {
+	t.Helper()
+	l, _ := planningLayout(t, "# Handoff\n\nstep one done\n")
+	return withSkillProject(t, l)
+}
+
+// withSkillProject starts a daemon for a layout and gives it a Project whose
+// configuration is in its own repository, plus a Skill source to add.
+func withSkillProject(t *testing.T, l *layout) (*layout, *repo, *source) {
+	t.Helper()
 	daemonUp(t, l)
-	r := project(t, l, "api")
+	r := newRepo(t, l, "api")
+	r.commit(".coding-owl.yaml", "apiVersion: codingowl.dev/v1\n", "configure owl")
+	addProject(t, l, r)
 	return l, r, newSource(t, l, "go-review")
 }
 
@@ -76,17 +95,39 @@ func addSkill(t *testing.T, l *layout, dir string, args ...string) result {
 	return res
 }
 
-// manifest is the Project's configuration as it stands on its base branch,
-// which is where the daemon reads it from (ADR-0014).
+// manifest is the Project's configuration file as `owl skills` left it. For a
+// Project configured in its own repository that is the working tree: the
+// daemon reads the base branch, so a Skill takes effect once it is committed.
 func manifest(t *testing.T, r *repo) string {
 	t.Helper()
-	return r.git("show", "HEAD:.coding-owl.yaml")
+	return readFile(t, filepath.Join(r.dir, ".coding-owl.yaml"))
 }
 
-// lockfile is the lockfile as it stands on the Project's base branch.
+// lockfile is the lockfile beside it, also as it stands in the working tree.
 func lockfile(t *testing.T, r *repo) string {
 	t.Helper()
-	return r.git("show", "HEAD:"+lockName)
+	return readFile(t, filepath.Join(r.dir, lockName))
+}
+
+// readFile is a file's contents, empty for one that is not there.
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return ""
+	}
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	return string(data)
+}
+
+// commitSkills commits the manifest and the lockfile, which is what a user
+// does before a Run reads them from the base branch (ADR-0014).
+func commitSkills(t *testing.T, r *repo) {
+	t.Helper()
+	r.git("add", "--", ".coding-owl.yaml", lockName)
+	r.git("commit", "-m", "declare skills")
 }
 
 // skillRow is one row of owl skills list.
@@ -236,7 +277,7 @@ func TestS5SkillsAddRefusesASourceItCannotRead(t *testing.T) {
 	if got := manifest(t, r); strings.Contains(got, "skills:") {
 		t.Errorf("the manifest gained a skills section:\n%s", got)
 	}
-	if got := r.git("ls-tree", "--name-only", "HEAD"); strings.Contains(got, lockName) {
+	if got := lockfile(t, r); got != "" {
 		t.Errorf("a lockfile was written for a source that could not be read:\n%s", got)
 	}
 }
@@ -277,6 +318,7 @@ func TestS7SkillsAddRefusesASourceWithNoSkillFile(t *testing.T) {
 func TestS8ARunMaterialisesTheSkills(t *testing.T) {
 	l, r, src := skillLayout(t)
 	addSkill(t, l, r.dir, src.path())
+	commitSkills(t, r)
 	addJob(t, l, r.dir, "work", "--no-plan")
 
 	out, _ := finishedJob(t, l)
@@ -294,6 +336,7 @@ func TestS8ARunMaterialisesTheSkills(t *testing.T) {
 func TestS9TheSkillsAreInvisibleToGit(t *testing.T) {
 	l, r, src := skillLayout(t)
 	addSkill(t, l, r.dir, src.path())
+	commitSkills(t, r)
 	addJob(t, l, r.dir, "work", "--no-plan")
 
 	out, _ := finishedJob(t, l)
@@ -318,6 +361,7 @@ func TestS10AGlobalExcludesFileStillApplies(t *testing.T) {
 	}
 	r.git("config", "core.excludesFile", theirs)
 	addSkill(t, l, r.dir, src.path())
+	commitSkills(t, r)
 	addJob(t, l, r.dir, "work", "--no-plan")
 
 	out, _ := finishedJob(t, l)
@@ -335,8 +379,9 @@ func TestS10AGlobalExcludesFileStillApplies(t *testing.T) {
 }
 
 func TestS11EditingTheLockfileInTheWorktreeChangesNothing(t *testing.T) {
-	l, r, src := skillLayout(t)
+	l, r, src := twoRunLayout(t)
 	addSkill(t, l, r.dir, src.path(), "--ref", "v1.0.0")
+	commitSkills(t, r)
 	addJob(t, l, r.dir, "work")
 	out, job := finishedJob(t, l)
 	worktree := line(t, out, "worktree")
@@ -362,6 +407,7 @@ func TestS11EditingTheLockfileInTheWorktreeChangesNothing(t *testing.T) {
 func TestS12ARunRecordsTheSkillVersionsItRanWith(t *testing.T) {
 	l, r, src := skillLayout(t)
 	addSkill(t, l, r.dir, src.path())
+	commitSkills(t, r)
 	addJob(t, l, r.dir, "work", "--no-plan")
 
 	out, _ := finishedJob(t, l)
@@ -420,8 +466,9 @@ func TestS14SkillsUpdateTakesASkillByName(t *testing.T) {
 }
 
 func TestS15AnAutoUpdateSkillIsResolvedAtRunStart(t *testing.T) {
-	l, r, src := skillLayout(t)
+	l, r, src := twoRunLayout(t)
 	addSkill(t, l, r.dir, src.path(), "--auto-update")
+	commitSkills(t, r)
 	addJob(t, l, r.dir, "work")
 	out, job := finishedJob(t, l)
 	worktree := line(t, out, "worktree")
@@ -440,8 +487,9 @@ func TestS15AnAutoUpdateSkillIsResolvedAtRunStart(t *testing.T) {
 }
 
 func TestS16APinnedSkillIsNotResolvedAtRunStart(t *testing.T) {
-	l, r, src := skillLayout(t)
+	l, r, src := twoRunLayout(t)
 	addSkill(t, l, r.dir, src.path(), "--ref", "v1.0.0")
+	commitSkills(t, r)
 	addJob(t, l, r.dir, "work")
 	out, job := finishedJob(t, l)
 	worktree := line(t, out, "worktree")
@@ -458,6 +506,7 @@ func TestS16APinnedSkillIsNotResolvedAtRunStart(t *testing.T) {
 func TestS17OwlRefusesToOverwriteASkillsEntryItDidNotCreate(t *testing.T) {
 	l, r, src := skillLayout(t)
 	addSkill(t, l, r.dir, src.path())
+	commitSkills(t, r)
 	// The Project keeps a skill of its own at the same name, committed.
 	r.commit(filepath.Join(skillsPath, "go-review", "SKILL.md"),
 		"---\nname: go-review\ndescription: the project's own\n---\n\nOurs.\n",
@@ -493,6 +542,7 @@ func TestS18SkillsRemoveTakesItOutOfBoth(t *testing.T) {
 	addSkill(t, l, r.dir, other.path())
 
 	mustOwlIn(t, l, r.dir, "skills", "remove", "go-review")
+	commitSkills(t, r)
 
 	if got := manifest(t, r); strings.Contains(got, "go-review") {
 		t.Errorf("the manifest still mentions go-review:\n%s", got)

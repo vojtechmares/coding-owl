@@ -78,6 +78,21 @@ type Config struct {
 	// Account names the Account every Job in this Project runs on (ADR-0023).
 	// Empty is a Project that names none, which cannot run until it does.
 	Account string
+	// Skills are the Skills every Job in this Project gets, by source and ref
+	// (ADR-0024). The manifest carries intent; the lockfile carries identity.
+	Skills []Skill
+}
+
+// Skill is one entry under `skills`: where it comes from, which ref it
+// follows, and whether it may move on its own.
+type Skill struct {
+	// Source is the repository it comes from.
+	Source string
+	// Ref is the branch or tag it follows, empty for the source's default.
+	Ref string
+	// AutoUpdate is whether it is re-resolved at the start of every Run.
+	// Pinning is the default, so this is opt-in per Skill (ADR-0024).
+	AutoUpdate bool
 }
 
 // Global is the daemon's own configuration, read from
@@ -126,6 +141,7 @@ type file struct {
 	Phases            map[string]phase `yaml:"phases"`
 	Setup             []string         `yaml:"setup"`
 	Checks            []check          `yaml:"checks"`
+	Skills            []skillEntry     `yaml:"skills"`
 	Account           string           `yaml:"account"`
 	CredentialStore   string           `yaml:"credentialStore"`
 	GarbageCollection *garbage         `yaml:"garbageCollection"`
@@ -135,6 +151,14 @@ type file struct {
 type garbage struct {
 	Interval    string `yaml:"interval"`
 	ReviewAfter string `yaml:"reviewAfter"`
+}
+
+// skillEntry is the on-disk shape of one entry under `skills`. `git` names the
+// source, which is the ecosystem's own key for it.
+type skillEntry struct {
+	Git        string `yaml:"git"`
+	Ref        string `yaml:"ref"`
+	AutoUpdate bool   `yaml:"auto_update"`
 }
 
 // check is the on-disk shape of one entry under `checks`.
@@ -195,7 +219,54 @@ func Parse(source string, data []byte) (Config, error) {
 	// so it is named rather than chosen (ADR-0023). Whether that Account
 	// exists is the scheduler's question, not this file's.
 	cfg.Account = strings.TrimSpace(f.Account)
+	skills, err := parseSkills(source, f.Skills)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Skills = skills
 	return cfg, nil
+}
+
+// parseSkills reads the skills, refusing one Owl could not fetch or place
+// rather than discovering it when a Run starts.
+func parseSkills(source string, skills []skillEntry) ([]Skill, error) {
+	if len(skills) == 0 {
+		return nil, nil
+	}
+	out := make([]Skill, 0, len(skills))
+	seen := map[string]bool{}
+	for i, s := range skills {
+		src := strings.TrimSpace(s.Git)
+		where := fmt.Sprintf("skills[%d]", i)
+		if src == "" {
+			return nil, fmt.Errorf("%s: %s names no git source", source, where)
+		}
+		// A Skill becomes a directory named after its source, and two of one
+		// name would be one directory.
+		name := skillName(src)
+		if seen[name] {
+			return nil, fmt.Errorf("%s: two skills are called %q; a worktree has one directory per name", source, name)
+		}
+		seen[name] = true
+		ref := strings.TrimSpace(s.Ref)
+		if strings.HasPrefix(ref, "-") {
+			return nil, fmt.Errorf("%s: %s has the ref %q, which may not start with a dash", source, where, ref)
+		}
+		out = append(out, Skill{Source: src, Ref: ref, AutoUpdate: s.AutoUpdate})
+	}
+	return out, nil
+}
+
+// skillName is the name a source yields, which is the last element of its path
+// without a `.git` suffix. It is duplicated from internal/skill rather than
+// imported, because that package reads this one's output and a cycle is worse
+// than four lines.
+func skillName(source string) string {
+	s := strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(source), "/"), ".git")
+	if i := strings.LastIndexAny(s, "/:"); i >= 0 {
+		s = s[i+1:]
+	}
+	return s
 }
 
 // parseChecks reads the checks, refusing one Owl could not run or judge rather
