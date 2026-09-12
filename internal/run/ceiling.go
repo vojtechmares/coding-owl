@@ -31,8 +31,10 @@ const (
 )
 
 // maxAhead is the furthest ahead a window may start again and still be a
-// window Owl keeps a figure about.
-const maxAhead = 30 * 24 * time.Hour
+// window Owl keeps a figure about. The windows Owl knows are five hours and
+// seven days, so a figure claiming to hold until next month is not one to hold
+// work back with.
+const maxAhead = 8 * 24 * time.Hour
 
 // maxWindows is how many windows Owl keeps a figure about for one Account. A
 // tool has a handful; this is what stops one that invents them from filling

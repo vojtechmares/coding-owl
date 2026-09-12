@@ -505,11 +505,22 @@ func parseAccounts(source string, f file) (map[string]Limits, error) {
 		return nil, nil
 	}
 	out := map[string]Limits{}
+	named := map[string]string{}
 	for name, block := range f.Accounts {
-		name = strings.ToLower(strings.TrimSpace(name))
-		if name == "" {
+		as := strings.ToLower(strings.TrimSpace(name))
+		if as == "" {
 			return nil, fmt.Errorf("%s: accounts: an account with no name is held to nothing", source)
 		}
+		// An Account is named case-insensitively (ADR-0019), so two keys that
+		// differ only in case are one Account asking for two ceilings, and
+		// keeping whichever the file happened to read last is not an answer.
+		if first, twice := named[as]; twice {
+			return nil, fmt.Errorf(
+				"%s: accounts: %q and %q are the same account, which cannot be held to two ceilings",
+				source, first, name)
+		}
+		named[as] = name
+		name = as
 		if len(block.Limits) == 0 {
 			continue
 		}

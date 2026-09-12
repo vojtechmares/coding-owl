@@ -1254,10 +1254,9 @@ func TestARunsStreamKeepsOnlySoManyWindows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListAccountUsage: %v", err)
 	}
-	if len(got) > 8 {
-		t.Errorf("ListAccountUsage kept %d windows, want no more than owl keeps", len(got))
-	}
-	if len(got) == 0 {
-		t.Error("ListAccountUsage kept nothing at all")
+	// Exactly as many as Owl keeps: more would let a tool fill the table, and
+	// fewer would drop a window the tool really reports.
+	if len(got) != 8 {
+		t.Errorf("ListAccountUsage kept %d windows, want the eight owl keeps", len(got))
 	}
 }

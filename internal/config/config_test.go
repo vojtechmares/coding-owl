@@ -551,3 +551,21 @@ func TestParseGlobalRefusesACeilingWithNothingAfterIt(t *testing.T) {
 		t.Errorf("the error does not name the setting: %v", err)
 	}
 }
+
+func TestParseGlobalRefusesOneAccountNamedTwice(t *testing.T) {
+	// An Account is named case-insensitively, so these are one Account asking
+	// to be held to two different ceilings.
+	_, err := config.ParseGlobal("/somewhere/config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\naccounts:\n"+
+			"  work:\n    limits:\n      fiveHourMax: 60\n"+
+			"  Work:\n    limits:\n      fiveHourMax: 30\n"))
+
+	if err == nil {
+		t.Fatal("ParseGlobal accepted one account held to two ceilings")
+	}
+	for _, want := range []string{"work", "Work", "same account"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not carry %q: %v", want, err)
+		}
+	}
+}
