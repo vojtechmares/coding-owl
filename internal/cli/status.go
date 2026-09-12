@@ -107,11 +107,22 @@ func printPassedOver(env Env, jobs []client.PassedOverJob) {
 	_, _ = fmt.Fprintln(w, "JOB\tPROJECT\tREASON")
 	for _, j := range jobs {
 		// The reason carries an Account's name and a Project's, both of which
-		// come from outside Owl, so it reaches the terminal as text.
-		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\n", j.Job.ID, j.Job.Project, terminalSafe(j.Reason))
+		// come from outside Owl, so both reach the terminal as one line of
+		// text: a name with a newline or a tab in it would otherwise forge a
+		// row. The reason is not cut, because it is the whole of what this
+		// table is for.
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\n",
+			j.Job.ID, promptCell(j.Job.Project), oneLineCell(j.Reason))
 	}
 	_ = w.Flush()
 	_, _ = fmt.Fprintln(env.Stdout)
+}
+
+// oneLineCell is text as a table cell: one line, and nothing that would move
+// the cursor. Unlike promptCell it is not cut, because what it carries is a
+// sentence whose end is the point of it.
+func oneLineCell(text string) string {
+	return terminalSafe(strings.Join(strings.Fields(text), " "))
 }
 
 // printJobList names the Jobs a person has to do something about. The reason

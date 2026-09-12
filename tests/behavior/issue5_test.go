@@ -695,9 +695,11 @@ func TestS17RunOnlyOneAtATime(t *testing.T) {
 	if res.code == 0 {
 		t.Fatalf("a second owl start exited 0 while a run was in progress:\n%s", res.stdout)
 	}
-	// One Run at a time is the default rather than the rule now: the cap says
-	// so, and the cap is what the second start is refused by (ADR-0021).
-	for _, want := range []string{"owl", "1 run"} {
+	// One Run at a time is the default rather than the rule now: a cap says
+	// so, and a cap is what the second start is refused by (ADR-0021). Both
+	// Jobs are in one Project, whose own cap is the narrower of the two and so
+	// the one a person is told about.
+	for _, want := range []string{"the project api", "1 run"} {
 		if !strings.Contains(res.stderr, want) {
 			t.Errorf("stderr does not carry %q:\n%s", want, res.stderr)
 		}

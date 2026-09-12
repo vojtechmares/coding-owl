@@ -221,14 +221,18 @@ func (a *App) UpdateSkills(project string, names []string) (SkillUpdate, error) 
 func (a *App) Pause() ([]client.Run, error) {
 	ctx, cancel := a.call()
 	defer cancel()
-	return a.client.PauseRun(ctx)
+	// What the call did not reach is for a terminal; the app shows what is
+	// paused by reading the Runs back (ADR-0009).
+	runs, _, err := a.client.PauseRun(ctx)
+	return runs, err
 }
 
 // Resume continues the frozen Run where it was, in the same Run.
 func (a *App) Resume() ([]client.Run, error) {
 	ctx, cancel := a.call()
 	defer cancel()
-	return a.client.ResumeRun(ctx)
+	runs, _, err := a.client.ResumeRun(ctx)
+	return runs, err
 }
 
 // Events the chat emits, and what each carries.

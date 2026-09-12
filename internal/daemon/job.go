@@ -209,22 +209,22 @@ func (s *jobService) GetOverview(ctx context.Context, _ *connect.Request[codingo
 }
 
 func (s *jobService) PauseRun(ctx context.Context, _ *connect.Request[codingowlv1.PauseRunRequest]) (*connect.Response[codingowlv1.PauseRunResponse], error) {
-	r, err := s.runs.Pause(ctx, run.ByUser)
+	r, notReached, err := s.runs.Pause(ctx, run.ByUser)
 	if err != nil {
 		return nil, rpcError(err)
 	}
 	return connect.NewResponse(&codingowlv1.PauseRunResponse{
-		Run: toRunProto(r[0]), Runs: toRunProtos(r),
+		Run: firstRunProto(r), Runs: toRunProtos(r), Untouched: notReached,
 	}), nil
 }
 
 func (s *jobService) ResumeRun(ctx context.Context, _ *connect.Request[codingowlv1.ResumeRunRequest]) (*connect.Response[codingowlv1.ResumeRunResponse], error) {
-	r, err := s.runs.Resume(ctx, run.ByUser)
+	r, notReached, err := s.runs.Resume(ctx, run.ByUser)
 	if err != nil {
 		return nil, rpcError(err)
 	}
 	return connect.NewResponse(&codingowlv1.ResumeRunResponse{
-		Run: toRunProto(r[0]), Runs: toRunProtos(r),
+		Run: firstRunProto(r), Runs: toRunProtos(r), Untouched: notReached,
 	}), nil
 }
 
@@ -281,6 +281,16 @@ var jobStates = map[queue.State]codingowlv1.JobState{
 	queue.StateDone:      codingowlv1.JobState_JOB_STATE_DONE,
 	queue.StateCancelled: codingowlv1.JobState_JOB_STATE_CANCELLED,
 	queue.StateExhausted: codingowlv1.JobState_JOB_STATE_EXHAUSTED,
+}
+
+// firstRunProto is the field a client written for one Run reads. The list is
+// never empty when the call succeeded, and an index that trusted that would be
+// a panic in a handler if it ever stopped being true.
+func firstRunProto(runs []run.Run) *codingowlv1.Run {
+	if len(runs) == 0 {
+		return nil
+	}
+	return toRunProto(runs[0])
 }
 
 // toRunProtos is every Run of a list, for the calls that reach more than one.

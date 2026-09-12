@@ -126,21 +126,6 @@ func (s *Store) ListAllJobs(ctx context.Context) ([]Job, error) {
 	return s.listJobs(ctx, `SELECT `+jobColumns+` FROM jobs ORDER BY position IS NULL, position, id`)
 }
 
-// NextQueued returns the Job at the head of the queue, if there is one.
-func (s *Store) NextQueued(ctx context.Context, state string) (Job, bool, error) {
-	row := s.db.QueryRowContext(ctx,
-		`SELECT `+jobColumns+` FROM jobs WHERE position IS NOT NULL AND state = ?
-		 ORDER BY position, id LIMIT 1`, state)
-	j, err := scanJob(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Job{}, false, nil
-	}
-	if err != nil {
-		return Job{}, false, err
-	}
-	return j, true, nil
-}
-
 // SetJobState moves a Job to another state, leaving its place in the queue
 // alone: a re-attempt never changes a Job's position (ADR-0025). A Job on its
 // way somewhere carries no reason for having stopped.

@@ -8,6 +8,7 @@ package behavior_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -83,18 +84,22 @@ func (c *caps) running(t *testing.T) []string {
 	return columnOf(c.status(t), "runs in progress:", 1)
 }
 
-// passedOver is each Job owl status says was passed over, and why.
+// columns splits a padded row into its cells. The table is written with a
+// tabwriter, so two or more spaces separate the columns and one never does.
+var columns = regexp.MustCompile(`\s{2,}`)
+
+// passedOver is each Job owl status says was passed over, and why. The reason
+// is the REASON column alone: reading the PROJECT column as part of it would
+// let a reason that never names a project look as though it did.
 func (c *caps) passedOver(t *testing.T) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	rows := sectionOf(c.status(t), "passed over:")
-	for _, row := range rows {
-		fields := strings.SplitN(row, "  ", 2)
-		if len(fields) != 2 {
-			continue
+	for _, row := range sectionOf(c.status(t), "passed over:") {
+		cells := columns.Split(strings.TrimSpace(row), 3)
+		if len(cells) != 3 {
+			t.Fatalf("a passed-over row is not job, project and reason: %q", row)
 		}
-		job := strings.TrimSpace(fields[0])
-		out[job] = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(fields[1]), job))
+		out[cells[0]] = cells[2]
 	}
 	return out
 }

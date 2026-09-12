@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/vojtechmares/coding-owl/internal/config"
+	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/store"
 )
@@ -77,8 +78,9 @@ func (s *Service) scan(ctx context.Context) (store.Job, []Skip, bool, error) {
 		return store.Job{}, nil, false, err
 	}
 	var skipped []Skip
+	look := newLookup()
 	for _, j := range pending {
-		why, err := s.holds(ctx, j, f, global)
+		why, err := s.holds(ctx, j, f, global, look)
 		if err != nil {
 			return store.Job{}, nil, false, err
 		}
@@ -90,25 +92,29 @@ func (s *Service) scan(ctx context.Context) (store.Job, []Skip, bool, error) {
 	return store.Job{}, skipped, false, nil
 }
 
-// holds is what stops this Job starting now, empty when nothing does. The caps
-// are asked in the order ADR-0021 writes them down - owl's own, then the
-// Project's, then the Account's - and the ceiling last, because it is the one
-// a person cannot change by editing a number.
-func (s *Service) holds(ctx context.Context, j store.Job, f flight, global config.Global) (string, error) {
+// holds is what stops this Job starting now, empty when nothing does.
+//
+// The most specific constraint first, and owl's own cap last. ADR-0021's table
+// is three caps rather than a precedence, and its decision is that the
+// scheduler takes the minimum that applies - but what it asks `owl status` for
+// is which cap is binding, because "I set global to 4 and nothing changed" is
+// the support question. A Job told to raise the global cap, and then still
+// held by a Project cap nobody mentioned, has been answered twice and helped
+// once.
+func (s *Service) holds(ctx context.Context, j store.Job, f flight, global config.Global, look *lookup) (string, error) {
 	// A Job with no attempts left is not one the scheduler is choosing
 	// between; start is what moves it out of the queue (ADR-0025).
 	if j.TTL <= 0 {
 		return "it has no attempts left", nil
 	}
-	if f.total >= global.MaxParallelRuns {
-		return fmt.Sprintf("owl is at its cap of %s", runs(global.MaxParallelRuns)), nil
-	}
 	// What the Project is configured to do is read from its base branch, so an
 	// Agent cannot raise its own cap (ADR-0014). A Project Owl cannot read is
-	// the start's business to report, not the scan's.
-	details, err := s.opts.Projects.Show(ctx, j.Project)
+	// passed over with that as the reason rather than handed to start: one
+	// repository somebody moved would otherwise stop every other Project's
+	// Jobs as well as its own.
+	details, err := look.project(ctx, s, j.Project)
 	if err != nil {
-		return "", nil
+		return fmt.Sprintf("the project %s could not be read: %v", j.Project, err), nil
 	}
 	if cap := details.Config.MaxParallelRuns; f.project[j.Project] >= cap {
 		return fmt.Sprintf("the project %s is at its cap of %s", j.Project, runs(cap)), nil
@@ -118,9 +124,10 @@ func (s *Service) holds(ctx context.Context, j store.Job, f flight, global confi
 		name = details.Config.Account
 	}
 	if name == "" {
-		// A Project that names no Account cannot run at all, which is a
-		// refusal for a person rather than a cap that will clear itself.
-		return "", nil
+		// A Project that names no Account cannot run at all. That is for a
+		// person rather than something that clears itself, and saying so here
+		// is what stops it holding up everything behind it.
+		return noAccount(details), nil
 	}
 	if limits, ok := global.Ceiling(name); ok && limits.MaxParallel > 0 {
 		if f.account[accountKey(name)] >= limits.MaxParallel {
@@ -130,7 +137,62 @@ func (s *Service) holds(ctx context.Context, j store.Job, f flight, global confi
 	// And whether that Account has the headroom: Owl never leaves the user
 	// without any (ADR-0020). A ceiling nobody can keep is for a person and
 	// stops the scan; being over it is a wait, and the Job is passed over.
-	return s.underCeiling(ctx, name)
+	if waiting, err := look.ceiling(ctx, s, name); err != nil || waiting != "" {
+		return waiting, err
+	}
+	// Owl's own cap last, so that a Job held by something narrower is told
+	// about the narrower thing.
+	if f.total >= global.MaxParallelRuns {
+		return fmt.Sprintf("owl is at its cap of %s", runs(global.MaxParallelRuns)), nil
+	}
+	return "", nil
+}
+
+// lookup is what one scan remembers, so that a queue of fifty Jobs in one
+// Project does not read that Project fifty times. `owl status` asks for a scan
+// and the desktop app asks every two seconds, and reading a Project forks git
+// several times over.
+type lookup struct {
+	projects map[string]project.Details
+	failed   map[string]error
+	ceilings map[string]string
+}
+
+func newLookup() *lookup {
+	return &lookup{
+		projects: map[string]project.Details{},
+		failed:   map[string]error{},
+		ceilings: map[string]string{},
+	}
+}
+
+func (l *lookup) project(ctx context.Context, s *Service, name string) (project.Details, error) {
+	if d, ok := l.projects[name]; ok {
+		return d, nil
+	}
+	if err, ok := l.failed[name]; ok {
+		return project.Details{}, err
+	}
+	d, err := s.opts.Projects.Show(ctx, name)
+	if err != nil {
+		l.failed[name] = err
+		return project.Details{}, err
+	}
+	l.projects[name] = d
+	return d, nil
+}
+
+func (l *lookup) ceiling(ctx context.Context, s *Service, account string) (string, error) {
+	key := accountKey(account)
+	if waiting, ok := l.ceilings[key]; ok {
+		return waiting, nil
+	}
+	waiting, err := s.underCeiling(ctx, account)
+	if err != nil {
+		return "", err
+	}
+	l.ceilings[key] = waiting
+	return waiting, nil
 }
 
 // runs is a cap as a person reads it.

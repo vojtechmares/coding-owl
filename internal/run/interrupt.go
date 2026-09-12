@@ -85,7 +85,7 @@ func (s *Service) interrupted(runID int64) (string, bool) {
 // starts each one's grace window. The machine is the user's again the moment
 // this returns (ADR-0011), and it is every Run rather than one, because more
 // than one may be going (ADR-0021).
-func (s *Service) Pause(ctx context.Context, by Freezer) ([]Run, error) {
+func (s *Service) Pause(ctx context.Context, by Freezer) ([]Run, []string, error) {
 	// How long a Run may stay frozen is read before anything is signalled: a
 	// configuration nobody can read is the caller's mistake, not a reason to
 	// freeze Runs that nothing will then release.
@@ -97,7 +97,7 @@ func (s *Service) Pause(ctx context.Context, by Freezer) ([]Run, error) {
 	window, err := s.graceWindow()
 	if err != nil {
 		if by != ByMachine {
-			return nil, err
+			return nil, nil, err
 		}
 		s.opts.Logger.Warn("freezing on the default grace window: the configuration could not be read",
 			"grace", DefaultGraceWindow, "error", err)
@@ -109,11 +109,11 @@ func (s *Service) Pause(ctx context.Context, by Freezer) ([]Run, error) {
 	// A daemon that is stopping has already asked its Agents to stop, and
 	// freezing one now would leave it unable to hear that.
 	if s.ctx.Err() != nil {
-		return nil, refused("the daemon is stopping; nothing is frozen now")
+		return nil, nil, refused("the daemon is stopping; nothing is frozen now")
 	}
 	ids, err := s.allLive(ctx, "paused")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var (
 		out   []Run
@@ -154,24 +154,30 @@ func (s *Service) Pause(ctx context.Context, by Freezer) ([]Run, error) {
 		s.opts.Logger.Info("run paused", "run", runID, "job", l.jobID, "grace", window, "by", by)
 		r, err := s.runOf(ctx, runID)
 		if err != nil {
-			return nil, err
+			// It was signalled either way, so the call is not abandoned over
+			// being unable to read it back; the caller is told which one.
+			taken = append(taken, fmt.Sprintf("run %d could not be read back: %v", runID, err))
+			continue
 		}
 		out = append(out, r)
 	}
 	if len(out) == 0 {
-		return nil, refused("%s", strings.Join(taken, "; "))
+		return nil, nil, refused("%s", strings.Join(taken, "; "))
 	}
-	return out, nil
+	// What was not reached is carried beside what was, rather than as a
+	// failure: something happened, and a person who froze three of four should
+	// still hear about the fourth.
+	return out, taken, nil
 }
 
 // Resume continues every frozen Run where it was, in the same Runs: what an
 // Agent was in the middle of survives, because nothing was ended.
-func (s *Service) Resume(ctx context.Context, by Freezer) ([]Run, error) {
+func (s *Service) Resume(ctx context.Context, by Freezer) ([]Run, []string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ids, err := s.allLive(ctx, "resumed")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var (
 		out   []Run
@@ -210,14 +216,20 @@ func (s *Service) Resume(ctx context.Context, by Freezer) ([]Run, error) {
 		s.opts.Logger.Info("run resumed", "run", runID, "job", l.jobID, "by", by)
 		r, err := s.runOf(ctx, runID)
 		if err != nil {
-			return nil, err
+			// It was signalled either way, so the call is not abandoned over
+			// being unable to read it back; the caller is told which one.
+			taken = append(taken, fmt.Sprintf("run %d could not be read back: %v", runID, err))
+			continue
 		}
 		out = append(out, r)
 	}
 	if len(out) == 0 {
-		return nil, refused("%s", strings.Join(taken, "; "))
+		return nil, nil, refused("%s", strings.Join(taken, "; "))
 	}
-	return out, nil
+	// What was not reached is carried beside what was, rather than as a
+	// failure: something happened, and a person who froze three of four should
+	// still hear about the fourth.
+	return out, taken, nil
 }
 
 // ending is the refusal for a Run this daemon is already ending, in the words
@@ -241,17 +253,6 @@ func (l *live) release() {
 	}
 }
 
-// onlyLive is the Run whose Agent this daemon can still reach. One Agent runs
-// at a time in this milestone (ADR-0029), so pausing and resuming take no
-// argument. what names what the caller wanted to do to it, so a refusal reads
-// as an answer to the question that was asked. The caller holds the lock.
-func (s *Service) onlyLive(ctx context.Context, what string) (int64, *live, error) {
-	for id, l := range s.live {
-		return id, l, nil
-	}
-	return 0, nil, s.nothingLive(ctx, what)
-}
-
 // allLive is every Run whose Agent this daemon can reach, in a settled order
 // so that what a caller is told reads the same way twice. More than one may be
 // going (ADR-0021). The caller holds the lock.
@@ -267,8 +268,10 @@ func (s *Service) allLive(ctx context.Context, what string) ([]int64, error) {
 	return ids, nil
 }
 
-// nothingLive is what a caller is told when this daemon can reach no Agent:
-// which is not the same as there being no Run.
+// nothingLive is what a caller is told when this daemon can reach no Agent,
+// which is not the same as there being no Run: one whose Agent has exited is
+// still in progress until its Project's checks have had their say (ADR-0013),
+// and so are the moments before an Agent runs and after everything has.
 func (s *Service) nothingLive(ctx context.Context, what string) error {
 	// A Run whose Agent has exited is still in progress until its Project's
 	// checks have had their say (ADR-0013), and those are nobody's to freeze:

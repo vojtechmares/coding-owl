@@ -251,11 +251,17 @@ type Service struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	// starting serialises owl start, so the one-Agent-at-a-time cap is not a
-	// check two callers can pass at once. Only one daemon can hold the socket,
-	// so a lock in this process is the whole story. It also guards stopping,
-	// which is what keeps a Run from being started while Close is waiting for
-	// the Runs already going.
+	// starting serialises owl start, so that the caps are not a check two
+	// callers can pass at once: the scan and the start it leads to happen
+	// under one hold of it, and a Job leaves the queue before the lock does
+	// (ADR-0021). Only one daemon can hold the socket, so a lock in this
+	// process is the whole story. It also guards stopping, which is what keeps
+	// a Run from being started while Close is waiting for the Runs already
+	// going.
+	//
+	// It costs: everything slow a Run needs before its Agent starts - the
+	// worktree, the rebase, the Skills, the Project's setup commands - happens
+	// under it, so Runs begin one after another even when four may go at once.
 	starting sync.Mutex
 	stopping bool
 
@@ -1011,15 +1017,23 @@ func (s *Service) placeSkills(ctx context.Context, j store.Job, details project.
 // the Account its Project's configuration names (ADR-0023). Neither being
 // there is a refusal rather than a failure: nothing is wrong with the work,
 // and the Job waits exactly where it was.
+// noAccount is what a Project that names none is told, which is the same
+// sentence whether a start refuses on it or the scan passes the Job over for
+// it (ADR-0023).
+func noAccount(details project.Details) string {
+	return fmt.Sprintf(
+		"project %s names no account to run on; put `account: <name>` in its .coding-owl.yaml on %s, "+
+			"and see owl account list for the accounts there are",
+		details.Name, details.BaseBranch)
+}
+
 func (s *Service) accountFor(ctx context.Context, j store.Job, details project.Details) (account.Account, string, error) {
 	name := j.Account
 	if name == "" {
 		name = details.Config.Account
 	}
 	if name == "" {
-		return account.Account{}, "", refused(
-			"project %s names no account to run on; put `account: <name>` in its .coding-owl.yaml on %s, and see owl account list for the accounts there are",
-			details.Name, details.BaseBranch)
+		return account.Account{}, "", refused("%s", noAccount(details))
 	}
 	acct, token, err := s.opts.Accounts.Credential(ctx, name)
 	if errors.Is(err, store.ErrAccountNotFound) {

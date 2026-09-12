@@ -184,9 +184,14 @@ func (s *Service) act(ctx context.Context, isIdle bool, was *bool) {
 // freeze stops the Agent of the Run in flight, if there is one to stop.
 func (s *Service) freeze(ctx context.Context) {
 	toFreeze := s.freezable()
-	_, err := s.Pause(ctx, ByMachine)
+	_, notReached, err := s.Pause(ctx, ByMachine)
 	switch {
 	case err == nil:
+		// A Run the user froze themselves is one the machine leaves alone, and
+		// saying so at debug is enough: nobody asked for this.
+		if len(notReached) > 0 {
+			s.opts.Logger.Debug("some runs were not frozen by the machine", "why", notReached)
+		}
 	case !toFreeze:
 		// There was usually nothing to freeze - no Run, or one the user froze
 		// themselves - which is not worth a word above debug.
@@ -222,7 +227,7 @@ func (s *Service) freezeMine(ctx context.Context) {
 	if !s.hasMineGoing() {
 		return
 	}
-	if _, err := s.Pause(ctx, ByMachine); err != nil {
+	if _, _, err := s.Pause(ctx, ByMachine); err != nil {
 		if ctx.Err() != nil || s.ctx.Err() != nil {
 			// A daemon on its way out has already asked its Agents to stop.
 			return
@@ -259,7 +264,7 @@ func (s *Service) freezable() bool {
 
 // thaw continues a Run frozen because somebody came back.
 func (s *Service) thaw(ctx context.Context) {
-	if _, err := s.Resume(ctx, ByMachine); err != nil {
+	if _, _, err := s.Resume(ctx, ByMachine); err != nil {
 		s.opts.Logger.Debug("nothing was continued when the machine went idle", "error", err)
 	}
 }
