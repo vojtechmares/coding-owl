@@ -318,6 +318,7 @@ type PassedOverJob struct {
 	Reason string
 }
 
+// Empty reports whether there is nothing at all to say.
 func (o Overview) Empty() bool {
 	return len(o.Running) == 0 && len(o.Counts) == 0 && len(o.Unfinished) == 0 &&
 		len(o.Accounts) == 0 && len(o.PassedOver) == 0

@@ -100,7 +100,7 @@ And leaving again continues both
 Given every cap taken by the Runs in flight
 When `owl start` runs
 Then it exits non-zero
-And it names the cap that is binding rather than saying only that something is running
+And it names the cap that is binding - the narrowest one, so that raising the one it names is what changes the answer - rather than saying only that something is running
 
 ### S15 - a cap that is not one is refused
 Given a daemon file whose `maxParallelRuns` is zero, negative, or not a number

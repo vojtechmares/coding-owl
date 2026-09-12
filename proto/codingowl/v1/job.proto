@@ -205,6 +205,9 @@ message PauseRunResponse {
   // Runs is every Run this reached, because more than one may be
   // going (ADR-0021).
   repeated Run runs = 2;
+  // Untouched is what was not reached and why - a Run already paused, one
+  // being ended - when something else was.
+  repeated string untouched = 3;
 }
 
 message ResumeRunRequest {}
@@ -216,6 +219,9 @@ message ResumeRunResponse {
   // Runs is every Run this reached, because more than one may be
   // going (ADR-0021).
   repeated Run runs = 2;
+  // Untouched is what was not reached and why - a Run already paused, one
+  // being ended - when something else was.
+  repeated string untouched = 3;
 }
 
 message AddJobRequest {

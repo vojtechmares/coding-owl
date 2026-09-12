@@ -66,9 +66,9 @@ func TestPauseAndResumeSayWhyTheRunIsBeingEnded(t *testing.T) {
 
 		var err error
 		if verb == "pause" {
-			_, err = s.Pause(context.Background(), ByUser)
+			_, _, err = s.Pause(context.Background(), ByUser)
 		} else {
-			_, err = s.Resume(context.Background(), ByUser)
+			_, _, err = s.Resume(context.Background(), ByUser)
 		}
 
 		if err == nil {
@@ -102,7 +102,7 @@ func TestTheGraceWindowDoesNotEndARunSomebodyContinuedFirst(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, err := s.Resume(context.Background(), ByUser)
+			_, _, err := s.Resume(context.Background(), ByUser)
 			// A Run that is being ended is refused by name. Anything else -
 			// including the store not knowing this run - means Resume got past
 			// that and reported the Run as going again.

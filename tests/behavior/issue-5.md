@@ -142,7 +142,7 @@ And no Run is recorded
 Given a running daemon, two pending Jobs, and a stub agent that waits for a release file
 When `owl start` runs and a second `owl start` follows while the first Run is in progress
 Then the second exits with a non-zero code
-And stderr names the cap that stopped it, which is Owl's own and is one by default (issue #23, ADR-0021 superseding the one-Run clause of ADR-0011)
+And stderr names the cap that stopped it, which is the Project's own and is one by default (issue #23, ADR-0021 superseding the one-Run clause of ADR-0011)
 And the second Job is still pending
 
 ### S18 - owl jobs show reports the Job, its Runs and where the log is

@@ -1,6 +1,8 @@
 # ADR-0021: Concurrency is capped globally, per Project and per Account
 
 - **Status:** Accepted
+- **Amended:** 2026-09-12, to write the three settings as the files spell them.
+  It wrote them in snake_case, which no file Owl reads uses.
 - **Date:** 2026-09-09
 - **Supersedes:** the "one Run at a time" clause of ADR-0011
 
@@ -22,9 +24,9 @@ Three caps; the scheduler takes the minimum that applies.
 
 | Cap | Default | Why |
 | --- | --- | --- |
-| `global.max_parallel_runs` | 1 | Opt-in. Nothing runs in parallel until asked. |
-| `project.max_parallel_runs` | 1 | Same-Project Runs collide on ports, fixtures and caches. |
-| `account.max_parallel` | unlimited | Burn rate is already governed by ADR-0020's ceiling. |
+| `maxParallelRuns`, daemon file | 1 | Opt-in. Nothing runs in parallel until asked. |
+| `maxParallelRuns`, Project file | 1 | Same-Project Runs collide on ports, fixtures and caches. |
+| `accounts.<name>.maxParallel` | unlimited | Burn rate is already governed by ADR-0020's ceiling. |
 
 Raising the global alone therefore parallelises *across* Projects, never within
 one. Per-Project is raised deliberately, once a Project's checks are known to be

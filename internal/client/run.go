@@ -222,21 +222,21 @@ func runFromProto(r *codingowlv1.Run) Run {
 
 // PauseRun freezes every Run in flight and everything their Agents started,
 // and starts the grace window that will end each one if nobody comes back.
-func (c *Client) PauseRun(ctx context.Context) ([]Run, error) {
+func (c *Client) PauseRun(ctx context.Context) ([]Run, []string, error) {
 	res, err := c.jobs.PauseRun(ctx, connect.NewRequest(&codingowlv1.PauseRunRequest{}))
 	if err != nil {
-		return nil, c.wrap(err)
+		return nil, nil, c.wrap(err)
 	}
-	return runsFromProto(res.Msg.GetRuns(), res.Msg.GetRun()), nil
+	return runsFromProto(res.Msg.GetRuns(), res.Msg.GetRun()), res.Msg.GetUntouched(), nil
 }
 
 // ResumeRun continues every frozen Run where it was.
-func (c *Client) ResumeRun(ctx context.Context) ([]Run, error) {
+func (c *Client) ResumeRun(ctx context.Context) ([]Run, []string, error) {
 	res, err := c.jobs.ResumeRun(ctx, connect.NewRequest(&codingowlv1.ResumeRunRequest{}))
 	if err != nil {
-		return nil, c.wrap(err)
+		return nil, nil, c.wrap(err)
 	}
-	return runsFromProto(res.Msg.GetRuns(), res.Msg.GetRun()), nil
+	return runsFromProto(res.Msg.GetRuns(), res.Msg.GetRun()), res.Msg.GetUntouched(), nil
 }
 
 // runsFromProto is the Runs a call reached. A daemon written when only one

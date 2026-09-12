@@ -769,7 +769,10 @@ type PauseRunResponse struct {
 	Run *Run `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
 	// Runs is every Run this reached, because more than one may be
 	// going (ADR-0021).
-	Runs          []*Run `protobuf:"bytes,2,rep,name=runs,proto3" json:"runs,omitempty"`
+	Runs []*Run `protobuf:"bytes,2,rep,name=runs,proto3" json:"runs,omitempty"`
+	// Untouched is what was not reached and why - a Run already paused, one
+	// being ended - when something else was.
+	Untouched     []string `protobuf:"bytes,3,rep,name=untouched,proto3" json:"untouched,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -818,6 +821,13 @@ func (x *PauseRunResponse) GetRuns() []*Run {
 	return nil
 }
 
+func (x *PauseRunResponse) GetUntouched() []string {
+	if x != nil {
+		return x.Untouched
+	}
+	return nil
+}
+
 type ResumeRunRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -861,7 +871,10 @@ type ResumeRunResponse struct {
 	Run *Run `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
 	// Runs is every Run this reached, because more than one may be
 	// going (ADR-0021).
-	Runs          []*Run `protobuf:"bytes,2,rep,name=runs,proto3" json:"runs,omitempty"`
+	Runs []*Run `protobuf:"bytes,2,rep,name=runs,proto3" json:"runs,omitempty"`
+	// Untouched is what was not reached and why - a Run already paused, one
+	// being ended - when something else was.
+	Untouched     []string `protobuf:"bytes,3,rep,name=untouched,proto3" json:"untouched,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -906,6 +919,13 @@ func (x *ResumeRunResponse) GetRun() *Run {
 func (x *ResumeRunResponse) GetRuns() []*Run {
 	if x != nil {
 		return x.Runs
+	}
+	return nil
+}
+
+func (x *ResumeRunResponse) GetUntouched() []string {
+	if x != nil {
+		return x.Untouched
 	}
 	return nil
 }
@@ -2725,14 +2745,16 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\x05stage\x18\r \x01(\tR\x05stage\x12\x1b\n" +
 	"\texit_code\x18\t \x01(\x05R\bexitCode\x12+\n" +
 	"\x06skills\x18\v \x03(\v2\x13.codingowl.v1.SkillR\x06skills\"\x11\n" +
-	"\x0fPauseRunRequest\"^\n" +
+	"\x0fPauseRunRequest\"|\n" +
 	"\x10PauseRunResponse\x12#\n" +
 	"\x03run\x18\x01 \x01(\v2\x11.codingowl.v1.RunR\x03run\x12%\n" +
-	"\x04runs\x18\x02 \x03(\v2\x11.codingowl.v1.RunR\x04runs\"\x12\n" +
-	"\x10ResumeRunRequest\"_\n" +
+	"\x04runs\x18\x02 \x03(\v2\x11.codingowl.v1.RunR\x04runs\x12\x1c\n" +
+	"\tuntouched\x18\x03 \x03(\tR\tuntouched\"\x12\n" +
+	"\x10ResumeRunRequest\"}\n" +
 	"\x11ResumeRunResponse\x12#\n" +
 	"\x03run\x18\x01 \x01(\v2\x11.codingowl.v1.RunR\x03run\x12%\n" +
-	"\x04runs\x18\x02 \x03(\v2\x11.codingowl.v1.RunR\x04runs\"\xd7\x01\n" +
+	"\x04runs\x18\x02 \x03(\v2\x11.codingowl.v1.RunR\x04runs\x12\x1c\n" +
+	"\tuntouched\x18\x03 \x03(\tR\tuntouched\"\xd7\x01\n" +
 	"\rAddJobRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x16\n" +
 	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x1f\n" +

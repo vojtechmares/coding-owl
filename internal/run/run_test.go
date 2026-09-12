@@ -390,10 +390,11 @@ func TestStartBlocksTheJobWhenTheAgentFails(t *testing.T) {
 	}
 }
 
-// One Run at a time is the default rather than the rule now: the cap says so,
-// and the cap is what a second start is refused by (ADR-0021, superseding the
-// one-Run clause of ADR-0011).
-func TestStartRefusesWhileTheGlobalCapIsTaken(t *testing.T) {
+// One Run at a time is the default rather than the rule now: a cap says so,
+// and a cap is what a second start is refused by (ADR-0021, superseding the
+// one-Run clause of ADR-0011). Both Jobs are in one Project here, so the
+// Project's cap is the narrower one and is the one a person is told about.
+func TestStartRefusesWhileTheCapIsTaken(t *testing.T) {
 	ctx := context.Background()
 	hold := make(chan struct{})
 	svc, st, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{hold: hold, started: make(chan struct{})})
@@ -414,7 +415,7 @@ func TestStartRefusesWhileTheGlobalCapIsTaken(t *testing.T) {
 	}
 	// Which cap, so that "I raised it and nothing changed" is answerable
 	// (ADR-0021).
-	for _, want := range []string{"owl", "1 run"} {
+	for _, want := range []string{"the project repo", "1 run"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not carry %q", err, want)
 		}

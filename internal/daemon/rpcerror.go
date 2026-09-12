@@ -28,8 +28,11 @@ func rpcError(err error) error {
 	var unusableChat *chat.InvalidError
 	var inUse *account.InUseError
 	var refused *run.RefusedError
+	// A cap or a ceiling that is taken is the caller's situation rather than
+	// Owl failing, the same as any other refusal (ADR-0021, ADR-0020).
+	var capped *run.CappedError
 	switch {
-	case errors.As(err, &refused), errors.As(err, &inUse):
+	case errors.As(err, &refused), errors.As(err, &inUse), errors.As(err, &capped):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrJobNotFound),
 		errors.Is(err, store.ErrRunNotFound), errors.Is(err, store.ErrAccountNotFound),
