@@ -426,6 +426,12 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 	if err != nil {
 		return queue.Job{}, Run{}, false, err
 	}
+	// And whether that Account has the headroom: Owl never leaves the user
+	// without any (ADR-0020). Being over is a refusal, so the Job waits
+	// exactly where it is until the window starts again.
+	if err := s.underCeiling(ctx, acct.Name); err != nil {
+		return queue.Job{}, Run{}, false, err
+	}
 
 	if j.Branch == "" {
 		// The worktree and the branch belong to the Job, so a Job that takes
@@ -831,7 +837,7 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 	// ever became something to reach: the note is taken when the Run starts,
 	// so it is dropped where the Run ends rather than where the Agent does.
 	defer s.disown(r.ID)
-	outcome, reason, code := s.execute(r, req, b)
+	outcome, reason, code := s.execute(r, j.Account, req, b)
 	s.closeBroker(r.ID)
 	defer s.setStage(r.ID, "")
 
@@ -1273,7 +1279,7 @@ func (s *Service) global() (config.Global, error) {
 
 // execute starts the Agent, captures its output and reports how it ended, with
 // the status it exited with when it got far enough to have one.
-func (s *Service) execute(r store.Run, req driver.Request, b *broker) (Outcome, string, int) {
+func (s *Service) execute(r store.Run, account string, req driver.Request, b *broker) (Outcome, string, int) {
 	if err := mkdirPrivate(filepath.Dir(r.LogPath)); err != nil {
 		return OutcomeFailed, fmt.Sprintf("preparing the run's log: %v", err), store.NoExitCode
 	}
@@ -1312,15 +1318,17 @@ func (s *Service) execute(r store.Run, req driver.Request, b *broker) (Outcome, 
 			s.opts.Logger.Error("capturing a run's output", "run", r.ID, "error", err)
 		}
 		b.publish(line)
+		s.watchUsage(r, account, line)
 	}
 	readErr := sc.Err()
 	code, waitErr := proc.Wait()
 
+	why, ended := s.interrupted(r.ID)
 	switch {
-	// The grace window ends a Run by stopping its Agent, so the Agent's death
-	// is how this one was meant to end rather than a failure of its own.
-	case s.interrupted(r.ID):
-		return OutcomeInterrupted, expiredReason, store.NoExitCode
+	// This daemon ends a Run by stopping its Agent, so the Agent's death is
+	// how the Run was meant to end rather than a failure of its own.
+	case ended:
+		return OutcomeInterrupted, why, store.NoExitCode
 	case s.ctx.Err() != nil:
 		return OutcomeInterrupted, "the daemon stopped while the agent was working", store.NoExitCode
 	case waitErr != nil:

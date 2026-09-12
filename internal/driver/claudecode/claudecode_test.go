@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/driver"
 	"github.com/vojtechmares/coding-owl/internal/driver/claudecode"
@@ -212,8 +213,14 @@ func TestCapabilitiesSayWhatClaudeCodeCanDo(t *testing.T) {
 	if !c.StreamingOutput || !c.BudgetCap || !c.PermissionModes {
 		t.Errorf("capabilities = %+v, want streaming, a budget cap and permission modes", c)
 	}
-	if c.UsageReporting {
-		t.Error("capabilities claim usage reporting, which Owl does not read yet")
+	// Claimed, and kept: a ceiling is only as good as what it is kept against
+	// (ADR-0020), so what claims to report usage must read it.
+	if !c.UsageReporting {
+		t.Error("capabilities do not claim usage reporting")
+	}
+	if _, ok := claudecode.New().Usage(`{"type":"system","subtype":"usage_limits","limits":` +
+		`{"five_hour":{"utilization":1,"resets_at":"2031-01-01T00:00:00Z"}}}`); !ok {
+		t.Error("capabilities claim usage reporting, and no usage was read out of a line that carries it")
 	}
 }
 
@@ -237,5 +244,61 @@ func TestSkillsDirIsWhereClaudeCodeReadsSkills(t *testing.T) {
 	// Not the plugins directory, which is a different thing (ADR-0033).
 	if got := claudecode.New().SkillsDir(); got != ".claude/skills" {
 		t.Errorf("SkillsDir = %q, want .claude/skills", got)
+	}
+}
+
+func TestUsageReadsTheAccountsWindowsOutOfTheStream(t *testing.T) {
+	d := claudecode.New()
+
+	got, ok := d.Usage(`{"type":"system","subtype":"usage_limits","limits":{` +
+		`"five_hour":{"utilization":42.5,"resets_at":"2031-01-01T00:00:00Z"},` +
+		`"seven_day_opus":{"utilization":80,"resets_at":"2031-01-08T06:30:00Z"}}}`)
+
+	if !ok {
+		t.Fatal("Usage read nothing out of a line that carries the limits")
+	}
+	if len(got.Windows) != 2 {
+		t.Fatalf("Usage = %+v, want both windows", got.Windows)
+	}
+	five := got.Windows[0]
+	if five.Name != "five_hour" || five.Utilization != 42.5 {
+		t.Errorf("the first window is %+v, want five_hour at 42.5%%", five)
+	}
+	if want := time.Date(2031, 1, 1, 0, 0, 0, 0, time.UTC); !five.Resets.Equal(want) {
+		t.Errorf("the first window resets at %s, want %s", five.Resets, want)
+	}
+	if got.Windows[1].Name != "seven_day_opus" || got.Windows[1].Utilization != 80 {
+		t.Errorf("the second window is %+v, want seven_day_opus at 80%%", got.Windows[1])
+	}
+}
+
+func TestUsageSaysNothingAboutALineThatSaysNothing(t *testing.T) {
+	d := claudecode.New()
+	for what, line := range map[string]string{
+		"an ordinary assistant line": `{"type":"assistant","message":"working on it"}`,
+		"the result":                 `{"type":"result","subtype":"success","num_turns":1}`,
+		"not json at all":            `usage_limits`,
+		"json that is not an event":  `{"limits":{"five_hour":{"utilization":10,"resets_at":"2031-01-01T00:00:00Z"}}}`,
+		"a window with no figure":    `{"type":"system","subtype":"usage_limits","limits":{"five_hour":{"resets_at":"2031-01-01T00:00:00Z"}}}`,
+		"a figure that is not one":   `{"type":"system","subtype":"usage_limits","limits":{"five_hour":{"utilization":140,"resets_at":"2031-01-01T00:00:00Z"}}}`,
+		"a figure below nothing":     `{"type":"system","subtype":"usage_limits","limits":{"five_hour":{"utilization":-1,"resets_at":"2031-01-01T00:00:00Z"}}}`,
+		"a reset that is not a time": `{"type":"system","subtype":"usage_limits","limits":{"five_hour":{"utilization":10,"resets_at":"soon"}}}`,
+		"no limits at all":           `{"type":"system","subtype":"usage_limits","limits":{}}`,
+	} {
+		if got, ok := d.Usage(line); ok {
+			t.Errorf("%s: Usage = %+v, want nothing read out of it", what, got)
+		}
+	}
+}
+
+func TestUsageKeepsTheWindowsItCanReadFromOneItCannot(t *testing.T) {
+	d := claudecode.New()
+
+	got, ok := d.Usage(`{"type":"system","subtype":"usage_limits","limits":{` +
+		`"five_hour":{"utilization":42,"resets_at":"2031-01-01T00:00:00Z"},` +
+		`"seven_day":{"utilization":10,"resets_at":"whenever"}}}`)
+
+	if !ok || len(got.Windows) != 1 || got.Windows[0].Name != "five_hour" {
+		t.Errorf("Usage = %+v, %v; want the window it could read and not the one it could not", got, ok)
 	}
 }

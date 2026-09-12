@@ -2240,7 +2240,10 @@ type GetOverviewResponse struct {
 	Machine *Machine `protobuf:"bytes,7,opt,name=machine,proto3" json:"machine,omitempty"`
 	// Holding is what refused to start work on a machine Owl may work on, empty
 	// when nothing has refused.
-	Holding       string `protobuf:"bytes,8,opt,name=holding,proto3" json:"holding,omitempty"`
+	Holding string `protobuf:"bytes,8,opt,name=holding,proto3" json:"holding,omitempty"`
+	// Accounts is what each Account has used against what it is held to
+	// (ADR-0020).
+	Accounts      []*AccountCeiling `protobuf:"bytes,9,rep,name=accounts,proto3" json:"accounts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2331,6 +2334,161 @@ func (x *GetOverviewResponse) GetHolding() string {
 	return ""
 }
 
+func (x *GetOverviewResponse) GetAccounts() []*AccountCeiling {
+	if x != nil {
+		return x.Accounts
+	}
+	return nil
+}
+
+// AccountCeiling is one Account against what it is held to (ADR-0020).
+type AccountCeiling struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Name is the Account.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Windows is what is known about each of its windows.
+	Windows []*UsageWindow `protobuf:"bytes,2,rep,name=windows,proto3" json:"windows,omitempty"`
+	// Waiting is why work on this Account is held back, empty when nothing holds
+	// it back, and Until is when the window that holds it back starts again.
+	Waiting       string                 `protobuf:"bytes,3,opt,name=waiting,proto3" json:"waiting,omitempty"`
+	Until         *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=until,proto3" json:"until,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountCeiling) Reset() {
+	*x = AccountCeiling{}
+	mi := &file_codingowl_v1_job_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountCeiling) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountCeiling) ProtoMessage() {}
+
+func (x *AccountCeiling) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_job_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountCeiling.ProtoReflect.Descriptor instead.
+func (*AccountCeiling) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_job_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *AccountCeiling) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AccountCeiling) GetWindows() []*UsageWindow {
+	if x != nil {
+		return x.Windows
+	}
+	return nil
+}
+
+func (x *AccountCeiling) GetWaiting() string {
+	if x != nil {
+		return x.Waiting
+	}
+	return ""
+}
+
+func (x *AccountCeiling) GetUntil() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Until
+	}
+	return nil
+}
+
+// UsageWindow is how much of one window is spent, and how much of it Owl will
+// work into.
+type UsageWindow struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Name is the window in Owl's words: `five-hour` or `weekly`.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Utilization is how much of it is spent, as a percentage, counting what the
+	// user spent themselves.
+	Utilization float64 `protobuf:"fixed64,2,opt,name=utilization,proto3" json:"utilization,omitempty"`
+	// Ceiling is how much of it Owl will work into, zero when nobody set one.
+	Ceiling float64 `protobuf:"fixed64,3,opt,name=ceiling,proto3" json:"ceiling,omitempty"`
+	// Resets is when the window starts again.
+	Resets        *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=resets,proto3" json:"resets,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UsageWindow) Reset() {
+	*x = UsageWindow{}
+	mi := &file_codingowl_v1_job_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UsageWindow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UsageWindow) ProtoMessage() {}
+
+func (x *UsageWindow) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_job_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UsageWindow.ProtoReflect.Descriptor instead.
+func (*UsageWindow) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_job_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *UsageWindow) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *UsageWindow) GetUtilization() float64 {
+	if x != nil {
+		return x.Utilization
+	}
+	return 0
+}
+
+func (x *UsageWindow) GetCeiling() float64 {
+	if x != nil {
+		return x.Ceiling
+	}
+	return 0
+}
+
+func (x *UsageWindow) GetResets() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Resets
+	}
+	return nil
+}
+
 // Machine is the machine Owl runs on, as the daemon last read it (ADR-0011).
 type Machine struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2352,7 +2510,7 @@ type Machine struct {
 
 func (x *Machine) Reset() {
 	*x = Machine{}
-	mi := &file_codingowl_v1_job_proto_msgTypes[34]
+	mi := &file_codingowl_v1_job_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2364,7 +2522,7 @@ func (x *Machine) String() string {
 func (*Machine) ProtoMessage() {}
 
 func (x *Machine) ProtoReflect() protoreflect.Message {
-	mi := &file_codingowl_v1_job_proto_msgTypes[34]
+	mi := &file_codingowl_v1_job_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2377,7 +2535,7 @@ func (x *Machine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Machine.ProtoReflect.Descriptor instead.
 func (*Machine) Descriptor() ([]byte, []int) {
-	return file_codingowl_v1_job_proto_rawDescGZIP(), []int{34}
+	return file_codingowl_v1_job_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *Machine) GetRead() bool {
@@ -2553,7 +2711,7 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\x05count\x18\x02 \x01(\x05R\x05count\"Y\n" +
 	"\rRunInProgress\x12#\n" +
 	"\x03run\x18\x01 \x01(\v2\x11.codingowl.v1.RunR\x03run\x12#\n" +
-	"\x03job\x18\x02 \x01(\v2\x11.codingowl.v1.JobR\x03job\"\x93\x03\n" +
+	"\x03job\x18\x02 \x01(\v2\x11.codingowl.v1.JobR\x03job\"\xcd\x03\n" +
 	"\x13GetOverviewResponse\x125\n" +
 	"\arunning\x18\x01 \x03(\v2\x1b.codingowl.v1.RunInProgressR\arunning\x123\n" +
 	"\x06counts\x18\x02 \x03(\v2\x1b.codingowl.v1.JobStateCountR\x06counts\x12-\n" +
@@ -2564,7 +2722,18 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"unfinished\x18\x06 \x03(\v2\x18.codingowl.v1.UnfinishedR\n" +
 	"unfinished\x12/\n" +
 	"\amachine\x18\a \x01(\v2\x15.codingowl.v1.MachineR\amachine\x12\x18\n" +
-	"\aholding\x18\b \x01(\tR\aholding\"\x95\x01\n" +
+	"\aholding\x18\b \x01(\tR\aholding\x128\n" +
+	"\baccounts\x18\t \x03(\v2\x1c.codingowl.v1.AccountCeilingR\baccounts\"\xa5\x01\n" +
+	"\x0eAccountCeiling\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x123\n" +
+	"\awindows\x18\x02 \x03(\v2\x19.codingowl.v1.UsageWindowR\awindows\x12\x18\n" +
+	"\awaiting\x18\x03 \x01(\tR\awaiting\x120\n" +
+	"\x05until\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x05until\"\x91\x01\n" +
+	"\vUsageWindow\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\vutilization\x18\x02 \x01(\x01R\vutilization\x12\x18\n" +
+	"\aceiling\x18\x03 \x01(\x01R\aceiling\x122\n" +
+	"\x06resets\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x06resets\"\x95\x01\n" +
 	"\aMachine\x12\x12\n" +
 	"\x04read\x18\x01 \x01(\bR\x04read\x12\x12\n" +
 	"\x04idle\x18\x02 \x01(\bR\x04idle\x12/\n" +
@@ -2621,7 +2790,7 @@ func file_codingowl_v1_job_proto_rawDescGZIP() []byte {
 }
 
 var file_codingowl_v1_job_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_codingowl_v1_job_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
+var file_codingowl_v1_job_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
 var file_codingowl_v1_job_proto_goTypes = []any{
 	(JobState)(0),                 // 0: codingowl.v1.JobState
 	(PlanMode)(0),                 // 1: codingowl.v1.PlanMode
@@ -2660,19 +2829,21 @@ var file_codingowl_v1_job_proto_goTypes = []any{
 	(*JobStateCount)(nil),         // 34: codingowl.v1.JobStateCount
 	(*RunInProgress)(nil),         // 35: codingowl.v1.RunInProgress
 	(*GetOverviewResponse)(nil),   // 36: codingowl.v1.GetOverviewResponse
-	(*Machine)(nil),               // 37: codingowl.v1.Machine
-	(*timestamppb.Timestamp)(nil), // 38: google.protobuf.Timestamp
-	(*Skill)(nil),                 // 39: codingowl.v1.Skill
-	(*Unfinished)(nil),            // 40: codingowl.v1.Unfinished
-	(*durationpb.Duration)(nil),   // 41: google.protobuf.Duration
+	(*AccountCeiling)(nil),        // 37: codingowl.v1.AccountCeiling
+	(*UsageWindow)(nil),           // 38: codingowl.v1.UsageWindow
+	(*Machine)(nil),               // 39: codingowl.v1.Machine
+	(*timestamppb.Timestamp)(nil), // 40: google.protobuf.Timestamp
+	(*Skill)(nil),                 // 41: codingowl.v1.Skill
+	(*Unfinished)(nil),            // 42: codingowl.v1.Unfinished
+	(*durationpb.Duration)(nil),   // 43: google.protobuf.Duration
 }
 var file_codingowl_v1_job_proto_depIdxs = []int32{
 	0,  // 0: codingowl.v1.Job.state:type_name -> codingowl.v1.JobState
-	38, // 1: codingowl.v1.Job.created:type_name -> google.protobuf.Timestamp
-	38, // 2: codingowl.v1.Run.started:type_name -> google.protobuf.Timestamp
-	38, // 3: codingowl.v1.Run.ended:type_name -> google.protobuf.Timestamp
+	40, // 1: codingowl.v1.Job.created:type_name -> google.protobuf.Timestamp
+	40, // 2: codingowl.v1.Run.started:type_name -> google.protobuf.Timestamp
+	40, // 3: codingowl.v1.Run.ended:type_name -> google.protobuf.Timestamp
 	2,  // 4: codingowl.v1.Run.outcome:type_name -> codingowl.v1.RunOutcome
-	39, // 5: codingowl.v1.Run.skills:type_name -> codingowl.v1.Skill
+	41, // 5: codingowl.v1.Run.skills:type_name -> codingowl.v1.Skill
 	6,  // 6: codingowl.v1.PauseRunResponse.run:type_name -> codingowl.v1.Run
 	6,  // 7: codingowl.v1.ResumeRunResponse.run:type_name -> codingowl.v1.Run
 	1,  // 8: codingowl.v1.AddJobRequest.plan_mode:type_name -> codingowl.v1.PlanMode
@@ -2699,40 +2870,44 @@ var file_codingowl_v1_job_proto_depIdxs = []int32{
 	3,  // 29: codingowl.v1.GetOverviewResponse.awaiting:type_name -> codingowl.v1.Job
 	3,  // 30: codingowl.v1.GetOverviewResponse.blocked:type_name -> codingowl.v1.Job
 	3,  // 31: codingowl.v1.GetOverviewResponse.exhausted:type_name -> codingowl.v1.Job
-	40, // 32: codingowl.v1.GetOverviewResponse.unfinished:type_name -> codingowl.v1.Unfinished
-	37, // 33: codingowl.v1.GetOverviewResponse.machine:type_name -> codingowl.v1.Machine
-	41, // 34: codingowl.v1.Machine.since:type_name -> google.protobuf.Duration
-	11, // 35: codingowl.v1.JobService.AddJob:input_type -> codingowl.v1.AddJobRequest
-	13, // 36: codingowl.v1.JobService.ListJobs:input_type -> codingowl.v1.ListJobsRequest
-	15, // 37: codingowl.v1.JobService.CancelJob:input_type -> codingowl.v1.CancelJobRequest
-	17, // 38: codingowl.v1.JobService.ReorderJob:input_type -> codingowl.v1.ReorderJobRequest
-	19, // 39: codingowl.v1.JobService.StartRun:input_type -> codingowl.v1.StartRunRequest
-	21, // 40: codingowl.v1.JobService.GetJob:input_type -> codingowl.v1.GetJobRequest
-	25, // 41: codingowl.v1.JobService.StreamRunLog:input_type -> codingowl.v1.StreamRunLogRequest
-	27, // 42: codingowl.v1.JobService.AcceptJob:input_type -> codingowl.v1.AcceptJobRequest
-	29, // 43: codingowl.v1.JobService.DropJob:input_type -> codingowl.v1.DropJobRequest
-	33, // 44: codingowl.v1.JobService.GetOverview:input_type -> codingowl.v1.GetOverviewRequest
-	31, // 45: codingowl.v1.JobService.ExtendJob:input_type -> codingowl.v1.ExtendJobRequest
-	7,  // 46: codingowl.v1.JobService.PauseRun:input_type -> codingowl.v1.PauseRunRequest
-	9,  // 47: codingowl.v1.JobService.ResumeRun:input_type -> codingowl.v1.ResumeRunRequest
-	12, // 48: codingowl.v1.JobService.AddJob:output_type -> codingowl.v1.AddJobResponse
-	14, // 49: codingowl.v1.JobService.ListJobs:output_type -> codingowl.v1.ListJobsResponse
-	16, // 50: codingowl.v1.JobService.CancelJob:output_type -> codingowl.v1.CancelJobResponse
-	18, // 51: codingowl.v1.JobService.ReorderJob:output_type -> codingowl.v1.ReorderJobResponse
-	20, // 52: codingowl.v1.JobService.StartRun:output_type -> codingowl.v1.StartRunResponse
-	22, // 53: codingowl.v1.JobService.GetJob:output_type -> codingowl.v1.GetJobResponse
-	26, // 54: codingowl.v1.JobService.StreamRunLog:output_type -> codingowl.v1.StreamRunLogResponse
-	28, // 55: codingowl.v1.JobService.AcceptJob:output_type -> codingowl.v1.AcceptJobResponse
-	30, // 56: codingowl.v1.JobService.DropJob:output_type -> codingowl.v1.DropJobResponse
-	36, // 57: codingowl.v1.JobService.GetOverview:output_type -> codingowl.v1.GetOverviewResponse
-	32, // 58: codingowl.v1.JobService.ExtendJob:output_type -> codingowl.v1.ExtendJobResponse
-	8,  // 59: codingowl.v1.JobService.PauseRun:output_type -> codingowl.v1.PauseRunResponse
-	10, // 60: codingowl.v1.JobService.ResumeRun:output_type -> codingowl.v1.ResumeRunResponse
-	48, // [48:61] is the sub-list for method output_type
-	35, // [35:48] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	42, // 32: codingowl.v1.GetOverviewResponse.unfinished:type_name -> codingowl.v1.Unfinished
+	39, // 33: codingowl.v1.GetOverviewResponse.machine:type_name -> codingowl.v1.Machine
+	37, // 34: codingowl.v1.GetOverviewResponse.accounts:type_name -> codingowl.v1.AccountCeiling
+	38, // 35: codingowl.v1.AccountCeiling.windows:type_name -> codingowl.v1.UsageWindow
+	40, // 36: codingowl.v1.AccountCeiling.until:type_name -> google.protobuf.Timestamp
+	40, // 37: codingowl.v1.UsageWindow.resets:type_name -> google.protobuf.Timestamp
+	43, // 38: codingowl.v1.Machine.since:type_name -> google.protobuf.Duration
+	11, // 39: codingowl.v1.JobService.AddJob:input_type -> codingowl.v1.AddJobRequest
+	13, // 40: codingowl.v1.JobService.ListJobs:input_type -> codingowl.v1.ListJobsRequest
+	15, // 41: codingowl.v1.JobService.CancelJob:input_type -> codingowl.v1.CancelJobRequest
+	17, // 42: codingowl.v1.JobService.ReorderJob:input_type -> codingowl.v1.ReorderJobRequest
+	19, // 43: codingowl.v1.JobService.StartRun:input_type -> codingowl.v1.StartRunRequest
+	21, // 44: codingowl.v1.JobService.GetJob:input_type -> codingowl.v1.GetJobRequest
+	25, // 45: codingowl.v1.JobService.StreamRunLog:input_type -> codingowl.v1.StreamRunLogRequest
+	27, // 46: codingowl.v1.JobService.AcceptJob:input_type -> codingowl.v1.AcceptJobRequest
+	29, // 47: codingowl.v1.JobService.DropJob:input_type -> codingowl.v1.DropJobRequest
+	33, // 48: codingowl.v1.JobService.GetOverview:input_type -> codingowl.v1.GetOverviewRequest
+	31, // 49: codingowl.v1.JobService.ExtendJob:input_type -> codingowl.v1.ExtendJobRequest
+	7,  // 50: codingowl.v1.JobService.PauseRun:input_type -> codingowl.v1.PauseRunRequest
+	9,  // 51: codingowl.v1.JobService.ResumeRun:input_type -> codingowl.v1.ResumeRunRequest
+	12, // 52: codingowl.v1.JobService.AddJob:output_type -> codingowl.v1.AddJobResponse
+	14, // 53: codingowl.v1.JobService.ListJobs:output_type -> codingowl.v1.ListJobsResponse
+	16, // 54: codingowl.v1.JobService.CancelJob:output_type -> codingowl.v1.CancelJobResponse
+	18, // 55: codingowl.v1.JobService.ReorderJob:output_type -> codingowl.v1.ReorderJobResponse
+	20, // 56: codingowl.v1.JobService.StartRun:output_type -> codingowl.v1.StartRunResponse
+	22, // 57: codingowl.v1.JobService.GetJob:output_type -> codingowl.v1.GetJobResponse
+	26, // 58: codingowl.v1.JobService.StreamRunLog:output_type -> codingowl.v1.StreamRunLogResponse
+	28, // 59: codingowl.v1.JobService.AcceptJob:output_type -> codingowl.v1.AcceptJobResponse
+	30, // 60: codingowl.v1.JobService.DropJob:output_type -> codingowl.v1.DropJobResponse
+	36, // 61: codingowl.v1.JobService.GetOverview:output_type -> codingowl.v1.GetOverviewResponse
+	32, // 62: codingowl.v1.JobService.ExtendJob:output_type -> codingowl.v1.ExtendJobResponse
+	8,  // 63: codingowl.v1.JobService.PauseRun:output_type -> codingowl.v1.PauseRunResponse
+	10, // 64: codingowl.v1.JobService.ResumeRun:output_type -> codingowl.v1.ResumeRunResponse
+	52, // [52:65] is the sub-list for method output_type
+	39, // [39:52] is the sub-list for method input_type
+	39, // [39:39] is the sub-list for extension type_name
+	39, // [39:39] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_codingowl_v1_job_proto_init() }
@@ -2748,7 +2923,7 @@ func file_codingowl_v1_job_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codingowl_v1_job_proto_rawDesc), len(file_codingowl_v1_job_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   35,
+			NumMessages:   37,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

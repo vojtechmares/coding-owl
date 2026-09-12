@@ -6,6 +6,7 @@ package driver
 
 import (
 	"context"
+	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/agent"
 )
@@ -24,6 +25,25 @@ type Capabilities struct {
 	// UsageReporting means the tool reports the account utilization it drew,
 	// which is what a ceiling needs (ADR-0020).
 	UsageReporting bool
+}
+
+// Usage is what a tool reported about the account's utilization, which is what
+// a ceiling is kept against (ADR-0020). Utilization is account-wide: it counts
+// what the user spent themselves as well as what Owl did.
+type Usage struct {
+	// Windows is every window the tool said something about, in the tool's own
+	// words for them.
+	Windows []UsageWindow
+}
+
+// UsageWindow is one window's figure.
+type UsageWindow struct {
+	// Name is the window, as the tool names it.
+	Name string
+	// Utilization is how much of the window is spent, as a percentage.
+	Utilization float64
+	// Resets is when the window starts again.
+	Resets time.Time
 }
 
 // Request is what a Run asks its Agent to do.
@@ -68,4 +88,10 @@ type Driver interface {
 	// it runs in (ADR-0033). It is the tool's own convention, which is why it
 	// lives behind the Driver rather than in the scheduler.
 	SkillsDir() string
+	// Usage reads what one line of the tool's output says about the account's
+	// utilization, and says whether that line said anything at all (ADR-0020).
+	// The shape of the line is the tool's, like its flags, so nothing outside
+	// a Driver reads it. A Driver whose Capabilities do not claim
+	// UsageReporting never finds anything.
+	Usage(line string) (Usage, bool)
 }

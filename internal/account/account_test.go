@@ -378,3 +378,31 @@ func TestDirForIsUnderTheDataHome(t *testing.T) {
 		t.Errorf("DirFor = %s, want the account's own directory under the data home", got)
 	}
 }
+
+func TestRemoveForgetsWhatWasReadAboutTheAccountsWindows(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	if _, err := f.svc.Add(ctx, account.AddRequest{Name: "work", Token: "sk-ant-oat01-x"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := f.store.RecordAccountUsage(ctx, store.AccountUsage{
+		Account: "work", Window: "five_hour", Utilization: 42,
+		Resets: time.Now().Add(time.Hour).UTC(), Observed: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("RecordAccountUsage: %v", err)
+	}
+
+	if _, err := f.svc.Remove(ctx, "work"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	// A figure about an Account nobody has is about nothing, and a new Account
+	// of the same name must not inherit it.
+	got, err := f.store.ListAccountUsage(ctx)
+	if err != nil {
+		t.Fatalf("ListAccountUsage: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("ListAccountUsage = %+v, want nothing left about a removed account", got)
+	}
+}

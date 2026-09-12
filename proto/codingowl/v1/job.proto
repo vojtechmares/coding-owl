@@ -392,6 +392,35 @@ message GetOverviewResponse {
   // Holding is what refused to start work on a machine Owl may work on, empty
   // when nothing has refused.
   string holding = 8;
+  // Accounts is what each Account has used against what it is held to
+  // (ADR-0020).
+  repeated AccountCeiling accounts = 9;
+}
+
+// AccountCeiling is one Account against what it is held to (ADR-0020).
+message AccountCeiling {
+  // Name is the Account.
+  string name = 1;
+  // Windows is what is known about each of its windows.
+  repeated UsageWindow windows = 2;
+  // Waiting is why work on this Account is held back, empty when nothing holds
+  // it back, and Until is when the window that holds it back starts again.
+  string waiting = 3;
+  google.protobuf.Timestamp until = 4;
+}
+
+// UsageWindow is how much of one window is spent, and how much of it Owl will
+// work into.
+message UsageWindow {
+  // Name is the window in Owl's words: `five-hour` or `weekly`.
+  string name = 1;
+  // Utilization is how much of it is spent, as a percentage, counting what the
+  // user spent themselves.
+  double utilization = 2;
+  // Ceiling is how much of it Owl will work into, zero when nobody set one.
+  double ceiling = 3;
+  // Resets is when the window starts again.
+  google.protobuf.Timestamp resets = 4;
 }
 
 // Machine is the machine Owl runs on, as the daemon last read it (ADR-0011).

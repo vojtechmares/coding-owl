@@ -43,6 +43,9 @@ type Overview struct {
 	// Job with no Account, a tool nobody can run - and is empty when nothing
 	// has refused.
 	Holding string
+	// Accounts is what each Account has used against what it is held to
+	// (ADR-0020).
+	Accounts []AccountCeiling
 }
 
 // DisposalLock is the lock that serialises deciding a Job's fate. Garbage
@@ -165,7 +168,11 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	machine := s.MachineState()
 	byID := make(map[int64]store.Job, len(jobs))
 	counts := map[queue.State]int{}
-	out := Overview{Machine: machine, Holding: s.Holding()}
+	ceilings, err := s.Ceilings(ctx)
+	if err != nil {
+		return Overview{}, err
+	}
+	out := Overview{Machine: machine, Holding: s.Holding(), Accounts: ceilings}
 	for _, j := range jobs {
 		byID[j.ID] = j
 		state := queue.State(j.State)

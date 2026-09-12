@@ -33,11 +33,24 @@ type fakeDriver struct {
 	request  driver.Request
 	checkErr error
 	cmdErr   error
+	// reports is what this tool says about an account's utilization, and
+	// silent is a tool that does not report any at all (ADR-0020).
+	reports map[string]driver.Usage
+	silent  bool
 }
 
 func (*fakeDriver) Name() string { return "fake" }
-func (*fakeDriver) Capabilities() driver.Capabilities {
-	return driver.Capabilities{StreamingOutput: true}
+func (d *fakeDriver) Capabilities() driver.Capabilities {
+	return driver.Capabilities{StreamingOutput: true, UsageReporting: !d.silent}
+}
+
+// Usage is what this tool says about the account, for the lines the test gave
+// it a figure for.
+func (d *fakeDriver) Usage(line string) (driver.Usage, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	u, ok := d.reports[strings.TrimSpace(line)]
+	return u, ok && !d.silent
 }
 
 func (d *fakeDriver) Check(context.Context) error { return d.checkErr }
@@ -189,9 +202,21 @@ func newVerifiedFixture(t *testing.T, d driver.Driver, e *fakeExecutor, v verifi
 		Verifier:          v,
 		WorktreeDir:       filepath.Join(root, "worktrees"),
 		LogDir:            filepath.Join(root, "logs"),
+		// The daemon's own file, which a test writes when it has something to
+		// say about grace windows, idleness or what an Account is held to. A
+		// file that is not there is a daemon nobody configured.
+		ConfigPath: filepath.Join(root, "config.yaml"),
 	})
 	t.Cleanup(func() { _ = svc.Close() })
 	return svc, st, repo, root
+}
+
+// writeGlobal writes the daemon's own configuration file for a fixture.
+func writeGlobal(t *testing.T, root, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // commitFile writes a file in a repository and commits it.
@@ -1110,4 +1135,55 @@ func skillSource(t *testing.T) string {
 	gitIn(t, dir, "add", "--", "SKILL.md")
 	gitIn(t, dir, "commit", "-m", "write the skill")
 	return dir
+}
+
+// A ceiling is only as good as what it is kept against: a tool that reports no
+// utilization cannot be held to one, and Owl says so rather than working on in
+// the dark (ADR-0020). No behaviour scenario can reach this, because the
+// daemon has one Driver and it reports usage.
+func TestStartRefusesACeilingOnAToolThatReportsNoUsage(t *testing.T) {
+	silent := &fakeDriver{silent: true}
+	svc, st, _, root := newVerifiedFixture(t, silent, &fakeExecutor{}, &fakeVerifier{})
+	writeGlobal(t, root, "apiVersion: codingowl.dev/v1\naccounts:\n  "+testAccount+
+		":\n    limits:\n      fiveHourMax: 60\n")
+	queueJob(t, st, "work")
+
+	_, _, started, err := svc.Start(context.Background())
+
+	if started {
+		t.Fatal("a run started on an account held to a ceiling nothing can keep")
+	}
+	var refusal *run.RefusedError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("Start = %v, want it refused", err)
+	}
+	for _, want := range []string{testAccount, "does not report", "ceiling"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal %q does not carry %q", err, want)
+		}
+	}
+	// And nothing is held against the Job: it is waiting for a person to
+	// change something, not failing at anything.
+	after, err := st.GetJob(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if queue.State(after.State) != queue.StatePending || after.Reason != "" {
+		t.Errorf("job = %+v, want it pending with nothing held against it", after)
+	}
+}
+
+// And a tool that does report usage is held to the ceiling rather than to
+// whether it reports.
+func TestStartRunsUnderACeilingOnAToolThatReportsUsage(t *testing.T) {
+	svc, st, _, root := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{})
+	writeGlobal(t, root, "apiVersion: codingowl.dev/v1\naccounts:\n  "+testAccount+
+		":\n    limits:\n      fiveHourMax: 60\n")
+	queueJob(t, st, "work")
+
+	_, _, started, err := svc.Start(context.Background())
+
+	if err != nil || !started {
+		t.Fatalf("Start = %v, %v; want the run started", started, err)
+	}
 }
