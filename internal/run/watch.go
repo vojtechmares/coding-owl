@@ -289,52 +289,60 @@ func (s *Service) begin(ctx context.Context) string {
 // beginOne starts one Job and says whether it is worth asking again.
 func (s *Service) beginOne(ctx context.Context) (string, bool) {
 	job, r, started, err := s.start(ctx, ByMachine)
+	if started {
+		s.opts.Logger.Info("run started on an idle machine", "run", r.ID, "job", job.ID)
+		s.holdingBack("")
+		// Something started, so there may be room for another.
+		return "", true
+	}
+	why := waitingFor(ctx, err)
+	switch {
+	case why == "":
+	case errors.Is(err, context.Canceled), ctx.Err() != nil:
+	default:
+		s.opts.Logger.Debug("nothing was started on an idle machine", "reason", err)
+	}
+	s.holdingBack(why)
+	return why, false
+}
+
+// waitingFor is what a failure to start means to the watcher: the empty string
+// for something that will change on its own, and otherwise what to say and
+// what to wait on before looking again.
+//
+// A cap that is taken changes the moment a Run ends, and a watcher that waited
+// on one would leave the slot idle for minutes. A window with hours to run, a
+// Project nobody can read and a Project that names no Account do not change
+// until somebody does something, and looking again every few seconds all night
+// for one of those is work nobody asked for (ADR-0011).
+func waitingFor(ctx context.Context, err error) string {
 	var refusal *RefusedError
 	var inHand *busyError
 	var capped *CappedError
 	switch {
-	case started:
-		s.opts.Logger.Info("run started on an idle machine", "run", r.ID, "job", job.ID)
-	case errors.As(err, &capped) && capped.Clears:
-		// Every cap that applies is taken, and a Run finishing is all it takes
-		// to change that. Nothing is waiting for a person - the Jobs it passed
-		// over say so themselves - so nothing is reported and nothing waits.
-		s.holdingBack("")
-		return "", false
+	case err == nil:
+		return ""
 	case errors.As(err, &capped):
-		// Nothing that was passed over will become runnable on its own: a
-		// window with hours to run, a Project nobody can read, a Project that
-		// names no Account. Looking again in a moment would find the same
-		// thing, so this waits and says why.
-		s.opts.Logger.Debug("nothing was started on an idle machine", "reason", err)
-		s.holdingBack(err.Error())
-		return err.Error(), false
+		if capped.Clears {
+			return ""
+		}
+		return err.Error()
 	case errors.As(err, &inHand):
-		// The daemon already has work in hand, or is stopping. Nothing is
-		// waiting for a person, so nothing is reported and nothing waits.
-		s.holdingBack("")
-		return "", false
+		// The daemon already has work in hand, or is stopping.
+		return ""
 	case ctx.Err() != nil:
 		// The daemon is stopping. Whatever it was in the middle of - a
 		// Project's setup commands, a rebase - was cut short by that rather
 		// than by anything being wrong.
-		s.holdingBack("")
-		return "", false
+		return ""
 	case errors.As(err, &refusal):
 		// A Job that cannot start is waiting for a person - an Account nobody
 		// named, a tool nobody installed - so it is what `owl status` should
 		// say rather than something to raise.
-		s.opts.Logger.Debug("nothing was started on an idle machine", "reason", err)
-		s.holdingBack(err.Error())
-		return err.Error(), false
-	case err != nil:
-		s.opts.Logger.Error("starting a run on an idle machine", "error", err)
-		s.holdingBack(err.Error())
-		return err.Error(), false
+		return err.Error()
+	default:
+		return err.Error()
 	}
-	s.holdingBack("")
-	// Something started, so there may be room for another.
-	return "", started
 }
 
 // machineRead records what the machine said, for the reports that say why work
