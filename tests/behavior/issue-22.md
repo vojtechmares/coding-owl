@@ -96,15 +96,25 @@ When `scripts/bump-cask.sh` runs with a version like `0.1`, or with a checksum t
 Then each exits with a non-zero code
 And the tap is unchanged
 
-### S13 - the release workflow ships the app and the formula from one release
+### S13 - the release workflow ships the app and the archive from one release
 Given `.github/workflows/release.yml`
 Then the job that builds the desktop app runs on a mac and is guarded by the same tag check as the rest
-And the job that publishes the release attaches the desktop zip alongside the archive and the checksums
-And the job that bumps the cask needs that same release, so the cask and the formula move at one version
+And the job that publishes the release waits for it, attaches the desktop zip alongside the archive and the checksums, and checks the zip's checksum against the zip it is publishing
 
-### S14 - a prerelease points the tap at neither the formula nor the cask
+### S14 - one job points the tap at both, and a prerelease points it at neither
 Given `.github/workflows/release.yml`
-Then the cask job is skipped for a prerelease on the same condition as the formula job
+Then one job renders both the formula and the cask, so they cannot race each other to the tap's branch
+And it waits for both the release and the build of the app, and takes each checksum from the job that computed it
+And it is skipped for a prerelease
+
+### S17 - the release workflow is one GitHub Actions will run
+Given `.github/workflows/release.yml` and the rest of them
+When actionlint reads them
+Then it reports nothing
+
+A workflow only runs on a tag, where a mistake is found by the release failing.
+This is what reads it beforehand, and CI runs the same check, so a job naming
+another job it does not depend on cannot be merged.
 
 ### S15 - Homebrew reads the rendered cask without complaint
 Given the rendered cask of S5 and `OWL_SMOKE_CASK=1`
