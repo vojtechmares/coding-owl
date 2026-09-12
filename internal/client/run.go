@@ -220,21 +220,38 @@ func runFromProto(r *codingowlv1.Run) Run {
 	return out
 }
 
-// PauseRun freezes the Run in progress and everything its Agent started, and
-// starts the grace window that will end it if nobody comes back.
-func (c *Client) PauseRun(ctx context.Context) (Run, error) {
+// PauseRun freezes every Run in flight and everything their Agents started,
+// and starts the grace window that will end each one if nobody comes back.
+func (c *Client) PauseRun(ctx context.Context) ([]Run, error) {
 	res, err := c.jobs.PauseRun(ctx, connect.NewRequest(&codingowlv1.PauseRunRequest{}))
 	if err != nil {
-		return Run{}, c.wrap(err)
+		return nil, c.wrap(err)
 	}
-	return runFromProto(res.Msg.GetRun()), nil
+	return runsFromProto(res.Msg.GetRuns(), res.Msg.GetRun()), nil
 }
 
-// ResumeRun continues a frozen Run where it was.
-func (c *Client) ResumeRun(ctx context.Context) (Run, error) {
+// ResumeRun continues every frozen Run where it was.
+func (c *Client) ResumeRun(ctx context.Context) ([]Run, error) {
 	res, err := c.jobs.ResumeRun(ctx, connect.NewRequest(&codingowlv1.ResumeRunRequest{}))
 	if err != nil {
-		return Run{}, c.wrap(err)
+		return nil, c.wrap(err)
 	}
-	return runFromProto(res.Msg.GetRun()), nil
+	return runsFromProto(res.Msg.GetRuns(), res.Msg.GetRun()), nil
+}
+
+// runsFromProto is the Runs a call reached. A daemon written when only one
+// could be going sends the one field and not the list, so the one is what is
+// read when the list is empty.
+func runsFromProto(runs []*codingowlv1.Run, one *codingowlv1.Run) []Run {
+	if len(runs) == 0 {
+		if one == nil {
+			return nil
+		}
+		return []Run{runFromProto(one)}
+	}
+	out := make([]Run, 0, len(runs))
+	for _, r := range runs {
+		out = append(out, runFromProto(r))
+	}
+	return out
 }

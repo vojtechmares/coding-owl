@@ -39,6 +39,9 @@ function overview(o: Overview): Overview {
     a.Windows = list(a.Windows);
     return a;
   });
+  // Why the queue is in the order it is: a queue that skips is no longer a
+  // literal plan (ADR-0025).
+  o.PassedOver = list(o.PassedOver);
   return o;
 }
 
@@ -58,8 +61,8 @@ export const api = {
   jobs: (all: boolean): Promise<Job[]> => App.Jobs(all).then(list),
   job: (id: number): Promise<JobDetails> => App.Job(id).then(details),
   start: (): Promise<StartResult> => App.Start(),
-  pause: (): Promise<Run> => App.Pause(),
-  resume: (): Promise<Run> => App.Resume(),
+  pause: (): Promise<Run[]> => App.Pause().then(list),
+  resume: (): Promise<Run[]> => App.Resume().then(list),
   accept: (id: number, force: boolean): Promise<Job> => App.Accept(id, force),
   drop: (id: number, force: boolean): Promise<Job> => App.Drop(id, force),
   skills: (project: string): Promise<Skill[]> => App.Skills(project).then(list),

@@ -200,6 +200,11 @@ func (s *jobService) GetOverview(ctx context.Context, _ *connect.Request[codingo
 		}
 		res.Accounts = append(res.Accounts, ceiling)
 	}
+	for _, p := range o.PassedOver {
+		res.PassedOver = append(res.PassedOver, &codingowlv1.PassedOverJob{
+			Job: toJobProto(p.Job), Reason: p.Reason,
+		})
+	}
 	return connect.NewResponse(res), nil
 }
 
@@ -208,7 +213,9 @@ func (s *jobService) PauseRun(ctx context.Context, _ *connect.Request[codingowlv
 	if err != nil {
 		return nil, rpcError(err)
 	}
-	return connect.NewResponse(&codingowlv1.PauseRunResponse{Run: toRunProto(r)}), nil
+	return connect.NewResponse(&codingowlv1.PauseRunResponse{
+		Run: toRunProto(r[0]), Runs: toRunProtos(r),
+	}), nil
 }
 
 func (s *jobService) ResumeRun(ctx context.Context, _ *connect.Request[codingowlv1.ResumeRunRequest]) (*connect.Response[codingowlv1.ResumeRunResponse], error) {
@@ -216,7 +223,9 @@ func (s *jobService) ResumeRun(ctx context.Context, _ *connect.Request[codingowl
 	if err != nil {
 		return nil, rpcError(err)
 	}
-	return connect.NewResponse(&codingowlv1.ResumeRunResponse{Run: toRunProto(r)}), nil
+	return connect.NewResponse(&codingowlv1.ResumeRunResponse{
+		Run: toRunProto(r[0]), Runs: toRunProtos(r),
+	}), nil
 }
 
 func (s *jobService) StreamRunLog(ctx context.Context, req *connect.Request[codingowlv1.StreamRunLogRequest], stream *connect.ServerStream[codingowlv1.StreamRunLogResponse]) error {
@@ -272,6 +281,15 @@ var jobStates = map[queue.State]codingowlv1.JobState{
 	queue.StateDone:      codingowlv1.JobState_JOB_STATE_DONE,
 	queue.StateCancelled: codingowlv1.JobState_JOB_STATE_CANCELLED,
 	queue.StateExhausted: codingowlv1.JobState_JOB_STATE_EXHAUSTED,
+}
+
+// toRunProtos is every Run of a list, for the calls that reach more than one.
+func toRunProtos(runs []run.Run) []*codingowlv1.Run {
+	out := make([]*codingowlv1.Run, 0, len(runs))
+	for _, r := range runs {
+		out = append(out, toRunProto(r))
+	}
+	return out
 }
 
 func toJobProto(j queue.Job) *codingowlv1.Job {

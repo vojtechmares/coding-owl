@@ -569,3 +569,80 @@ func TestParseGlobalRefusesOneAccountNamedTwice(t *testing.T) {
 		}
 	}
 }
+
+// Three caps, and the file is where two of them are written (ADR-0021).
+func TestGlobalReadsHowManyRunsMayGoAtOnce(t *testing.T) {
+	cfg, err := config.ParseGlobal("owl.yaml", []byte("apiVersion: codingowl.dev/v1\nmaxParallelRuns: 4\n"))
+
+	if err != nil {
+		t.Fatalf("ParseGlobal: %v", err)
+	}
+	if cfg.MaxParallelRuns != 4 {
+		t.Errorf("maxParallelRuns = %d, want 4", cfg.MaxParallelRuns)
+	}
+	// Nothing runs in parallel until somebody asks, so a file that says
+	// nothing says one.
+	cfg, err = config.ParseGlobal("owl.yaml", []byte("apiVersion: codingowl.dev/v1\n"))
+	if err != nil {
+		t.Fatalf("ParseGlobal: %v", err)
+	}
+	if cfg.MaxParallelRuns != 1 {
+		t.Errorf("maxParallelRuns = %d with nothing set, want 1", cfg.MaxParallelRuns)
+	}
+}
+
+// And a Project raises its own deliberately, once somebody knows its checks are
+// hermetic (ADR-0021).
+func TestAProjectSaysHowManyOfItsOwnRunsMayGoAtOnce(t *testing.T) {
+	cfg, err := config.Parse(".coding-owl.yaml", []byte("apiVersion: codingowl.dev/v1\nmaxParallelRuns: 2\n"))
+
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.MaxParallelRuns != 2 {
+		t.Errorf("maxParallelRuns = %d, want 2", cfg.MaxParallelRuns)
+	}
+	if got := config.Default().MaxParallelRuns; got != 1 {
+		t.Errorf("a project that says nothing runs %d at once, want 1", got)
+	}
+}
+
+// A cap that is not one is refused by name: a decoder's own message says a line
+// number and not the setting.
+func TestACapThatIsNotOneIsRefusedByName(t *testing.T) {
+	for _, bad := range []string{
+		"maxParallelRuns: 0\n",
+		"maxParallelRuns: -1\n",
+		"maxParallelRuns: many\n",
+		"maxParallelRuns: 1.5\n",
+		"accounts:\n  work:\n    maxParallel: 0\n",
+		"accounts:\n  work:\n    maxParallel: nope\n",
+	} {
+		_, err := config.ParseGlobal("owl.yaml", []byte("apiVersion: codingowl.dev/v1\n"+bad))
+
+		if err == nil {
+			t.Errorf("ParseGlobal accepted %q", bad)
+			continue
+		}
+		if !strings.Contains(err.Error(), "maxParallel") {
+			t.Errorf("the refusal for %q does not name the setting: %v", bad, err)
+		}
+	}
+}
+
+// An Account with no cap of its own is held only by the other two: burn rate is
+// already governed by the ceiling (ADR-0021).
+func TestAnAccountWithNoCapOfItsOwnIsUnlimited(t *testing.T) {
+	cfg, err := config.ParseGlobal("owl.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\naccounts:\n  work:\n    maxParallel: 2\n  other:\n    limits:\n      fiveHourMax: 60\n"))
+
+	if err != nil {
+		t.Fatalf("ParseGlobal: %v", err)
+	}
+	if got, _ := cfg.Ceiling("work"); got.MaxParallel != 2 {
+		t.Errorf("work runs %d at once, want 2", got.MaxParallel)
+	}
+	if got, _ := cfg.Ceiling("other"); got.MaxParallel != 0 {
+		t.Errorf("an account that says nothing runs %d at once, want as many as the others allow", got.MaxParallel)
+	}
+}

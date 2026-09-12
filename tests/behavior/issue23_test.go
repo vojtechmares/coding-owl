@@ -6,11 +6,11 @@ package behavior_test
 // with the stub machine of issue #19 standing in for the real one.
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // caps is a layout whose Agents hold where they are, so a scenario can look at
@@ -133,12 +133,18 @@ func columnOf(out, heading string, at int) []string {
 	return vals
 }
 
-// waitRunning waits until that many Runs are in flight, and no longer.
+// waitRunning waits until that many Runs are in flight, and no longer. What
+// owl status said goes into the failure: which Runs are going and what was
+// passed over is the whole of what these scenarios are about.
 func (c *caps) waitRunning(t *testing.T, n int) {
 	t.Helper()
-	waitFor(t, fmt.Sprintf("%d runs to be in flight", n), func() bool {
-		return len(c.running(t)) == n
-	})
+	deadline := time.Now().Add(10 * time.Second)
+	for len(c.running(t)) != n {
+		if time.Now().After(deadline) {
+			t.Fatalf("waited for %d runs to be in flight; owl status says:\n%s", n, c.status(t))
+		}
+		sleep(100 * time.Millisecond)
+	}
 	// And it stays there: a cap that is not held would let another one start a
 	// moment later.
 	looked()
@@ -256,25 +262,40 @@ func TestS6CapsAJobThatIsPassedOverKeepsItsPosition(t *testing.T) {
 	c := capsLayout(t, "maxParallelRuns: 4\n")
 	c.project(t, "api", "", 2)
 	c.project(t, "web", "", 1)
+	before := queuePositions(t, c.l)
 
 	c.away(t)
 	c.waitRunning(t, 2)
 
-	// The Job that could not start is still pending, and still at the head of
-	// what is left: being passed over is not being moved.
+	// The Job that could not start is still pending, and still where it was:
+	// being passed over is not being moved (ADR-0025).
 	over := c.passedOver(t)
 	if len(over) != 1 {
 		t.Fatalf("owl status passed over %d jobs, want the second api job: %v", len(over), over)
 	}
+	after := queuePositions(t, c.l)
 	for job := range over {
-		show := mustOwl(t, c.l, "jobs", "show", job).stdout
-		if got := line(t, show, "state"); got != "pending" {
-			t.Errorf("the passed-over job is %s, want it still pending", got)
+		if before[job] == "" {
+			t.Fatalf("job %s was not in the queue to begin with: %v", job, before)
 		}
-		if got := line(t, show, "position"); got != "1" {
-			t.Errorf("the passed-over job is at position %s, want the head of what is left", got)
+		if after[job] != before[job] {
+			t.Errorf("the passed-over job moved from position %s to %s", before[job], after[job])
 		}
 	}
+}
+
+// queuePositions is each queued Job's place, by id.
+func queuePositions(t *testing.T, l *layout) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, row := range strings.Split(mustOwl(t, l, "queue", "list").stdout, "\n") {
+		fields := strings.Fields(row)
+		if len(fields) < 2 || fields[0] == "POSITION" {
+			continue
+		}
+		out[fields[1]] = fields[0]
+	}
+	return out
 }
 
 func TestS7CapsStatusSaysWhyEachPassedOverJobWasPassedOver(t *testing.T) {
@@ -315,19 +336,13 @@ func TestS8CapsAJobOverItsAccountsCeilingIsPassedOver(t *testing.T) {
 	c.project(t, "web", "account: fresh\n", 1)
 
 	c.away(t)
-	c.waitRunning(t, 2)
-	// The Run on spent has said what that account has used, which is over what
-	// it is held to.
-	waitFor(t, "the spent account to be over its ceiling", func() bool {
-		return strings.Contains(c.status(t), "waiting:")
-	})
 
-	// A Project with headroom of its own, on the account that has none.
-	c.project(t, "ops", "account: spent\n", 1)
-
-	looked()
-	if got := len(c.running(t)); got != 2 {
-		t.Fatalf("%d runs are in flight, want the two that were: the third has no headroom", got)
+	// The Run on spent says what that account has used, which is past what it
+	// is held to, so Owl ends it and its Job waits (ADR-0020). The Project on
+	// the account with headroom carries on.
+	c.waitRunning(t, 1)
+	if got := columnOf(c.status(t), "runs in progress:", 2); len(got) != 1 || got[0] != "web" {
+		t.Fatalf("the run in flight is in %v, want the project on the account with headroom", got)
 	}
 	over := c.passedOver(t)
 	if len(over) != 1 {
@@ -381,17 +396,24 @@ func TestS11CapsConcurrentRunsEachStreamTheirOwnLog(t *testing.T) {
 
 	c.away(t)
 	c.waitRunning(t, 2)
-	c.finish(t)
 
-	// Each Run's log is its own Agent's output and nobody else's.
+	// Each Run's log is its own Agent's output. The two Agents write the same
+	// lines, so what tells them apart is the count: one log carrying both
+	// would have twice what one Agent wrote.
 	runs := columnOf(c.status(t), "runs in progress:", 0)
 	if len(runs) != 2 {
 		t.Fatalf("there are %d runs to read, want two", len(runs))
 	}
 	for _, run := range runs {
-		out := mustOwl(t, c.l, "runs", "log", run).stdout
-		if strings.TrimSpace(out) == "" {
-			t.Errorf("run %s streamed nothing", run)
+		out := mustOwl(t, c.l, "logs", run).stdout
+		lines := 0
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			if strings.TrimSpace(line) != "" {
+				lines++
+			}
+		}
+		if lines != 2 {
+			t.Errorf("run %s streamed %d lines, want the two its own agent wrote:\n%s", run, lines, out)
 		}
 	}
 }
@@ -454,16 +476,17 @@ func TestS15CapsACapThatIsNotOneIsRefused(t *testing.T) {
 	for _, bad := range []string{"maxParallelRuns: 0\n", "maxParallelRuns: -1\n", "maxParallelRuns: many\n"} {
 		l := newLayout(t)
 		globalConfig(t, l, "apiVersion: codingowl.dev/v1\n"+bad)
-		daemonUp(t, l)
 
-		res := runOwl(t, l, "status")
+		// A daemon whose own configuration cannot be read does not start: it
+		// would otherwise run on numbers nobody wrote.
+		p := startDaemon(t, l)
 
-		if res.code == 0 {
-			t.Errorf("owl status exited 0 with %q configured:\n%s", bad, res.stdout)
+		if code := p.exit(t, 10*time.Second); code == 0 {
+			t.Errorf("the daemon started with %q configured:\n%s", bad, p.out())
 			continue
 		}
-		if !strings.Contains(res.stderr, "maxParallelRuns") {
-			t.Errorf("the refusal for %q does not name the setting:\n%s", bad, res.stderr)
+		if !strings.Contains(p.out(), "maxParallelRuns") {
+			t.Errorf("the daemon does not say what it refused for %q:\n%s", bad, p.out())
 		}
 	}
 }

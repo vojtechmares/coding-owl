@@ -492,6 +492,38 @@ export namespace client {
 	        this.Detail = source["Detail"];
 	    }
 	}
+	export class PassedOverJob {
+	    Job: Job;
+	    Reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PassedOverJob(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Job = this.convertValues(source["Job"], Job);
+	        this.Reason = source["Reason"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Unfinished {
 	    Job: number;
 	    Project: string;
@@ -568,6 +600,7 @@ export namespace client {
 	    Machine: Machine;
 	    Holding: string;
 	    Accounts: AccountCeiling[];
+	    PassedOver: PassedOverJob[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Overview(source);
@@ -584,6 +617,7 @@ export namespace client {
 	        this.Machine = this.convertValues(source["Machine"], Machine);
 	        this.Holding = source["Holding"];
 	        this.Accounts = this.convertValues(source["Accounts"], AccountCeiling);
+	        this.PassedOver = this.convertValues(source["PassedOver"], PassedOverJob);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -604,6 +638,7 @@ export namespace client {
 		    return a;
 		}
 	}
+	
 	
 	export class Project {
 	    Name: string;

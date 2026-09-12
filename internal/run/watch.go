@@ -264,42 +264,64 @@ func (s *Service) thaw(ctx context.Context) {
 	}
 }
 
-// begin starts the Job at the head of the queue, if the daemon is in a position
-// to start anything. It returns what refused: empty when nothing did, and empty
-// for a refusal that clears itself. What it returns is both what `owl status`
-// says and what makes the watcher wait before asking again.
+// begin starts what the caps allow, oldest first, on a machine Owl has to
+// itself. It returns what refused: empty when nothing did, and empty for a
+// refusal that clears itself. What it returns is both what `owl status` says
+// and what makes the watcher wait before asking again.
+//
+// It keeps starting until nothing more will start, because more than one Run
+// may go at once (ADR-0021) and a watcher that started one per look would take
+// a minute to reach a cap of four.
 func (s *Service) begin(ctx context.Context) string {
+	for {
+		why, more := s.beginOne(ctx)
+		if !more {
+			return why
+		}
+	}
+}
+
+// beginOne starts one Job and says whether it is worth asking again.
+func (s *Service) beginOne(ctx context.Context) (string, bool) {
 	job, r, started, err := s.start(ctx, ByMachine)
 	var refusal *RefusedError
 	var inHand *busyError
+	var capped *CappedError
 	switch {
 	case started:
 		s.opts.Logger.Info("run started on an idle machine", "run", r.ID, "job", job.ID)
+	case errors.As(err, &capped):
+		// Every cap that applies is taken. That is not something waiting for a
+		// person: the Jobs it passed over say so themselves, and it clears
+		// itself as Runs finish.
+		s.holdingBack("")
+		return "", false
 	case errors.As(err, &inHand):
 		// The daemon already has work in hand, or is stopping. Nothing is
 		// waiting for a person, so nothing is reported and nothing waits.
 		s.holdingBack("")
-		return ""
+		return "", false
 	case ctx.Err() != nil:
 		// The daemon is stopping. Whatever it was in the middle of - a
 		// Project's setup commands, a rebase - was cut short by that rather
 		// than by anything being wrong.
 		s.holdingBack("")
-		return ""
+		return "", false
 	case errors.As(err, &refusal):
 		// A Job that cannot start is waiting for a person - an Account nobody
 		// named, a tool nobody installed - so it is what `owl status` should
 		// say rather than something to raise.
 		s.opts.Logger.Debug("nothing was started on an idle machine", "reason", err)
 		s.holdingBack(err.Error())
-		return err.Error()
+		return err.Error(), false
 	case err != nil:
 		s.opts.Logger.Error("starting a run on an idle machine", "error", err)
 		s.holdingBack(err.Error())
-		return err.Error()
+		return err.Error(), false
 	}
 	s.holdingBack("")
-	return ""
+	// Something started, so there may be room for another.
+	return "", started
 }
 
 // machineRead records what the machine said, for the reports that say why work

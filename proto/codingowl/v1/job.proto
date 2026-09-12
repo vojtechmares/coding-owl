@@ -199,13 +199,23 @@ message Run {
 message PauseRunRequest {}
 
 message PauseRunResponse {
+  // Run is the first of them, kept for a client that was written
+  // when only one Run could be going at a time.
   Run run = 1;
+  // Runs is every Run this reached, because more than one may be
+  // going (ADR-0021).
+  repeated Run runs = 2;
 }
 
 message ResumeRunRequest {}
 
 message ResumeRunResponse {
+  // Run is the first of them, kept for a client that was written
+  // when only one Run could be going at a time.
   Run run = 1;
+  // Runs is every Run this reached, because more than one may be
+  // going (ADR-0021).
+  repeated Run runs = 2;
 }
 
 message AddJobRequest {
@@ -368,6 +378,13 @@ message RunInProgress {
   Job job = 2;
 }
 
+// PassedOverJob is a Job the scheduler passed over, and the cap or ceiling
+// that stopped it (ADR-0021, ADR-0025).
+message PassedOverJob {
+  Job job = 1;
+  string reason = 2;
+}
+
 message GetOverviewResponse {
   // Running is every Run that has not ended.
   repeated RunInProgress running = 1;
@@ -395,6 +412,9 @@ message GetOverviewResponse {
   // Accounts is what each Account has used against what it is held to
   // (ADR-0020).
   repeated AccountCeiling accounts = 9;
+  // PassedOver is the Jobs the scheduler would not start now, and why
+  // (ADR-0025).
+  repeated PassedOverJob passed_over = 10;
 }
 
 // AccountCeiling is one Account against what it is held to (ADR-0020).

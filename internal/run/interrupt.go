@@ -3,6 +3,8 @@ package run
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -79,22 +81,23 @@ func (s *Service) interrupted(runID int64) (string, bool) {
 	return l.endedWhy, true
 }
 
-// Pause freezes the Run in progress and everything its Agent started, and
-// starts the grace window. The machine is the user's again the moment this
-// returns (ADR-0011).
-func (s *Service) Pause(ctx context.Context, by Freezer) (Run, error) {
-	// How long the Run may stay frozen is read before anything is signalled:
-	// a configuration nobody can read is the caller's mistake, not a reason to
-	// freeze a Run that nothing will then release.
+// Pause freezes every Run in flight and everything their Agents started, and
+// starts each one's grace window. The machine is the user's again the moment
+// this returns (ADR-0011), and it is every Run rather than one, because more
+// than one may be going (ADR-0021).
+func (s *Service) Pause(ctx context.Context, by Freezer) ([]Run, error) {
+	// How long a Run may stay frozen is read before anything is signalled: a
+	// configuration nobody can read is the caller's mistake, not a reason to
+	// freeze Runs that nothing will then release.
 	//
 	// That holds for a person, who is told and can fix it. It cannot hold for
-	// the machine: refusing there would leave the Agent running on a machine
+	// the machine: refusing there would leave the Agents running on a machine
 	// its user has come back to, for as long as the file stays broken. Owl's
 	// own window is used instead, and said out loud.
 	window, err := s.graceWindow()
 	if err != nil {
 		if by != ByMachine {
-			return Run{}, err
+			return nil, err
 		}
 		s.opts.Logger.Warn("freezing on the default grace window: the configuration could not be read",
 			"grace", DefaultGraceWindow, "error", err)
@@ -106,76 +109,115 @@ func (s *Service) Pause(ctx context.Context, by Freezer) (Run, error) {
 	// A daemon that is stopping has already asked its Agents to stop, and
 	// freezing one now would leave it unable to hear that.
 	if s.ctx.Err() != nil {
-		return Run{}, refused("the daemon is stopping; nothing is frozen now")
+		return nil, refused("the daemon is stopping; nothing is frozen now")
 	}
-	runID, l, err := s.onlyLive(ctx, "paused")
+	ids, err := s.allLive(ctx, "paused")
 	if err != nil {
-		return Run{}, err
+		return nil, err
 	}
-	if l.endedWhy != "" {
-		return Run{}, ending(runID, l.endedWhy)
-	}
-	if l.paused {
-		// Nothing to do, but who asked still matters: `owl pause` stops a Run
-		// regardless (ADR-0011), so a user asking for a Run the machine froze
-		// takes it over, and walking away again will not continue it.
-		if by == ByUser {
-			l.by = ByUser
-			// Nothing was done, but something changed, and a person told their
-			// pause failed would not know that it had taken hold.
-			return Run{}, refused(
-				"run %d is already paused, and will stay paused whatever the machine does; owl resume continues it",
-				runID)
+	var (
+		out   []Run
+		taken []string
+	)
+	for _, runID := range ids {
+		l := s.live[runID]
+		if l.endedWhy != "" {
+			taken = append(taken, ending(runID, l.endedWhy).Error())
+			continue
 		}
-		return Run{}, refused("run %d is already paused; owl resume continues it", runID)
+		if l.paused {
+			// Nothing was done to this one, but who asked still matters:
+			// `owl pause` stops a Run regardless (ADR-0011), so a user asking
+			// for a Run the machine froze takes it over, and walking away
+			// again will not continue it. It is not counted as frozen by this
+			// call, so a pause that froze nothing still says so.
+			if by == ByUser {
+				l.by = ByUser
+				taken = append(taken, fmt.Sprintf(
+					"run %d is already paused, and will stay paused whatever the machine does; "+
+						"owl resume continues it", runID))
+				continue
+			}
+			taken = append(taken, fmt.Sprintf("run %d is already paused; owl resume continues it", runID))
+			continue
+		}
+		if err := l.proc.SignalGroup(syscall.SIGSTOP); err != nil {
+			// The Agent exited between the lookup and the signal, which is the
+			// Run ending rather than anything going wrong - but whatever the
+			// system said is worth writing down, in case it was something else.
+			s.opts.Logger.Warn("a run could not be paused", "run", runID, "error", err)
+			taken = append(taken, fmt.Sprintf("run %d ended before it could be paused", runID))
+			continue
+		}
+		l.paused, l.by = true, by
+		l.window = time.AfterFunc(window, func() { s.expire(runID) })
+		s.opts.Logger.Info("run paused", "run", runID, "job", l.jobID, "grace", window, "by", by)
+		r, err := s.runOf(ctx, runID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
 	}
-	if err := l.proc.SignalGroup(syscall.SIGSTOP); err != nil {
-		// The Agent exited between the lookup and the signal, which is the
-		// Run ending rather than anything going wrong - but whatever the
-		// system said is worth writing down, in case it was something else.
-		s.opts.Logger.Warn("a run could not be paused", "run", runID, "error", err)
-		return Run{}, refused("run %d ended before it could be paused", runID)
+	if len(out) == 0 {
+		return nil, refused("%s", strings.Join(taken, "; "))
 	}
-	l.paused, l.by = true, by
-	l.window = time.AfterFunc(window, func() { s.expire(runID) })
-	s.opts.Logger.Info("run paused", "run", runID, "job", l.jobID, "grace", window, "by", by)
-	return s.runOf(ctx, runID)
+	return out, nil
 }
 
-// Resume continues a frozen Run where it was, in the same Run: what an Agent
-// was in the middle of survives, because nothing was ended.
-func (s *Service) Resume(ctx context.Context, by Freezer) (Run, error) {
+// Resume continues every frozen Run where it was, in the same Runs: what an
+// Agent was in the middle of survives, because nothing was ended.
+func (s *Service) Resume(ctx context.Context, by Freezer) ([]Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	runID, l, err := s.onlyLive(ctx, "resumed")
+	ids, err := s.allLive(ctx, "resumed")
 	if err != nil {
-		return Run{}, err
+		return nil, err
 	}
-	if l.endedWhy != "" {
-		return Run{}, ending(runID, l.endedWhy)
-	}
-	if !l.paused {
-		return Run{}, refused("run %d is not paused", runID)
-	}
-	// The machine going idle again continues what the machine froze. A Run the
-	// user paused stays paused until the user says otherwise: a decision
-	// somebody took deliberately is not the machine's to reverse.
-	if by == ByMachine && l.by == ByUser {
-		return Run{}, refused("run %d was paused with owl pause; owl resume continues it", runID)
-	}
-	// A Run the user continues by hand stops being the machine's to freeze on
-	// its own: they have said they want it going, on the machine they are at.
-	if by == ByUser {
-		delete(s.ours, runID)
-	}
-	if err := l.proc.SignalGroup(syscall.SIGCONT); err != nil {
-		s.opts.Logger.Warn("a run could not be resumed", "run", runID, "error", err)
+	var (
+		out   []Run
+		taken []string
+	)
+	for _, runID := range ids {
+		l := s.live[runID]
+		switch {
+		case l.endedWhy != "":
+			taken = append(taken, ending(runID, l.endedWhy).Error())
+			continue
+		case !l.paused:
+			taken = append(taken, fmt.Sprintf("run %d is not paused", runID))
+			continue
+		// The machine going idle again continues what the machine froze. A Run
+		// the user paused stays paused until the user says otherwise: a
+		// decision somebody took deliberately is not the machine's to reverse.
+		case by == ByMachine && l.by == ByUser:
+			taken = append(taken, fmt.Sprintf(
+				"run %d was paused with owl pause; owl resume continues it", runID))
+			continue
+		}
+		// A Run the user continues by hand stops being the machine's to freeze
+		// on its own: they have said they want it going, on the machine they
+		// are at.
+		if by == ByUser {
+			delete(s.ours, runID)
+		}
+		if err := l.proc.SignalGroup(syscall.SIGCONT); err != nil {
+			s.opts.Logger.Warn("a run could not be resumed", "run", runID, "error", err)
+			l.release()
+			taken = append(taken, fmt.Sprintf("run %d ended while it was paused", runID))
+			continue
+		}
 		l.release()
-		return Run{}, refused("run %d ended while it was paused", runID)
+		s.opts.Logger.Info("run resumed", "run", runID, "job", l.jobID, "by", by)
+		r, err := s.runOf(ctx, runID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
 	}
-	l.release()
-	s.opts.Logger.Info("run resumed", "run", runID, "job", l.jobID, "by", by)
-	return s.runOf(ctx, runID)
+	if len(out) == 0 {
+		return nil, refused("%s", strings.Join(taken, "; "))
+	}
+	return out, nil
 }
 
 // ending is the refusal for a Run this daemon is already ending, in the words
@@ -207,6 +249,27 @@ func (s *Service) onlyLive(ctx context.Context, what string) (int64, *live, erro
 	for id, l := range s.live {
 		return id, l, nil
 	}
+	return 0, nil, s.nothingLive(ctx, what)
+}
+
+// allLive is every Run whose Agent this daemon can reach, in a settled order
+// so that what a caller is told reads the same way twice. More than one may be
+// going (ADR-0021). The caller holds the lock.
+func (s *Service) allLive(ctx context.Context, what string) ([]int64, error) {
+	ids := make([]int64, 0, len(s.live))
+	for id := range s.live {
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil, s.nothingLive(ctx, what)
+	}
+	slices.Sort(ids)
+	return ids, nil
+}
+
+// nothingLive is what a caller is told when this daemon can reach no Agent:
+// which is not the same as there being no Run.
+func (s *Service) nothingLive(ctx context.Context, what string) error {
 	// A Run whose Agent has exited is still in progress until its Project's
 	// checks have had their say (ADR-0013), and those are nobody's to freeze:
 	// saying there is no run at all would not be true. The same goes for the
@@ -215,19 +278,19 @@ func (s *Service) onlyLive(ctx context.Context, what string) (int64, *live, erro
 	switch {
 	case err != nil:
 		// Not knowing is not the same as knowing there is nothing.
-		return 0, nil, err
+		return err
 	case !ok:
-		return 0, nil, refused("there is no run in progress")
+		return refused("there is no run in progress")
 	}
 	switch s.stages[r.ID] {
 	case StageVerifying:
-		return 0, nil, refused(
+		return refused(
 			"run %d is being verified rather than carried out by an agent, and cannot be %s", r.ID, what)
 	case StageFinishing:
-		return 0, nil, refused(
+		return refused(
 			"run %d is being finished: its agent has exited, and it cannot be %s", r.ID, what)
 	default:
-		return 0, nil, refused(
+		return refused(
 			"run %d is starting: its agent is not running yet, and it cannot be %s", r.ID, what)
 	}
 }

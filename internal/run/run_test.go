@@ -390,7 +390,10 @@ func TestStartBlocksTheJobWhenTheAgentFails(t *testing.T) {
 	}
 }
 
-func TestStartRefusesWhileARunIsInProgress(t *testing.T) {
+// One Run at a time is the default rather than the rule now: the cap says so,
+// and the cap is what a second start is refused by (ADR-0021, superseding the
+// one-Run clause of ADR-0011).
+func TestStartRefusesWhileTheGlobalCapIsTaken(t *testing.T) {
 	ctx := context.Background()
 	hold := make(chan struct{})
 	svc, st, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{hold: hold, started: make(chan struct{})})
@@ -403,14 +406,18 @@ func TestStartRefusesWhileARunIsInProgress(t *testing.T) {
 	_, _, started, err := svc.Start(ctx)
 
 	if started {
-		t.Error("a second run started while one was in progress")
+		t.Error("a second run started with the cap already taken")
 	}
-	var refused *run.RefusedError
-	if !errors.As(err, &refused) {
-		t.Fatalf("Start = %v, want a RefusedError", err)
+	var capped *run.CappedError
+	if !errors.As(err, &capped) {
+		t.Fatalf("Start = %v, want a CappedError", err)
 	}
-	if !strings.Contains(err.Error(), strconv.FormatInt(first.ID, 10)) {
-		t.Errorf("error %q does not name the job that is running", err)
+	// Which cap, so that "I raised it and nothing changed" is answerable
+	// (ADR-0021).
+	for _, want := range []string{"owl", "1 run"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not carry %q", err, want)
+		}
 	}
 	close(hold)
 	awaitState(t, st, first.ID, queue.StateReview)

@@ -23,11 +23,11 @@ export function Models():Promise<Array<client.ChatModel>>;
 
 export function Overview():Promise<client.Overview>;
 
-export function Pause():Promise<client.Run>;
+export function Pause():Promise<Array<client.Run>>;
 
 export function Projects():Promise<Array<client.Project>>;
 
-export function Resume():Promise<client.Run>;
+export function Resume():Promise<Array<client.Run>>;
 
 export function Send(arg1:number,arg2:string,arg3:string):Promise<number>;
 

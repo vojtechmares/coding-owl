@@ -46,6 +46,10 @@ type Overview struct {
 	// Accounts is what each Account has used against what it is held to
 	// (ADR-0020).
 	Accounts []AccountCeiling
+	// PassedOver is the Jobs the scheduler would not start now, and why: the
+	// cap that is binding, or the ceiling. A queue that skips has to be able
+	// to say why it is in the order it is (ADR-0025).
+	PassedOver []Skip
 }
 
 // DisposalLock is the lock that serialises deciding a Job's fate. Garbage
@@ -172,7 +176,17 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	if err != nil {
 		return Overview{}, err
 	}
-	out := Overview{Machine: machine, Holding: s.Holding(), Accounts: ceilings}
+	// Why the queue is in the order it is, asked now rather than remembered
+	// from whenever something last looked. A file that stopped parsing is what
+	// `owl start` refuses on; this is the command that says why nothing is
+	// running, so it reports what it knows rather than nothing at all.
+	skipped, err := s.PassedOver(ctx)
+	if err != nil {
+		s.opts.Logger.Warn("reporting without what the scheduler would pass over",
+			"error", err)
+		skipped = nil
+	}
+	out := Overview{Machine: machine, Holding: s.Holding(), Accounts: ceilings, PassedOver: skipped}
 	for _, j := range jobs {
 		byID[j.ID] = j
 		state := queue.State(j.State)

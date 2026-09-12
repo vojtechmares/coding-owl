@@ -270,38 +270,40 @@ func aboveCeiling(account string, w WindowUsage) string {
 // percent is a share of a window as a person reads it.
 func percent(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) + "%" }
 
-// underCeiling reports whether a Run may start on that Account. Being over is
-// a refusal rather than a failure: nothing is wrong with the work, and the Job
-// waits exactly where it is until the window starts again (ADR-0020).
-func (s *Service) underCeiling(ctx context.Context, account string) error {
+// underCeiling reports whether a Run may start on that Account. It answers in
+// two parts, because the two are different things to whoever is waiting: over
+// is a wait, and says so, because nothing is wrong with the work and the Job
+// stays exactly where it is until the window starts again (ADR-0020); an error
+// is for a person, and no amount of waiting will change it.
+func (s *Service) underCeiling(ctx context.Context, account string) (string, error) {
 	global, err := s.global()
 	if err != nil {
-		return err
+		return "", err
 	}
 	limits, ok := global.Ceiling(account)
 	if !ok {
-		return nil
+		return "", nil
 	}
 	// A ceiling is kept against what the tool reports. One that reports
 	// nothing cannot be held to it, and Owl says so rather than working on in
 	// the dark (ADR-0020).
 	if !s.opts.Driver.Capabilities().UsageReporting {
-		return refused(
+		return "", refused(
 			"account %s is held to a ceiling, and %s does not report what an account has used; "+
 				"a ceiling cannot be kept without it",
 			account, s.opts.Driver.Name())
 	}
 	if err := s.forgetResetWindows(ctx); err != nil {
-		return err
+		return "", err
 	}
 	readings, err := s.opts.Store.ListAccountUsage(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if w, ok := heldBack(windowsOf(account, readings, limits)); ok {
-		return refused("%s", aboveCeiling(account, w))
+		return aboveCeiling(account, w), nil
 	}
-	return nil
+	return "", nil
 }
 
 // crossedCeiling is the window a Run has just taken an Account past, if it has.
