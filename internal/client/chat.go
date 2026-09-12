@@ -147,7 +147,8 @@ type CommandProposal struct {
 
 // CommandRun is what came of one.
 type CommandRun struct {
-	// ID is the proposal it answers.
+	// ID names the command this is about: the same id the proposal carried,
+	// and an id of its own when nobody had to be asked.
 	ID string
 	// Argv and Directory are what ran, and where.
 	Argv      []string

@@ -78,12 +78,18 @@ func TestToolsAnswerFromWhatOwlKnows(t *testing.T) {
 func TestToolsRefuseWhatOwlDoesNotHave(t *testing.T) {
 	tools := chat.NewTools(&fakeView{})
 
-	got := tools.Call(ctx, call("run_command", map[string]any{"argv": []string{"rm", "-rf", "/"}}))
+	got := tools.Call(ctx, call("delete_everything", map[string]any{"argv": []string{"rm", "-rf", "/"}}))
 
 	if !got.Failed {
 		t.Errorf("a tool Owl does not have answered %+v", got)
 	}
-	for _, want := range []string{"run_command", "not a tool"} {
+	// What Owl does have, so the model can recover: every read, and the
+	// command tool, which is part of the surface whether or not Tools carries
+	// it (ADR-0022).
+	for _, want := range []string{
+		"delete_everything", "not a tool",
+		"list_projects", "list_jobs", "get_job", "read_run_log", "get_job_diff", "run_command",
+	} {
 		if !strings.Contains(got.Text, want) {
 			t.Errorf("the refusal %q does not say %q", got.Text, want)
 		}

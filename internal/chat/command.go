@@ -42,7 +42,7 @@ var Decisions = []Decision{AllowOnce, AllowConversation, Refuse}
 // carries what will run rather than what the model wrote, so what a person
 // agrees to is what happens.
 type Proposal struct {
-	// ID is what an answer names.
+	// ID names this command, and is what an answer names.
 	ID string
 	// Argv is the program and its arguments, exactly as they will be passed.
 	Argv []string
@@ -52,7 +52,9 @@ type Proposal struct {
 
 // CommandRun is what came of one.
 type CommandRun struct {
-	// ID is the proposal it answers.
+	// ID names the command this is about: the same id the Proposal carried,
+	// and an id of its own when nobody had to be asked because the
+	// conversation is already granted.
 	ID string
 	// Argv and Directory are what ran, and where.
 	Argv      []string
@@ -65,7 +67,14 @@ type CommandRun struct {
 	Cut bool
 }
 
-// Command is what the model is told it may ask for.
+// offered is every tool the model is given: the reads of what Owl knows, and
+// the one command tool. One list, so that what a model is offered and what a
+// refusal names it cannot drift apart.
+func offered(t *Tools) []ToolDefinition {
+	return append(t.Definitions(), commandDefinition())
+}
+
+// commandDefinition is what the model is told it may ask for.
 func commandDefinition() ToolDefinition {
 	return ToolDefinition{
 		Name: toolRunCommand,
@@ -124,11 +133,11 @@ func (s *Service) runCommand(ctx context.Context, conversation int64, call ToolC
 	if err := arguments(call, &args); err != nil {
 		return refusedCall(call, err.Error()), nil
 	}
-	argv, err := command.Parse(args.Command)
+	asked, err := command.Parse(args.Command)
 	if err != nil {
 		return refusedCall(call, err.Error()), nil
 	}
-	if err := command.Check(argv); err != nil {
+	if err := command.Check(asked); err != nil {
 		return refusedCall(call, err.Error()), nil
 	}
 	// Where it may run is settled before anybody is asked: a person should not
@@ -137,18 +146,30 @@ func (s *Service) runCommand(ctx context.Context, conversation int64, call ToolC
 	if err != nil {
 		return refusedCall(call, err.Error()), nil
 	}
+	// What Owl puts in itself goes in before anybody is shown anything, so
+	// that what is agreed to is what execve is called with.
+	argv := command.Argv(asked)
 	// And then what only the directory can answer: an operand that is a link
 	// out of it. The rules above cannot see one (ADR-0022).
 	if err := command.CheckIn(dir, argv); err != nil {
 		return refusedCall(call, err.Error()), nil
 	}
 
-	allowed, err := s.consent(ctx, conversation, argv, dir, emit)
+	id, err := commandID()
 	if err != nil {
 		return ToolResult{}, err
 	}
-	if !allowed {
-		return refusedCall(call, fmt.Sprintf("the user refused to run %s", strings.Join(argv, " "))), nil
+	answer, err := s.consent(ctx, conversation, id, argv, dir, emit)
+	if err != nil {
+		return ToolResult{}, err
+	}
+	if answer != allowed {
+		return refusedCall(call, fmt.Sprintf("%s was not run: %s", command.Line(argv), answer)), nil
+	}
+	// The directory was read before the wait, and a wait is time for it to
+	// have changed. What is run is checked against how it is now.
+	if err := command.CheckIn(dir, argv); err != nil {
+		return refusedCall(call, err.Error()), nil
 	}
 
 	got, err := command.Run(ctx, dir, argv)
@@ -156,7 +177,7 @@ func (s *Service) runCommand(ctx context.Context, conversation int64, call ToolC
 		return refusedCall(call, err.Error()), nil
 	}
 	ran := CommandRun{
-		ID: call.ID, Argv: argv, Directory: dir,
+		ID: id, Argv: argv, Directory: dir,
 		Output: got.Output, ExitCode: got.ExitCode, Cut: got.Cut,
 	}
 	// The person who allowed it sees what it did, whatever the model goes on
@@ -172,7 +193,7 @@ func (s *Service) runCommand(ctx context.Context, conversation int64, call ToolC
 // and prints nothing is still an answer.
 func said(ran CommandRun) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\nexit %d\n", strings.Join(ran.Argv, " "), ran.ExitCode)
+	fmt.Fprintf(&b, "%s\nexit %d\n", command.Line(ran.Argv), ran.ExitCode)
 	if ran.Cut {
 		b.WriteString("(this is the beginning of what it printed; there was more)\n")
 	}
@@ -184,22 +205,24 @@ func said(ran CommandRun) string {
 	return b.String()
 }
 
+// allowed is what consent answers when the command may run. The other answers
+// are sentences about why it may not, because that is what the model is told:
+// "nobody answered" and "the user refused" are different things, and a model
+// that is given the wrong one tells the user something untrue.
+const allowed = ""
+
 // consent asks the user about a command, unless they have already said to stop
-// asking in this conversation. It reports whether the command may run.
-func (s *Service) consent(ctx context.Context, conversation int64, argv []string, dir string,
+// asking in this conversation. It answers with allowed, or with why not.
+func (s *Service) consent(ctx context.Context, conversation int64, id string, argv []string, dir string,
 	emit func(Delta) error,
-) (bool, error) {
+) (string, error) {
 	s.askingMu.Lock()
 	granted := s.granted[conversation]
 	s.askingMu.Unlock()
 	if granted {
-		return true, nil
+		return allowed, nil
 	}
 
-	id, err := askID()
-	if err != nil {
-		return false, err
-	}
 	answered := make(chan Decision, 1)
 	s.askingMu.Lock()
 	s.asking[id] = answered
@@ -213,10 +236,10 @@ func (s *Service) consent(ctx context.Context, conversation int64, argv []string
 	if err := emit(Delta{Conversation: conversation, Proposal: &Proposal{
 		ID: id, Argv: argv, Directory: dir,
 	}}); err != nil {
-		return false, err
+		return "", err
 	}
 
-	waited := time.NewTimer(consentWindow)
+	waited := time.NewTimer(s.window)
 	defer waited.Stop()
 	select {
 	case d := <-answered:
@@ -225,13 +248,17 @@ func (s *Service) consent(ctx context.Context, conversation int64, argv []string
 			s.granted[conversation] = true
 			s.askingMu.Unlock()
 		}
-		return d != Refuse, nil
+		if d == Refuse {
+			return "the user refused it", nil
+		}
+		return allowed, nil
 	case <-waited.C:
 		// Nobody answered. Nothing runs: consent that was never given is not
-		// consent (ADR-0022).
-		return false, nil
+		// consent (ADR-0022). And nobody refused either, which the model has to
+		// be told, or it will tell the user they did.
+		return fmt.Sprintf("nobody answered whether to run it within %s, so it was not run", s.window), nil
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return "", ctx.Err()
 	}
 }
 
@@ -240,9 +267,10 @@ func refusedCall(call ToolCall, why string) ToolResult {
 	return ToolResult{CallID: call.ID, Text: cut(why, maxResult), Failed: true}
 }
 
-// askID names one proposal, so that an answer reaches the command it is about
-// and no other.
-func askID() (string, error) {
+// commandID names one command, so that an answer reaches the command it is
+// about and no other, and so that what ran can be matched to what was asked
+// about.
+func commandID() (string, error) {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", fmt.Errorf("naming a command to ask about: %w", err)

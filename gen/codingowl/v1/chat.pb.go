@@ -1098,7 +1098,9 @@ func (x *CommandProposal) GetDirectory() string {
 // CommandRun is what came of one.
 type CommandRun struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Id is the proposal it answers.
+	// Id names the command this is about: the same id the proposal carried, and
+	// an id of its own when nobody had to be asked because the conversation is
+	// already granted.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Argv and Directory are what ran, and where.
 	Argv      []string `protobuf:"bytes,2,rep,name=argv,proto3" json:"argv,omitempty"`

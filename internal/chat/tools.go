@@ -150,9 +150,11 @@ func (t *Tools) answer(ctx context.Context, call ToolCall) (string, error) {
 	}
 }
 
-// names is what the tools are called, for the message a refusal carries.
+// names is what the tools are called, for the message a refusal carries. The
+// command tool is in it: a model that mistyped a name is being told what Owl
+// offers, and a list that leaves one out is a list it cannot recover from.
 func (t *Tools) names() []string {
-	defs := t.Definitions()
+	defs := offered(t)
 	out := make([]string, 0, len(defs))
 	for _, d := range defs {
 		out = append(out, d.Name)

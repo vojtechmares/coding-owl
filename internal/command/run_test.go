@@ -2,10 +2,12 @@ package command_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/vojtechmares/coding-owl/internal/command"
 )
@@ -65,8 +67,14 @@ func TestRunBoundsWhatItKeeps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(got.Output) > command.MaxOutput+1024 {
+	// Against a number rather than against the constant: a bound compared with
+	// itself is not a bound, and one raised to a gigabyte would still pass.
+	if len(got.Output) > 128<<10 {
 		t.Errorf("output is %d bytes, want no more than owl keeps", len(got.Output))
+	}
+	if command.MaxOutput > 128<<10 {
+		t.Errorf("MaxOutput is %d bytes, which is more than owl should hold in memory per command",
+			command.MaxOutput)
 	}
 	if len(got.Output) == 0 {
 		t.Error("output is empty, want the beginning of what the command printed")
@@ -142,4 +150,46 @@ func write(t *testing.T, dir, name, body string) string {
 		t.Fatalf("writing %s: %v", at, err)
 	}
 	return at
+}
+
+// A repository holds files that are not text. What they print crosses a wire
+// that carries strings and is shown to a person, so what is not a character is
+// replaced rather than carried.
+func TestRunKeepsWhatItPrintsReadableAsText(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "logo.png"),
+		[]byte{0xff, 0xfe, 0x00, 'o', 'w', 'l', 0x80}, 0o600); err != nil {
+		t.Fatalf("writing: %v", err)
+	}
+
+	got, err := command.Run(context.Background(), dir, []string{"cat", "logo.png"})
+
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !utf8.ValidString(got.Output) {
+		t.Errorf("output = %q, want something a string can carry", got.Output)
+	}
+	if !strings.Contains(got.Output, "owl") {
+		t.Errorf("output = %q, want what was readable kept", got.Output)
+	}
+}
+
+// A caller that went away and a command that took too long read differently to
+// whoever asked, so they are said differently.
+func TestRunSaysWhetherItWasStoppedOrTookTooLong(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := command.Run(ctx, t.TempDir(), []string{"wc", "-l"})
+
+	if err == nil {
+		t.Fatal("Run with a cancelled caller = nil, want it stopped")
+	}
+	if strings.Contains(err.Error(), "did not finish within") {
+		t.Errorf("the error %q says the command took too long, want it to say the caller went away", err)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("the error %q does not carry why it stopped", err)
+	}
 }

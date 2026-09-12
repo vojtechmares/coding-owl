@@ -286,7 +286,7 @@ func (s *Service) converse(ctx context.Context, client Client, provider store.Ch
 			Model:    model,
 			System:   systemPrompt,
 			Messages: history,
-			Tools:    append(s.tools.Definitions(), commandDefinition()),
+			Tools:    offered(s.tools),
 		}, func(piece string) error {
 			if answer.Len() >= maxAnswer {
 				// The model has said more than Owl will keep. What it says

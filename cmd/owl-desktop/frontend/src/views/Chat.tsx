@@ -22,6 +22,12 @@ import {
 } from "../lib/api";
 import { Banner, Button, Empty, Panel } from "../components/ui";
 
+// line is argv as a person reads it. An argument with a space in it is quoted,
+// because two words and one word with a space in it are different commands and
+// somebody agreeing to one should not be shown the other.
+const line = (argv: string[]): string =>
+  argv.map((arg) => (arg === "" || /\s/.test(arg) ? JSON.stringify(arg) : arg)).join(" ");
+
 // What a person may answer about a command the chat wants to run. Nothing runs
 // until one of these is chosen, and refusing runs nothing at all (ADR-0022).
 const DECISIONS: { decision: CommandDecision; label: string }[] = [
@@ -50,6 +56,13 @@ export function Chat() {
 
   const offered = models.data ?? [];
   const chosen = offered.find((m) => `${m.Provider}/${m.ID}` === chosenKey) ?? offered[0];
+
+  // What a command printed belongs to the conversation it ran in. The daemon
+  // keeps what was said rather than what ran, so this is the only record of it
+  // while the app is open, and it stays until another conversation is.
+  useEffect(() => {
+    setRan([]);
+  }, [open]);
 
   // What was said in the conversation being read, which the daemon keeps.
   useEffect(() => {
@@ -116,7 +129,6 @@ export function Chat() {
     if (!asked || !chosen) return;
     setText("");
     setNote(undefined);
-    setRan([]);
     setWaiting(true);
     setSaid((current) => [...current, { Role: "user", Text: asked, Created: new Date().toISOString() } as ChatMessage]);
     try {
@@ -191,7 +203,7 @@ export function Chat() {
               {ran.map((done) => (
                 <div key={done.requestId} className="message command">
                   <div className="dim">
-                    {done.argv.join(" ")} in {done.directory} - exit {done.exitCode}
+                    {line(done.argv)} in {done.directory} - exit {done.exitCode}
                   </div>
                   <pre className="code">
                     {done.output || "(it printed nothing)"}
@@ -202,7 +214,7 @@ export function Chat() {
               {asking.map((c) => (
                 <div key={c.requestId} className="message command asking">
                   <div>
-                    The chat would like to run <code>{c.argv.join(" ")}</code> in <code>{c.directory}</code>.
+                    The chat would like to run <code>{line(c.argv)}</code> in <code>{c.directory}</code>.
                   </div>
                   <div className="actions">
                     {DECISIONS.map(({ decision, label }) => (

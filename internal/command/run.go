@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,10 @@ const MaxOutput = 64 << 10
 // Timeout is how long one command may take. A chat is somebody waiting, and a
 // command that has not answered by now is not going to.
 const Timeout = 30 * time.Second
+
+// waitDelay is how long after the deadline Owl waits for whatever the command
+// started to let go of the output it was writing to.
+const waitDelay = 2 * time.Second
 
 // Result is what running one command came to: what it printed, and how it
 // ended. A command that exits badly is an answer rather than a failure - the
@@ -79,6 +84,10 @@ func Run(ctx context.Context, dir string, argv []string) (Result, error) {
 	cmd := exec.CommandContext(ctx, path, argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = environment()
+	// The deadline kills the program Owl started; anything that program
+	// started holds the pipe Owl is reading, and without this Run would wait
+	// for it past the deadline it is meant to enforce.
+	cmd.WaitDelay = waitDelay
 	// Nothing types at it. A program that reads its input would otherwise wait
 	// for what the daemon's own standard input happens to be.
 	cmd.Stdin = nil
@@ -86,7 +95,10 @@ func Run(ctx context.Context, dir string, argv []string) (Result, error) {
 	cmd.Stdout, cmd.Stderr = out, out
 
 	err = cmd.Run()
-	got := Result{Output: out.String(), Cut: out.cut}
+	// What a program prints is bytes, and a repository holds files that are
+	// not text. The output crosses a wire that carries strings and is shown to
+	// a person, so what is not a character is replaced rather than carried.
+	got := Result{Output: strings.ToValidUTF8(out.String(), "\ufffd"), Cut: out.cut}
 	var exit *exec.ExitError
 	switch {
 	case err == nil:
@@ -95,8 +107,12 @@ func Run(ctx context.Context, dir string, argv []string) (Result, error) {
 		// The command ran and said no. That is what the chat asked for.
 		got.ExitCode = exit.ExitCode()
 		return got, nil
-	case ctx.Err() != nil:
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return got, fmt.Errorf("%s did not finish within %s", argv[0], Timeout)
+	case ctx.Err() != nil:
+		// The caller went away, which is a window that closed rather than a
+		// command that took too long.
+		return got, fmt.Errorf("%s was stopped: %w", argv[0], ctx.Err())
 	default:
 		return got, fmt.Errorf("running %s: %w", argv[0], err)
 	}

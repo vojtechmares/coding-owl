@@ -26,10 +26,12 @@ func denied(format string, a ...any) error {
 	return &DeniedError{Err: fmt.Errorf(format, a...)}
 }
 
-// metacharacters are what a shell would have read as something other than
+// Metacharacters are what a shell would have read as something other than
 // text. Nothing here interprets them, so an argument carrying one is an
-// argument that was written for a shell - and this is not one.
-const metacharacters = ";&|<>`$(){}[]*?!#\\'\"" + "\n\r\t"
+// argument that was written for a shell - and this is not one. It is exported
+// so that a test can hold the whole set rather than the few of it somebody
+// thought of.
+const Metacharacters = ";&|<>`$(){}[]*?!#\\'\"" + "\n\r\t"
 
 // rule is what one program may be asked to do.
 type rule struct {
@@ -43,6 +45,12 @@ type rule struct {
 	prefixes []string
 	// letters are the short options it permits, which may be written together.
 	letters string
+	// withoutOperands are the subcommands that take options and nothing else,
+	// because what they would do with an operand is not reading.
+	withoutOperands []string
+	// always are the arguments Owl puts in itself, before anything the model
+	// asked for. They are not the model's to leave out.
+	always []string
 }
 
 // allowed is every program the chat may run, and what each may be asked to do.
@@ -51,6 +59,10 @@ type rule struct {
 var allowed = map[string]rule{
 	"git": {
 		subcommands: []string{"status", "log", "diff", "show", "branch"},
+		// git branch with a name after it creates a branch, which is not
+		// looking at the repository. The reading form takes no operand, so
+		// that is the only form Owl runs (ADR-0022).
+		withoutOperands: []string{"branch"},
 		options: []string{
 			"--", "--short", "--branch", "--porcelain", "--oneline", "--stat",
 			"--numstat", "--shortstat", "--name-only", "--name-status", "--graph",
@@ -90,6 +102,10 @@ var allowed = map[string]rule{
 		letters: "lwcm",
 	},
 	"grep": {
+		// Owl's own: a repository's .git holds the credential its remote is
+		// reached with, and a recursive grep would hand that to the model. It
+		// is not the model's to leave out (ADR-0019).
+		always: []string{"--exclude-dir=.git"},
 		options: []string{
 			"--", "--line-number", "--recursive", "--ignore-case", "--count",
 			"--files-with-matches", "--files-without-match", "--word-regexp",
@@ -100,7 +116,10 @@ var allowed = map[string]rule{
 			"--include=", "--exclude=", "--exclude-dir=", "--context=",
 			"--after-context=", "--before-context=", "--max-count=", "--regexp=",
 		},
-		letters: "nirRlLcwxvFEHs",
+		// No R: GNU grep reads -R as --dereference-recursive, which follows
+		// every link it meets while recursing, and a link met that way is one
+		// CheckIn never saw. -r recurses without following.
+		letters: "nirlLcwxvFEHs",
 	},
 }
 
@@ -171,22 +190,47 @@ func Check(argv []string) error {
 			shown(program), strings.Join(Programs(), ", "))
 	}
 	rest := argv[1:]
+	var subcommand string
 	if len(r.subcommands) > 0 {
 		if len(rest) == 0 {
 			return denied("%s needs one of %s after it", program, strings.Join(r.subcommands, ", "))
 		}
-		if !slices.Contains(r.subcommands, rest[0]) {
+		subcommand = rest[0]
+		if !slices.Contains(r.subcommands, subcommand) {
 			return denied("%s %s is not something Owl runs; it runs %s %s",
-				program, shown(rest[0]), program, strings.Join(r.subcommands, ", "))
+				program, shown(subcommand), program, strings.Join(r.subcommands, ", "))
 		}
 		rest = rest[1:]
 	}
+	bare := subcommand != "" && slices.Contains(r.withoutOperands, subcommand)
 	for _, arg := range rest {
 		if err := checkArgument(program, r, arg); err != nil {
 			return err
 		}
+		if bare && !strings.HasPrefix(arg, "-") {
+			return denied("%s %s takes no argument of its own, and %s is one: with a name after it, "+
+				"it would change the repository rather than look at it",
+				program, subcommand, shown(arg))
+		}
 	}
 	return nil
+}
+
+// Argv is what Owl will actually run: what was asked for, with whatever that
+// program is always given put in front of it. It is what a person is shown and
+// what execve is called with, which are the same thing on purpose.
+func Argv(argv []string) []string {
+	if len(argv) == 0 {
+		return nil
+	}
+	r, ok := allowed[argv[0]]
+	if !ok || len(r.always) == 0 {
+		return argv
+	}
+	out := make([]string, 0, len(argv)+len(r.always))
+	out = append(out, argv[0])
+	out = append(out, r.always...)
+	return append(out, argv[1:]...)
 }
 
 // checkArgument is one argument against the rules of the program it was given
@@ -197,7 +241,7 @@ func checkArgument(program string, r rule, arg string) error {
 	}
 	// A shell would have read this as something other than text. Nothing here
 	// does, so it is an argument - and not one any of these programs take.
-	if at := strings.IndexAny(arg, metacharacters); at >= 0 {
+	if at := strings.IndexAny(arg, Metacharacters); at >= 0 {
 		return denied("the argument %s carries %q, which no shell is here to read: "+
 			"Owl runs the command itself, so it would be part of the argument",
 			shown(arg), string(arg[at]))
@@ -240,8 +284,29 @@ func checkOperand(arg string) error {
 		if part == ".." {
 			return denied("the argument %s goes up out of the working directory", shown(arg))
 		}
+		// A repository's own .git holds the credential its remote is reached
+		// with, which is not something to read into a conversation (ADR-0019).
+		if part == ".git" {
+			return denied("the argument %s is inside .git, which holds what the repository is reached with "+
+				"rather than what is in it", shown(arg))
+		}
 	}
 	return nil
+}
+
+// Line is argv as a person reads it. An argument with a space in it is quoted,
+// because two words and one word with a space in it are different commands and
+// somebody agreeing to one should not be shown the other.
+func Line(argv []string) string {
+	out := make([]string, 0, len(argv))
+	for _, arg := range argv {
+		if arg == "" || strings.ContainsAny(arg, " \t") {
+			out = append(out, shown(arg))
+			continue
+		}
+		out = append(out, arg)
+	}
+	return strings.Join(out, " ")
 }
 
 // shown is an argument as a refusal quotes it, so that a refusal about an

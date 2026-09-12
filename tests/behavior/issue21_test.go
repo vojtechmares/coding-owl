@@ -205,6 +205,9 @@ func TestS2CommandsAProgramThatIsNotAllowedIsDenied(t *testing.T) {
 func TestS3CommandsTheGitSubcommandsThatWriteAreDenied(t *testing.T) {
 	for _, command := range []string{
 		"git checkout main", "git reset --hard", "git clean -fd", "git push",
+		// Not the subcommand but what follows it: `git branch` reads, and
+		// `git branch owl-new` makes a branch.
+		"git branch owl-new",
 	} {
 		t.Run(command, func(t *testing.T) {
 			l, r, p := commandLayout(t, "", anthropicText("I cannot run that."))
@@ -225,9 +228,13 @@ func TestS3CommandsTheGitSubcommandsThatWriteAreDenied(t *testing.T) {
 			if told := p.told(t, 1); !strings.Contains(told, sub) {
 				t.Errorf("the model was not told that git %s is refused:\n%s", sub, told)
 			}
-			// And the repository is where it was.
+			// And the repository is where it was: the same commit, and no
+			// branch that was not there.
 			if after := gitIn(t, r, r.dir, "rev-parse", "HEAD"); after != before {
 				t.Errorf("HEAD moved from %s to %s", before, after)
+			}
+			if branches := gitIn(t, r, r.dir, "branch", "--list"); strings.Contains(branches, "owl-new") {
+				t.Errorf("a branch was created:\n%s", branches)
 			}
 			if _, err := os.Stat(filepath.Join(r.dir, "owl.txt")); err != nil {
 				t.Errorf("the untracked file is gone: %v", err)
@@ -478,6 +485,10 @@ func TestS12CommandsACommandThatFailsCarriesItsStatusAndOutput(t *testing.T) {
 func TestS13CommandsTheDaemonRunsItWithNoAgentAndNoJob(t *testing.T) {
 	l, r, p := commandLayout(t, "", anthropicText("Thirteen bytes."))
 	p.replies[0] = asksToRun("call-1", "wc -c owl.txt", r.dir)
+	// A Job in the queue, so that "nothing was queued to do it" is something
+	// the scenario can tell apart from an empty queue it started with, and so
+	// that a Run being created would show.
+	addJob(t, l, r.dir, "work", "--no-plan")
 	app, ev := desktopApp(t, l)
 
 	_, got := commanding(t, app, ev, 0, anthropicModel(t, app), "how big is owl.txt",
@@ -491,11 +502,18 @@ func TestS13CommandsTheDaemonRunsItWithNoAgentAndNoJob(t *testing.T) {
 	if !strings.Contains(got.ran[0].Output, "13") {
 		t.Errorf("what it printed is %q, want the size of the file", got.ran[0].Output)
 	}
-	// And nothing was queued to do it: a command is not a Job, and no Agent
-	// was asked to run anything (ADR-0022).
+	// And nothing was queued to do it, and nothing ran: a command is not a Job,
+	// and no Agent was asked for anything (ADR-0022).
+	out := mustOwl(t, l, "jobs", "show", "1").stdout
+	if state := line(t, out, "state"); state != "pending" {
+		t.Errorf("the job is %q, want it still pending: the command was not carried out by an agent", state)
+	}
+	if runs := runRows(t, out); len(runs) != 0 {
+		t.Errorf("running a command created %d runs: %+v", len(runs), runs)
+	}
 	queued := mustOwl(t, l, "queue", "list").stdout
-	if !strings.Contains(queued, "queue is empty") {
-		t.Errorf("running a command left jobs behind:\n%s", queued)
+	if strings.Count(strings.TrimSpace(queued), "\n") > 1 {
+		t.Errorf("running a command left more in the queue than the one job:\n%s", queued)
 	}
 }
 
@@ -530,7 +548,7 @@ func TestS15CommandsTheAppAsksForConsentAndShowsWhatRan(t *testing.T) {
 	source := readFile(t, filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src", "views", "Chat.tsx"))
 
 	// What will run is named before the user answers.
-	for _, want := range []string{"c.argv.join", "c.directory"} {
+	for _, want := range []string{"line(c.argv)", "c.directory"} {
 		if !strings.Contains(source, want) {
 			t.Errorf("the chat does not show %s before the command runs", want)
 		}
@@ -578,5 +596,37 @@ func TestS16CommandsAnArgumentThatLinksOutOfTheProjectIsDenied(t *testing.T) {
 	}
 	if strings.Contains(told, "hunter2") {
 		t.Errorf("what is outside the project reached the model:\n%s", told)
+	}
+}
+
+func TestS17CommandsWhatIsInsideDotGitIsRefused(t *testing.T) {
+	// The pattern is not the secret: a grep echoes what it was asked
+	// for, and a scenario that looked for the pattern would find its own
+	// question.
+	for _, command := range []string{"cat .git/config", "grep -rn example.invalid ."} {
+		t.Run(command, func(t *testing.T) {
+			l, r, p := commandLayout(t, "", anthropicText("I cannot read that."))
+			// What a repository's .git really holds: the credential its remote
+			// is reached with (ADR-0019).
+			write(t, filepath.Join(r.dir, ".git"), "config",
+				"[remote \"origin\"]\n\turl = https://owl:hunter2@example.invalid/api.git\n")
+			p.replies[0] = asksToRun("call-1", command, r.dir)
+			app, ev := desktopApp(t, l)
+
+			_, got := commanding(t, app, ev, 0, anthropicModel(t, app), "what is the remote",
+				allowing(desktop.AllowOnce))
+
+			if len(got.proposed) != 0 && command == "cat .git/config" {
+				t.Errorf("consent was asked for %q: %+v", command, got.proposed)
+			}
+			for _, ran := range got.ran {
+				if strings.Contains(ran.Output, "hunter2") {
+					t.Errorf("%q read what .git holds: %q", command, ran.Output)
+				}
+			}
+			if told := p.told(t, 1); strings.Contains(told, "hunter2") {
+				t.Errorf("what .git holds reached the model:\n%s", told)
+			}
+		})
 	}
 }
