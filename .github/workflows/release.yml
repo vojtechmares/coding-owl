@@ -173,7 +173,11 @@ jobs:
           # Against the bytes that are about to be published rather than
           # against what the job that built them said: the two travelled
           # separately, and a checksum nobody checked is a checksum of nothing.
-          shasum -a 256 -c "$ZIP.sha256"
+          if command -v shasum >/dev/null; then
+            shasum -a 256 -c "$ZIP.sha256"
+          else
+            sha256sum -c "$ZIP.sha256"
+          fi
           cat "$ZIP.sha256" >> checksums.txt
           # The per-asset file is how the build hands the digest over; the
           # release carries one checksums.txt and not two spellings of it.
