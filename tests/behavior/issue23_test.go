@@ -39,7 +39,13 @@ func capsLayout(t *testing.T, global string) *caps {
 	l, _ := agentLayout(t, script, 0)
 	release := filepath.Join(l.root, "release")
 	l = l.withEnv("OWL_FAKE_CLAUDE_WAIT=" + release)
-	l, m := watching(t, l, fastIdle+global)
+	// Owl looks at the machine often unless a scenario says otherwise, so that
+	// most of them do not wait on the clock.
+	config := "apiVersion: codingowl.dev/v1\n" + global
+	if !strings.Contains(global, "idle:") {
+		config += "idle:\n  interval: 100ms\n"
+	}
+	l, m := watching(t, l, config)
 	daemonUp(t, l)
 	return &caps{l: l, m: m, release: release}
 }
@@ -181,7 +187,10 @@ func TestS1CapsOneProjectRunsOneRunHoweverHighTheGlobalCapIs(t *testing.T) {
 }
 
 func TestS2CapsFourProjectsRunFourRuns(t *testing.T) {
-	c := capsLayout(t, "maxParallelRuns: 4\n")
+	// A slow look on purpose: the watcher starts what the caps allow each time
+	// it looks (ADR-0021), and one that started a single Run per look would
+	// need four looks and would not be finished in time.
+	c := capsLayout(t, "maxParallelRuns: 4\nidle:\n  interval: 3s\n")
 	for _, name := range []string{"api", "web", "cli", "docs"} {
 		c.project(t, name, "", 1)
 	}
@@ -267,10 +276,13 @@ func TestS6CapsAJobThatIsPassedOverKeepsItsPosition(t *testing.T) {
 	c := capsLayout(t, "maxParallelRuns: 4\n")
 	c.project(t, "api", "", 2)
 	c.project(t, "web", "", 1)
+	// Queued behind the one that will be passed over, so that "still ahead of
+	// what came after it" is something the scenario can see.
+	c.project(t, "cli", "", 1)
 	before := queuePositions(t, c.l)
 
 	c.away(t)
-	c.waitRunning(t, 2)
+	c.waitRunning(t, 3)
 
 	// The Job that could not start is still pending, and still where it was:
 	// being passed over is not being moved (ADR-0025).
@@ -285,6 +297,16 @@ func TestS6CapsAJobThatIsPassedOverKeepsItsPosition(t *testing.T) {
 		}
 		if after[job] != before[job] {
 			t.Errorf("the passed-over job moved from position %s to %s", before[job], after[job])
+		}
+		// And it is still ahead of what was queued after it, which started
+		// while it waited.
+		for other, was := range before {
+			if other == job || was <= before[job] {
+				continue
+			}
+			if after[other] != "" && after[other] < after[job] {
+				t.Errorf("job %s was queued after the passed-over job and is now ahead of it", other)
+			}
 		}
 	}
 }
@@ -440,6 +462,9 @@ func TestS12CapsPauseFreezesEveryRunInFlight(t *testing.T) {
 	if out := c.status(t); strings.Contains(out, "paused") {
 		t.Errorf("a run is still paused after owl resume:\n%s", out)
 	}
+	// And they carry on to the end rather than merely being unfrozen.
+	c.finish(t)
+	waitFor(t, "both runs to finish", func() bool { return len(c.running(t)) == 0 })
 }
 
 func TestS13CapsComingBackToTheMachineFreezesEveryRunInFlight(t *testing.T) {
@@ -472,7 +497,9 @@ func TestS14CapsStartRefusesWhenEverythingIsAtItsCapAndSaysWhich(t *testing.T) {
 	if res.code == 0 {
 		t.Fatalf("owl start exited 0 with everything at its cap:\n%s", res.stdout)
 	}
-	if !strings.Contains(res.stderr, "owl") || !strings.Contains(res.stderr, "1") {
+	// The whole sentence: "owl" alone is free, because the CLI prefixes every
+	// error with it.
+	if !strings.Contains(res.stderr, "owl is at its cap of 1 run") {
 		t.Errorf("owl start says %q, want it to name the cap that is binding", res.stderr)
 	}
 }
@@ -490,8 +517,53 @@ func TestS15CapsACapThatIsNotOneIsRefused(t *testing.T) {
 			t.Errorf("the daemon started with %q configured:\n%s", bad, p.out())
 			continue
 		}
-		if !strings.Contains(p.out(), "maxParallelRuns") {
-			t.Errorf("the daemon does not say what it refused for %q:\n%s", bad, p.out())
+		// The setting and the value, so that a person can find the line.
+		for _, want := range []string{"maxParallelRuns", strings.TrimSpace(strings.SplitN(bad, ":", 2)[1])} {
+			if !strings.Contains(p.out(), want) {
+				t.Errorf("the daemon does not say %q when it refuses %q:\n%s", want, bad, p.out())
+			}
+		}
+	}
+}
+
+func TestS17CapsAProjectsCapThatIsNotOneRefusesTheProject(t *testing.T) {
+	l := newLayout(t)
+	globalConfig(t, l, "apiVersion: codingowl.dev/v1\n")
+	daemonUp(t, l)
+	r := newRepo(t, l, "api")
+	r.commit(".coding-owl.yaml", "apiVersion: codingowl.dev/v1\nmaxParallelRuns: 0\n", "configure owl")
+	addProject(t, l, r)
+
+	res := runOwl(t, l, "project", "show", "api")
+
+	if res.code == 0 {
+		t.Fatalf("owl project show exited 0 for a project whose cap is not one:\n%s", res.stdout)
+	}
+	for _, want := range []string{".coding-owl.yaml", "maxParallelRuns", "0"} {
+		if !strings.Contains(res.stderr, want) {
+			t.Errorf("the refusal does not carry %q:\n%s", want, res.stderr)
+		}
+	}
+	// And the daemon is fine: one Project's file is not everybody's.
+	mustOwl(t, l, "status")
+}
+
+func TestS18CapsNothingRunsInParallelUntilSomebodyAsks(t *testing.T) {
+	// A file that says nothing about it at all.
+	c := capsLayout(t, "")
+	c.project(t, "api", "", 1)
+	c.project(t, "web", "", 1)
+
+	c.away(t)
+
+	c.waitRunning(t, 1)
+	over := c.passedOver(t)
+	if len(over) != 1 {
+		t.Fatalf("owl status passed over %d jobs, want the second: %v", len(over), over)
+	}
+	for job, why := range over {
+		if why != "owl is at its cap of 1 run" {
+			t.Errorf("job %s was passed over for %q, want owl's own cap of one", job, why)
 		}
 	}
 }
@@ -500,14 +572,22 @@ func TestS16CapsTheAppShowsWhatIsRunningAndWhyTheRestIsNot(t *testing.T) {
 	src := filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src")
 	body := readFile(t, filepath.Join(src, "views", "Overview.tsx"))
 
-	for _, want := range []string{"PassedOver", "Reason"} {
+	// The Runs in flight, and each passed-over Job with the reason itself
+	// rather than a column heading that happens to spell it.
+	for _, want := range []string{
+		`title="Running"`,
+		`title="Passed over"`,
+		"{p.Job.ID}",
+		"{p.Job.Project}",
+		"{p.Reason}",
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the overview view does not render %s", want)
 		}
 	}
 	// And the app is told about them at all.
 	api := readFile(t, filepath.Join(src, "lib", "api.ts"))
-	if !strings.Contains(api, "PassedOver") {
-		t.Errorf("the app is never told what was passed over:\n%s", api)
+	if !strings.Contains(api, "o.PassedOver = list(o.PassedOver)") {
+		t.Errorf("the app does not read what was passed over:\n%s", api)
 	}
 }
