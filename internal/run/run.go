@@ -409,7 +409,9 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 		// what stopped it, and the first one is the binding one: a person who
 		// asked deserves to be told which rather than that nothing happened.
 		if len(skipped) > 0 {
-			return queue.Job{}, Run{}, false, &CappedError{Err: errors.New(skipped[0].Reason)}
+			return queue.Job{}, Run{}, false, &CappedError{
+				Err: errors.New(skipped[0].Reason), Clears: clearing(skipped),
+			}
 		}
 		return queue.Job{}, Run{}, false, nil
 	}
@@ -448,6 +450,8 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 	if waiting, err := s.underCeiling(ctx, acct.Name); err != nil {
 		return queue.Job{}, Run{}, false, err
 	} else if waiting != "" {
+		// A window that resets in hours is not something to look again for
+		// every few seconds (ADR-0020).
 		return queue.Job{}, Run{}, false, &CappedError{Err: errors.New(waiting)}
 	}
 
@@ -1012,11 +1016,6 @@ func (s *Service) placeSkills(ctx context.Context, j store.Job, details project.
 	return placed, rows, nil
 }
 
-// accountFor is the Account a Job runs on, with the credential to run it. A
-// Job that has already run keeps the Account it ran on; one that has not takes
-// the Account its Project's configuration names (ADR-0023). Neither being
-// there is a refusal rather than a failure: nothing is wrong with the work,
-// and the Job waits exactly where it was.
 // noAccount is what a Project that names none is told, which is the same
 // sentence whether a start refuses on it or the scan passes the Job over for
 // it (ADR-0023).
@@ -1027,6 +1026,11 @@ func noAccount(details project.Details) string {
 		details.Name, details.BaseBranch)
 }
 
+// accountFor is the Account a Job runs on, with the credential to run it. A
+// Job that has already run keeps the Account it ran on; one that has not takes
+// the Account its Project's configuration names (ADR-0023). Neither being
+// there is a refusal rather than a failure: nothing is wrong with the work,
+// and the Job waits exactly where it was.
 func (s *Service) accountFor(ctx context.Context, j store.Job, details project.Details) (account.Account, string, error) {
 	name := j.Account
 	if name == "" {

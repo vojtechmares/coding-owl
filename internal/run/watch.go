@@ -295,12 +295,20 @@ func (s *Service) beginOne(ctx context.Context) (string, bool) {
 	switch {
 	case started:
 		s.opts.Logger.Info("run started on an idle machine", "run", r.ID, "job", job.ID)
-	case errors.As(err, &capped):
-		// Every cap that applies is taken. That is not something waiting for a
-		// person: the Jobs it passed over say so themselves, and it clears
-		// itself as Runs finish.
+	case errors.As(err, &capped) && capped.Clears:
+		// Every cap that applies is taken, and a Run finishing is all it takes
+		// to change that. Nothing is waiting for a person - the Jobs it passed
+		// over say so themselves - so nothing is reported and nothing waits.
 		s.holdingBack("")
 		return "", false
+	case errors.As(err, &capped):
+		// Nothing that was passed over will become runnable on its own: a
+		// window with hours to run, a Project nobody can read, a Project that
+		// names no Account. Looking again in a moment would find the same
+		// thing, so this waits and says why.
+		s.opts.Logger.Debug("nothing was started on an idle machine", "reason", err)
+		s.holdingBack(err.Error())
+		return err.Error(), false
 	case errors.As(err, &inHand):
 		// The daemon already has work in hand, or is stopping. Nothing is
 		// waiting for a person, so nothing is reported and nothing waits.
