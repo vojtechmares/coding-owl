@@ -113,7 +113,7 @@ func (s *Service) Pause(ctx context.Context, by Freezer) (Run, error) {
 		return Run{}, err
 	}
 	if l.endedWhy != "" {
-		return Run{}, ending(runID)
+		return Run{}, ending(runID, l.endedWhy)
 	}
 	if l.paused {
 		// Nothing to do, but who asked still matters: `owl pause` stops a Run
@@ -152,7 +152,7 @@ func (s *Service) Resume(ctx context.Context, by Freezer) (Run, error) {
 		return Run{}, err
 	}
 	if l.endedWhy != "" {
-		return Run{}, ending(runID)
+		return Run{}, ending(runID, l.endedWhy)
 	}
 	if !l.paused {
 		return Run{}, refused("run %d is not paused", runID)
@@ -178,12 +178,15 @@ func (s *Service) Resume(ctx context.Context, by Freezer) (Run, error) {
 	return s.runOf(ctx, runID)
 }
 
-// ending is the refusal for a Run the grace window has already ended: its
-// Agent has been asked to stop and will be killed if it does not (ADR-0034).
-// Freezing it again would arm a fresh window around a Run that is over, and
-// continuing it would report as running what is being ended.
-func ending(runID int64) error {
-	return refused("run %d is being ended: the grace window passed, and its job will be queued again", runID)
+// ending is the refusal for a Run this daemon is already ending, in the words
+// it is being ended with: its Agent has been asked to stop and will be killed
+// if it does not (ADR-0034). Freezing it again would arm a fresh window around
+// a Run that is over, and continuing it would report as running what is being
+// ended. The reason is carried rather than assumed, because the grace window
+// is only one of them: an Account crossing its ceiling is another (ADR-0020),
+// and a person told the wrong one would go looking in the wrong place.
+func ending(runID int64, why string) error {
+	return refused("run %d is being ended: %s, and its job will be queued again", runID, why)
 }
 
 // release forgets that a Run was frozen, and stops the window that was going
@@ -281,27 +284,31 @@ func (s *Service) paused(r Run) Run {
 // expire ends a Run that stayed frozen for the whole grace window. A stopped
 // process holds its sockets and holds them across a lid close, so the Run ends
 // rather than waiting for a user who is not coming back (ADR-0011).
+//
+// Whether it is still frozen is settled in the same breath as the ending: a
+// Run continued in between is one its user has just been told is running, and
+// ending it anyway would make that a lie.
 func (s *Service) expire(runID int64) {
-	s.mu.Lock()
-	l, ok := s.live[runID]
-	frozen := ok && l.paused
-	s.mu.Unlock()
-	if !frozen {
-		return
+	if s.endIf(runID, expiredReason, func(l *live) bool { return l.paused }) {
+		s.opts.Logger.Info("the grace window ended a paused run", "run", runID)
 	}
-	s.opts.Logger.Info("the grace window ended a paused run", "run", runID)
-	s.end(runID, expiredReason)
 }
 
 // end stops the Agent of a Run this daemon is ending on purpose, and records
 // why: what it says is what the Run ends with, and the Job goes back in the
 // queue rather than being blamed for it.
-func (s *Service) end(runID int64, why string) {
+func (s *Service) end(runID int64, why string) { s.endIf(runID, why, nil) }
+
+// endIf is end for a caller that ends the Run only while something is still
+// true of it. The condition is read under the same hold of the lock that
+// records the ending, so nothing can change between the two. It reports
+// whether this call is the one ending the Run.
+func (s *Service) endIf(runID int64, why string, only func(*live) bool) bool {
 	s.mu.Lock()
 	l, ok := s.live[runID]
-	if !ok || l.endedWhy != "" {
+	if !ok || l.endedWhy != "" || (only != nil && !only(l)) {
 		s.mu.Unlock()
-		return
+		return false
 	}
 	l.endedWhy = why
 	frozen := l.paused
@@ -326,6 +333,7 @@ func (s *Service) end(runID int64, why string) {
 	// it. Signalling a Run that has already ended is refused by the executor,
 	// so this costs nothing when the Agent did stop.
 	time.AfterFunc(killAfterTerm, func() { s.kill(runID) })
+	return true
 }
 
 // kill ends an Agent that did not act on being asked to stop.

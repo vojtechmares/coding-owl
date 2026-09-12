@@ -48,8 +48,10 @@ func (s *Store) ForgetResetWindows(ctx context.Context, now time.Time) (int, err
 	return int(n), err
 }
 
-// ListAccountUsage is every reading still about a window that has not started
-// again, oldest window first for a steady report.
+// ListAccountUsage is every reading the database holds, by account and window
+// so that a report reads the same way twice. It does not decide what is still
+// current: a caller that cares calls ForgetResetWindows first, which is what
+// stops a figure about a window that is over from counting.
 func (s *Store) ListAccountUsage(ctx context.Context) ([]AccountUsage, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT account, window_name, utilization, resets_unix, observed_unix

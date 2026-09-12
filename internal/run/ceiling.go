@@ -92,6 +92,14 @@ func (s *Service) recordUsage(ctx context.Context, account string, u driver.Usag
 		return
 	}
 	now := s.now().UTC()
+	// What is already known is what decides whether there is room for a window
+	// not seen before, so the readings whose windows have started again go
+	// first: one of those would otherwise crowd out a window the tool really
+	// reports. A sweep that fails leaves the count as it was, which is worth
+	// less than it costs to give up over.
+	if err := s.forgetResetWindows(ctx); err != nil {
+		s.opts.Logger.Error("forgetting what is no longer about this window", "error", err)
+	}
 	known, err := s.opts.Store.ListAccountUsage(ctx)
 	if err != nil {
 		s.opts.Logger.Error("reading what is known about an account's windows",
@@ -299,6 +307,11 @@ func (s *Service) underCeiling(ctx context.Context, account string) error {
 // crossedCeiling is the window a Run has just taken an Account past, if it has.
 // It reads what was just recorded rather than the reading alone, so that a Run
 // which crosses a window it did not report anything about is caught too.
+//
+// A read it cannot do says nothing either way, and the Run is left going.
+// underCeiling refuses to start on the same error, which is not a
+// contradiction: a Job that waits loses nothing, while a Run ended over a file
+// that could not be read this second throws away what its Agent has done.
 func (s *Service) crossedCeiling(ctx context.Context, account string) (string, bool) {
 	global, err := s.global()
 	if err != nil {
