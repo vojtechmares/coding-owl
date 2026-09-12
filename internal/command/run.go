@@ -103,16 +103,19 @@ func Run(ctx context.Context, dir string, argv []string) (Result, error) {
 	switch {
 	case err == nil:
 		return got, nil
-	case errors.As(err, &exit):
-		// The command ran and said no. That is what the chat asked for.
-		got.ExitCode = exit.ExitCode()
-		return got, nil
+	// Why it ended is asked before how: a command Owl killed for running out
+	// of time exits like any other, and reporting that as the command's own
+	// answer would tell the model the repository said something it did not.
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return got, fmt.Errorf("%s did not finish within %s", argv[0], Timeout)
 	case ctx.Err() != nil:
 		// The caller went away, which is a window that closed rather than a
 		// command that took too long.
 		return got, fmt.Errorf("%s was stopped: %w", argv[0], ctx.Err())
+	case errors.As(err, &exit):
+		// The command ran and said no. That is what the chat asked for.
+		got.ExitCode = exit.ExitCode()
+		return got, nil
 	default:
 		return got, fmt.Errorf("running %s: %w", argv[0], err)
 	}

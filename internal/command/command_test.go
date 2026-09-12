@@ -247,15 +247,24 @@ func TestCheckInRefusesAnOperandThatLinksOutOfTheWorkingDirectory(t *testing.T) 
 	}
 }
 
-// Every character the gate denies, rather than the few somebody thought of: a
-// gate whose premise is that it fails closed must not be able to lose half of
-// itself without a test noticing (ADR-0022).
-func TestCheckRefusesEveryMetacharacterItKnows(t *testing.T) {
-	if len(command.Metacharacters) < 20 {
-		t.Fatalf("the gate denies only %d characters, which is fewer than a shell reads",
-			len(command.Metacharacters))
+// Every character a shell reads as something other than text, written out
+// here rather than taken from the constant under test: a set compared with
+// itself asserts nothing, and a gate whose premise is that it fails closed
+// must not be able to lose half of itself unnoticed (ADR-0022).
+var shellReads = []rune{
+	';', '&', '|', '<', '>', '`', '$', '(', ')', '{', '}', '[', ']',
+	'*', '?', '!', '#', '\\', '\'', '"', '\n', '\r', '\t',
+}
+
+func TestCheckRefusesEveryMetacharacterAShellReads(t *testing.T) {
+	for _, r := range shellReads {
+		if !strings.ContainsRune(command.Metacharacters, r) {
+			t.Errorf("the gate does not know %q as something a shell reads", string(r))
+		}
 	}
-	for _, r := range command.Metacharacters {
+	// And what the gate says it knows is refused, so the two lists cannot
+	// drift apart in either direction.
+	for _, r := range append(shellReads, []rune(command.Metacharacters)...) {
 		// Built rather than parsed: a newline or a quote would not survive
 		// Parse as one argument, and it is Check that has to refuse it.
 		argv := []string{"cat", "own" + string(r) + "ed.txt"}
@@ -310,12 +319,17 @@ func TestCheckRefusesTheGitBranchThatWrites(t *testing.T) {
 }
 
 // A repository's .git holds the credential its remote is reached with, which
-// is not something to read into a conversation (ADR-0019).
+// is not part of what is in the repository (ADR-0022).
 func TestCheckRefusesWhatIsInsideDotGit(t *testing.T) {
 	for _, argv := range [][]string{
 		{"cat", ".git/config"},
 		{"grep", "-rn", "token", ".git"},
 		{"ls", "sub/.git/refs"},
+		// The filesystem Owl ships for folds case, so these are the same
+		// directory and a rule that tells them apart is no rule (ADR-0010).
+		{"cat", ".Git/config"},
+		{"cat", ".GIT/config"},
+		{"ls", "sub/.gIt"},
 	} {
 		err := command.Check(argv)
 		if err == nil {
@@ -355,5 +369,33 @@ func TestLineQuotesAnArgumentWithASpaceInIt(t *testing.T) {
 	}
 	if got, want := command.Line([]string{"git", "status", "--short"}), "git status --short"; got != want {
 		t.Errorf("Line = %q, want %q", got, want)
+	}
+}
+
+// A link inside the repository that points at .git reads as an ordinary path,
+// so where an operand really leads is what decides (ADR-0022).
+func TestCheckInRefusesAnOperandThatLeadsIntoDotGit(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	write(t, filepath.Join(root, ".git"), "config", "url = https://owl:hunter2@example.invalid/api.git\n")
+	if err := os.Symlink(filepath.Join(root, ".git"), filepath.Join(root, "gitdir")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	for _, line := range []string{"cat gitdir/config", "ls gitdir"} {
+		argv, err := command.Parse(line)
+		if err != nil {
+			t.Fatalf("Parse(%q) = %v", line, err)
+		}
+		err = command.CheckIn(root, argv)
+		if err == nil {
+			t.Errorf("CheckIn(%q) = nil, want it denied", line)
+			continue
+		}
+		if !strings.Contains(err.Error(), ".git") {
+			t.Errorf("CheckIn(%q) = %q, want it to say where the link leads", line, err)
+		}
 	}
 }

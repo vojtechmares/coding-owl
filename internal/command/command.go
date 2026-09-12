@@ -26,6 +26,10 @@ func denied(format string, a ...any) error {
 	return &DeniedError{Err: fmt.Errorf(format, a...)}
 }
 
+// gitDir is the directory a repository keeps itself in, which is not part of
+// what is in the repository.
+const gitDir = ".git"
+
 // Metacharacters are what a shell would have read as something other than
 // text. Nothing here interprets them, so an argument carrying one is an
 // argument that was written for a shell - and this is not one. It is exported
@@ -103,8 +107,8 @@ var allowed = map[string]rule{
 	},
 	"grep": {
 		// Owl's own: a repository's .git holds the credential its remote is
-		// reached with, and a recursive grep would hand that to the model. It
-		// is not the model's to leave out (ADR-0019).
+		// reached with, and a recursive grep walks into it. It is not the
+		// model's to leave out (ADR-0022).
 		always: []string{"--exclude-dir=.git"},
 		options: []string{
 			"--", "--line-number", "--recursive", "--ignore-case", "--count",
@@ -285,10 +289,13 @@ func checkOperand(arg string) error {
 			return denied("the argument %s goes up out of the working directory", shown(arg))
 		}
 		// A repository's own .git holds the credential its remote is reached
-		// with, which is not something to read into a conversation (ADR-0019).
-		if part == ".git" {
-			return denied("the argument %s is inside .git, which holds what the repository is reached with "+
-				"rather than what is in it", shown(arg))
+		// with, which is not part of what is in the repository (ADR-0022).
+		// Folded, because the filesystem Owl ships for folds too: .Git and
+		// .git are one directory, and a rule that tells them apart is a rule
+		// the directory does not enforce.
+		if strings.EqualFold(part, gitDir) {
+			return denied("the argument %s is inside %s, which holds what the repository is reached with "+
+				"rather than what is in it", shown(arg), gitDir)
 		}
 	}
 	return nil
@@ -339,6 +346,15 @@ func CheckIn(dir string, argv []string) error {
 		if real != root && !strings.HasPrefix(real, root+string(filepath.Separator)) {
 			return denied("the argument %s is a link to %s, which is outside the working directory",
 				shown(arg), real)
+		}
+		// And where it really leads, not only what it is spelt: a link inside
+		// the repository that points at .git reads as an ordinary path.
+		inside := strings.TrimPrefix(real, root)
+		for part := range strings.SplitSeq(inside, string(filepath.Separator)) {
+			if strings.EqualFold(part, gitDir) {
+				return denied("the argument %s leads to %s, which holds what the repository is reached "+
+					"with rather than what is in it", shown(arg), gitDir)
+			}
 		}
 	}
 	return nil

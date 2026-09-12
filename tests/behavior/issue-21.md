@@ -107,6 +107,7 @@ And what is outside the Project does not reach the model
 
 ### S17 - What is inside .git is not what is in the repository
 Given a Project whose .git holds the credential its remote is reached with
-When a model asks to read it, by naming it and by grepping for it
+When a model asks to read it - by naming it, by naming it in another case, and by a link that leads there
 Then each is denied without asking for consent
-And what .git holds does not reach the model
+And when a model instead greps the whole Project, that runs and finds nothing, because what it would have found is not walked into
+And what .git holds does not reach the model, whichever way it was asked for
