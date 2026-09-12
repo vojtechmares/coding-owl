@@ -54,6 +54,11 @@ argument in itself rather than hoping the model does: `grep` is given
 part of what `execve` is called with, and it goes through the same gate as what
 the model asked for.
 
+The confinement judges paths, not inodes. A second hard link to a file inside
+`.git` is a second, equally real name for it, with no link for the rules to
+follow, and is indistinguishable from a copy - which plainly must be readable.
+Anything able to make one could copy instead, so closing it would close nothing.
+
 The rules narrow as cases turn up, and narrowing needs no new decision. Two so
 far: `grep -R` follows every link it meets while recursing, and a link met that
 way is not one anything checked, so only `-r` is permitted; and `git branch`

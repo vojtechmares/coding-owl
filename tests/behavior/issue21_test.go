@@ -545,6 +545,31 @@ func TestS14CommandsWhatTheModelIsGivenIsBounded(t *testing.T) {
 }
 
 func TestS15CommandsTheAppAsksForConsentAndShowsWhatRan(t *testing.T) {
+	// What a command printed is not in the conversation the daemon keeps: what
+	// was said is, and what a tool answered never was. That is what makes the
+	// app's own copy the only record, and it is what would quietly change if
+	// somebody started storing it.
+	l, r, p := commandLayout(t, "", anthropicText("It says PRINTEDMARKER."))
+	write(t, r.dir, "marker.txt", "PRINTEDMARKER\n")
+	p.replies[0] = asksToRun("call-1", "cat marker.txt", r.dir)
+	app, ev := desktopApp(t, l)
+
+	conversation, got := commanding(t, app, ev, 0, anthropicModel(t, app), "what does marker.txt say",
+		allowing(desktop.AllowOnce))
+
+	if len(got.ran) != 1 || !strings.Contains(got.ran[0].Output, "PRINTEDMARKER") {
+		t.Fatalf("the command did not print what the scenario needs: %+v", got.ran)
+	}
+	kept, err := app.Conversation(conversation)
+	if err != nil {
+		t.Fatalf("the app could not read the conversation back: %v", err)
+	}
+	for _, m := range kept.Messages {
+		if m.Role != "assistant" && strings.Contains(m.Text, "PRINTEDMARKER") {
+			t.Errorf("what the command printed is in the conversation as a %s message: %q", m.Role, m.Text)
+		}
+	}
+
 	source := readFile(t, filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src", "views", "Chat.tsx"))
 
 	// What will run is named before the user answers.
