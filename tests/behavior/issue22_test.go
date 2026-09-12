@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -375,21 +376,24 @@ func TestS12CaskRefusesAVersionOrChecksumThatIsNotOne(t *testing.T) {
 	}
 }
 
-// jobOf is one job out of the workflow: from its name to the next job at the
-// same indentation. Cutting to the end of the file would let one job's text
-// answer for another's.
+// jobHeader is a job's own line: two spaces, a name, a colon, nothing else. A
+// job's text runs until the next one.
+var jobHeader = regexp.MustCompile(`^  [A-Za-z0-9_-]+:$`)
+
+// jobOf is one job out of the workflow, from its name to the next job. Cutting
+// to the end of the file instead would let one job's text answer for another's,
+// which is how a job that was never going to run read as one that was.
 func jobOf(t *testing.T, workflow, name string) string {
 	t.Helper()
 	_, rest, ok := strings.Cut(workflow, "\n  "+name+":\n")
 	if !ok {
 		t.Fatalf("the workflow has no %s job:\n%s", name, workflow)
 	}
-	for at, line := range strings.Split(rest, "\n") {
-		if at == 0 || line == "" || strings.HasPrefix(line, " ") || strings.HasPrefix(line, "#") {
-			continue
+	lines := strings.Split(rest, "\n")
+	for at, line := range lines {
+		if jobHeader.MatchString(line) {
+			return strings.Join(lines[:at], "\n")
 		}
-		// Nothing at the top level but another job.
-		return strings.Join(strings.Split(rest, "\n")[:at], "\n")
 	}
 	return rest
 }
@@ -417,7 +421,7 @@ func TestS13CaskAndArchiveShipFromOneRelease(t *testing.T) {
 		"download-artifact",
 		// Against the bytes it is about to publish: the zip and its digest
 		// travelled from the other job separately.
-		`shasum -a 256 -c "$ZIP.sha256"`,
+		`-c "$ZIP.sha256"`,
 	} {
 		if !strings.Contains(release, want) {
 			t.Errorf("the release job does not carry %q:\n%s", want, release)
@@ -450,16 +454,27 @@ func TestS14CaskOneJobPointsTheTapAtBothAndAPrereleaseAtNeither(t *testing.T) {
 	if n := strings.Count(workflow, "run: ./scripts/bump-"); n != 2 {
 		t.Errorf("the tap is pointed at from %d steps, want one job doing both:\n%s", n, workflow)
 	}
-	// Each checksum comes from the job that computed it, and the job waits for
-	// both of them.
+	// The formula before the cask, which is the whole of what makes a half bump
+	// safe: a newer daemon than app is the skew ADR-0004's breaking-change
+	// detection exists for, and the other way round is not.
+	formula := strings.Index(tap, "run: ./scripts/bump-formula.sh")
+	cask := strings.Index(tap, "run: ./scripts/bump-cask.sh")
+	if formula < 0 || cask < 0 || formula > cask {
+		t.Errorf("the tap job does not render the formula before the cask:\n%s", tap)
+	}
+	// Each is given the checksum of the thing it points at, rather than of the
+	// other one: swapped, both would fail their sha256 on install. A step's
+	// environment is written above the run line that uses it, so the formula's
+	// is what comes before its run line and the cask's what comes between.
+	if want := "${{ needs.release.outputs.sha256 }}"; !strings.Contains(tap[:formula], want) {
+		t.Errorf("the formula step is not given %s:\n%s", want, tap[:formula])
+	}
+	if want := "${{ needs.desktop.outputs.sha256 }}"; !strings.Contains(tap[formula:cask], want) {
+		t.Errorf("the cask step is not given %s:\n%s", want, tap[formula:cask])
+	}
+	// And the job waits for both of the jobs those come from.
 	if !strings.Contains(tap, "needs: [guard, desktop, release]") {
 		t.Errorf("the tap job does not wait for the app and the release:\n%s", tap)
-	}
-	if !strings.Contains(tap, "${{ needs.desktop.outputs.sha256 }}") {
-		t.Errorf("the cask is not given the checksum of the app that was built:\n%s", tap)
-	}
-	if !strings.Contains(tap, "${{ needs.release.outputs.sha256 }}") {
-		t.Errorf("the formula is not given the checksum of the archive that was built:\n%s", tap)
 	}
 	if !strings.Contains(tap, "HOMEBREW_TAP_TOKEN") {
 		t.Errorf("the tap job has no token to push with:\n%s", tap)
@@ -637,7 +652,7 @@ func TestS17CaskTheWorkflowIsOneActionsWillRun(t *testing.T) {
 	}
 	// And CI reads them too, so this holds for whoever has not installed it.
 	ci := readFile(t, filepath.Join(repoDir, ".github", "workflows", "ci.yml"))
-	if !strings.Contains(ci, "actionlint") {
-		t.Errorf("ci does not read the workflows:\n%s", ci)
+	if !regexp.MustCompile(`(?m)^\s+run: \|?\s*\n?\s*.*actionlint`).MatchString(ci) {
+		t.Errorf("ci does not run actionlint over the workflows:\n%s", ci)
 	}
 }
