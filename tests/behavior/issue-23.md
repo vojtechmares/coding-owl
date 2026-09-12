@@ -27,9 +27,9 @@ Then exactly one Run is in flight
 And the Project's own cap is what `owl status` names as binding
 
 ### S2 - four Projects run four Runs when the global cap allows it
-Given a daemon whose `maxParallelRuns` is 4 and four Projects with one Job each
+Given a daemon whose `maxParallelRuns` is 4, which looks at the machine every three seconds, and four Projects with one Job each
 When the machine goes idle
-Then four Runs are in flight, one per Project
+Then four Runs are in flight, one per Project, before it has looked twice
 And `owl status` lists all four as running
 
 ### S3 - the global cap binds when there are more Projects than it allows
@@ -106,7 +106,19 @@ And it names the cap that is binding - the narrowest one, so that raising the on
 Given a daemon file whose `maxParallelRuns` is zero, negative, or not a number
 When the daemon starts
 Then it does not: a daemon whose own configuration cannot be read would run on numbers nobody wrote
-And it says which setting it refused
+And it names the setting and the value it refused
+
+### S17 - and so is a Project's, which refuses the Project rather than the daemon
+Given a Project whose `.coding-owl.yaml` has a `maxParallelRuns` that is not one
+When `owl project show` reads it
+Then it exits non-zero, naming the file, the setting and the value
+And the daemon is otherwise fine, because one Project's file is not everybody's
+
+### S18 - nothing runs in parallel until somebody asks
+Given a daemon file that says nothing about `maxParallelRuns`, and two Projects with a Job each
+When the machine goes idle
+Then one Run is in flight
+And the other Job is passed over for Owl's own cap of one
 
 ### S16 - the desktop app shows what is running and why the rest is not
 Given the desktop app
