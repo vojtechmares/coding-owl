@@ -1260,3 +1260,102 @@ func TestARunsStreamKeepsOnlySoManyWindows(t *testing.T) {
 		t.Errorf("ListAccountUsage kept %d windows, want the eight owl keeps", len(got))
 	}
 }
+
+// A figure is kept only about a window that starts again within the week or so
+// Owl knows about. A tool reporting one that holds for longer is a tool making
+// a mistake, and keeping it would park the Account on a figure nothing clears
+// (ADR-0020).
+func TestARunsStreamKeepsNoFigureAboutAWindowTooFarAhead(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{reports: map[string]driver.Usage{
+		"the usage line": {Windows: []driver.UsageWindow{
+			{Name: "seven_day_soon", Utilization: 10, Resets: now.Add(7 * 24 * time.Hour)},
+			{Name: "seven_day_never", Utilization: 99, Resets: now.Add(9 * 24 * time.Hour)},
+		}},
+	}}, &fakeExecutor{
+		lines: []string{`{"type":"system"}`, "the usage line", `{"type":"result"}`},
+	}, &fakeVerifier{})
+	j := queueJob(t, st, "work")
+
+	if _, _, started, err := svc.Start(context.Background()); err != nil || !started {
+		t.Fatalf("Start = %v, %v; want the run started", started, err)
+	}
+	awaitState(t, st, j.ID, queue.StateReview)
+
+	got, err := st.ListAccountUsage(context.Background())
+	if err != nil {
+		t.Fatalf("ListAccountUsage: %v", err)
+	}
+	if len(got) != 1 || got[0].Window != "seven_day_soon" {
+		t.Fatalf("ListAccountUsage = %+v, want only the window that starts again within the week owl knows", got)
+	}
+}
+
+// A window nobody set a ceiling for holds nothing back, however spent it is:
+// capping the short window is not capping the weekly one, and a Run ended over
+// a ceiling nobody set would be Owl inventing a limit (ADR-0020). No behaviour
+// scenario reaches this: they set both ceilings or neither.
+func TestARunIsNotEndedByAWindowNobodySetACeilingFor(t *testing.T) {
+	resets := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	svc, st, _, root := newVerifiedFixture(t, &fakeDriver{reports: map[string]driver.Usage{
+		"the usage line": {Windows: []driver.UsageWindow{
+			{Name: "five_hour", Utilization: 10, Resets: resets},
+			{Name: "seven_day", Utilization: 99, Resets: resets},
+		}},
+	}}, &fakeExecutor{
+		lines: []string{`{"type":"system"}`, "the usage line", `{"type":"result"}`},
+	}, &fakeVerifier{})
+	// The short window is capped and the weekly one is not, and the stream
+	// reports the weekly one as all but spent.
+	writeGlobal(t, root, "apiVersion: codingowl.dev/v1\naccounts:\n  "+testAccount+
+		":\n    limits:\n      fiveHourMax: 60\n")
+	j := queueJob(t, st, "work")
+
+	if _, _, started, err := svc.Start(context.Background()); err != nil || !started {
+		t.Fatalf("Start = %v, %v; want the run started", started, err)
+	}
+
+	// The run is carried through rather than ended on a window Owl was told
+	// nothing about.
+	awaitState(t, st, j.ID, queue.StateReview)
+}
+
+// Readings about windows that are over do not stand in the way of a window a
+// tool really reports: they are forgotten before what is known is counted
+// against how many Owl keeps (ADR-0020).
+func TestAWindowIsKeptEvenWhenTheAccountIsFullOfReadingsThatAreOver(t *testing.T) {
+	ctx := context.Background()
+	resets := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{reports: map[string]driver.Usage{
+		"the usage line": {Windows: []driver.UsageWindow{
+			{Name: "five_hour", Utilization: 42, Resets: resets},
+		}},
+	}}, &fakeExecutor{
+		lines: []string{`{"type":"system"}`, "the usage line", `{"type":"result"}`},
+	}, &fakeVerifier{})
+	// As many readings as Owl keeps, every one of them about a window that has
+	// already started again.
+	over := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+	for at := range 8 {
+		if err := st.RecordAccountUsage(ctx, store.AccountUsage{
+			Account: testAccount, Window: fmt.Sprintf("seven_day_%02d", at),
+			Utilization: 99, Resets: over, Observed: over,
+		}); err != nil {
+			t.Fatalf("RecordAccountUsage: %v", err)
+		}
+	}
+	j := queueJob(t, st, "work")
+
+	if _, _, started, err := svc.Start(ctx); err != nil || !started {
+		t.Fatalf("Start = %v, %v; want the run started", started, err)
+	}
+	awaitState(t, st, j.ID, queue.StateReview)
+
+	got, err := st.ListAccountUsage(ctx)
+	if err != nil {
+		t.Fatalf("ListAccountUsage: %v", err)
+	}
+	if len(got) != 1 || got[0].Window != "five_hour" {
+		t.Fatalf("ListAccountUsage = %+v, want the window this run reported and nothing that is over", got)
+	}
+}
