@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-09
+- **Amended:** 2026-09-12, to say which direction of skew ADR-0004 guards,
+  and which half of a release therefore arrives first. It said the reverse.
 
 ## Context
 

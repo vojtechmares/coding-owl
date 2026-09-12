@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-09
+- **Amended:** 2026-09-12, to say which direction of skew breaking-change
+  detection actually guards. It said the reverse.
 
 ## Context
 
