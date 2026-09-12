@@ -130,6 +130,9 @@ type Service struct {
 	// long as this daemon does: a grant that outlived a restart would be a
 	// permission nobody remembers giving.
 	granted map[int64]bool
+	// window is how long a command waits to be answered. Only a test sets it
+	// to anything but consentWindow.
+	window time.Duration
 }
 
 // NewService returns a chat over that store, credential store and view of what
@@ -138,6 +141,7 @@ func NewService(st Store, creds credential.Store, tools *Tools) *Service {
 	return &Service{
 		store: st, creds: creds, tools: tools, client: NewClient, now: time.Now,
 		asking: map[string]chan Decision{}, granted: map[int64]bool{},
+		window: consentWindow,
 	}
 }
 

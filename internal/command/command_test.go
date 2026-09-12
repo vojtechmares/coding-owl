@@ -246,3 +246,114 @@ func TestCheckInRefusesAnOperandThatLinksOutOfTheWorkingDirectory(t *testing.T) 
 		}
 	}
 }
+
+// Every character the gate denies, rather than the few somebody thought of: a
+// gate whose premise is that it fails closed must not be able to lose half of
+// itself without a test noticing (ADR-0022).
+func TestCheckRefusesEveryMetacharacterItKnows(t *testing.T) {
+	if len(command.Metacharacters) < 20 {
+		t.Fatalf("the gate denies only %d characters, which is fewer than a shell reads",
+			len(command.Metacharacters))
+	}
+	for _, r := range command.Metacharacters {
+		// Built rather than parsed: a newline or a quote would not survive
+		// Parse as one argument, and it is Check that has to refuse it.
+		argv := []string{"cat", "own" + string(r) + "ed.txt"}
+		if err := command.Check(argv); err == nil {
+			t.Errorf("Check(%q) = nil, want the argument carrying %q denied", argv, string(r))
+		}
+	}
+	// And a space is not one of them: two words and one word with a space in
+	// it are different commands, but neither is a shell operator.
+	if err := command.Check([]string{"cat", "two words.txt"}); err != nil {
+		t.Errorf("Check of an argument with a space = %v, want it allowed", err)
+	}
+}
+
+// -R is GNU grep's --dereference-recursive, which follows every link it meets
+// while recursing - and a link met that way is one CheckIn never saw.
+func TestCheckRefusesTheGrepThatFollowsLinks(t *testing.T) {
+	if err := command.Check([]string{"grep", "-R", "owl", "."}); err == nil {
+		t.Error("Check of grep -R = nil, want it denied")
+	}
+	if err := command.Check([]string{"grep", "--dereference-recursive", "owl", "."}); err == nil {
+		t.Error("Check of grep --dereference-recursive = nil, want it denied")
+	}
+	// Recursing without following is what the chat is for.
+	if err := command.Check([]string{"grep", "-rn", "owl", "."}); err != nil {
+		t.Errorf("Check of grep -rn = %v, want it allowed", err)
+	}
+}
+
+// git branch with a name after it creates a branch, which is not looking at
+// the repository.
+func TestCheckRefusesTheGitBranchThatWrites(t *testing.T) {
+	for _, argv := range [][]string{
+		{"git", "branch", "owl-new"},
+		{"git", "branch", "--list", "owl-new"},
+		{"git", "branch", "a", "b"},
+	} {
+		err := command.Check(argv)
+		if err == nil {
+			t.Errorf("Check(%q) = nil, want it denied", argv)
+			continue
+		}
+		if !strings.Contains(err.Error(), "change the repository") {
+			t.Errorf("Check(%q) = %q, want it to say why a name after it is not a read", argv, err)
+		}
+	}
+	for _, argv := range [][]string{{"git", "branch"}, {"git", "branch", "--list"}, {"git", "branch", "-v"}} {
+		if err := command.Check(argv); err != nil {
+			t.Errorf("Check(%q) = %v, want it allowed", argv, err)
+		}
+	}
+}
+
+// A repository's .git holds the credential its remote is reached with, which
+// is not something to read into a conversation (ADR-0019).
+func TestCheckRefusesWhatIsInsideDotGit(t *testing.T) {
+	for _, argv := range [][]string{
+		{"cat", ".git/config"},
+		{"grep", "-rn", "token", ".git"},
+		{"ls", "sub/.git/refs"},
+	} {
+		err := command.Check(argv)
+		if err == nil {
+			t.Errorf("Check(%q) = nil, want it denied", argv)
+			continue
+		}
+		if !strings.Contains(err.Error(), ".git") {
+			t.Errorf("Check(%q) = %q, want it to name what was refused", argv, err)
+		}
+	}
+}
+
+// And a recursive grep does not walk into it either, because Owl puts the
+// exclusion in itself rather than hoping the model does.
+func TestArgvCarriesWhatOwlPutsInItself(t *testing.T) {
+	got := command.Argv([]string{"grep", "-rn", "token", "."})
+
+	want := []string{"grep", "--exclude-dir=.git", "-rn", "token", "."}
+	if !same(got, want) {
+		t.Errorf("Argv = %q, want %q", got, want)
+	}
+	// What Owl adds still passes the gate it added it to.
+	if err := command.Check(got); err != nil {
+		t.Errorf("Check of what owl runs = %v, want it allowed", err)
+	}
+	// A program Owl adds nothing to is left as it is.
+	if got := command.Argv([]string{"git", "status"}); !same(got, []string{"git", "status"}) {
+		t.Errorf("Argv = %q, want it unchanged", got)
+	}
+}
+
+// What a person is shown is what will run, and two words are not one word with
+// a space in it.
+func TestLineQuotesAnArgumentWithASpaceInIt(t *testing.T) {
+	if got, want := command.Line([]string{"cat", "two words.txt"}), `cat "two words.txt"`; got != want {
+		t.Errorf("Line = %q, want %q", got, want)
+	}
+	if got, want := command.Line([]string{"git", "status", "--short"}), "git status --short"; got != want {
+		t.Errorf("Line = %q, want %q", got, want)
+	}
+}

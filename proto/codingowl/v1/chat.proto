@@ -159,7 +159,9 @@ message CommandProposal {
 
 // CommandRun is what came of one.
 message CommandRun {
-  // Id is the proposal it answers.
+  // Id names the command this is about: the same id the proposal carried, and
+  // an id of its own when nobody had to be asked because the conversation is
+  // already granted.
   string id = 1;
   // Argv and Directory are what ran, and where.
   repeated string argv = 2;

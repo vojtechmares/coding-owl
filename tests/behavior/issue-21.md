@@ -22,11 +22,11 @@ Then no consent is asked
 And the model is told that `rm` is not a program Owl runs, naming what it does run
 And nothing is executed
 
-### S3 - The git subcommands that write are denied
-Given a model asks in turn for `git checkout main`, `git reset --hard`, `git clean -fd` and `git push`
+### S3 - The git that writes is denied, whether it is the subcommand or what follows it
+Given a model asks in turn for `git checkout main`, `git reset --hard`, `git clean -fd`, `git push` and `git branch owl-new`
 When each answer streams
-Then each is denied without asking for consent, naming the subcommand
-And the Project's working tree and branch are as they were
+Then each is denied without asking for consent, naming what was refused
+And the Project's working tree, branches and HEAD are as they were
 
 ### S4 - A shell metacharacter arrives as a literal argument and is denied
 Given a model asks to run `git status ; rm -rf /`, `cat a && b`, `ls > out`, "cat `id`" and `ls | wc`
@@ -104,3 +104,9 @@ Given a Project holds a symbolic link to a file outside it
 When a model asks to read that link and the answer streams
 Then it is denied without asking for consent, saying the link is outside the working directory
 And what is outside the Project does not reach the model
+
+### S17 - What is inside .git is not what is in the repository
+Given a Project whose .git holds the credential its remote is reached with
+When a model asks to read it, by naming it and by grepping for it
+Then each is denied without asking for consent
+And what .git holds does not reach the model

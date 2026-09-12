@@ -266,7 +266,9 @@ type ChatCommand struct {
 	Directory      string   `json:"directory"`
 }
 
-// ChatCommandDone is a command that has run, and what came of it.
+// ChatCommandDone is a command that has run, and what came of it. RequestID
+// names the command: the id its ChatCommand carried, and an id of its own when
+// nobody had to be asked because the conversation is already granted.
 type ChatCommandDone struct {
 	ConversationID int64    `json:"conversationId"`
 	RequestID      string   `json:"requestId"`
