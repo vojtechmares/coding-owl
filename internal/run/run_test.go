@@ -3,6 +3,7 @@ package run_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -1224,5 +1225,39 @@ func TestARunsStreamIsReadForWhatTheAccountHasUsed(t *testing.T) {
 	}
 	if !got[0].Resets.Equal(resets) {
 		t.Errorf("the reading resets at %s, want %s", got[0].Resets, resets)
+	}
+}
+
+// An Account keeps a figure about the windows Owl holds it to and no more: a
+// tool that invents them cannot fill the table (ADR-0020).
+func TestARunsStreamKeepsOnlySoManyWindows(t *testing.T) {
+	resets := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	var many []driver.UsageWindow
+	for at := range 12 {
+		many = append(many, driver.UsageWindow{
+			Name: fmt.Sprintf("seven_day_%02d", at), Utilization: float64(at), Resets: resets,
+		})
+	}
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{reports: map[string]driver.Usage{
+		"the usage line": {Windows: many},
+	}}, &fakeExecutor{
+		lines: []string{`{"type":"system"}`, "the usage line", `{"type":"result"}`},
+	}, &fakeVerifier{})
+	j := queueJob(t, st, "work")
+
+	if _, _, started, err := svc.Start(context.Background()); err != nil || !started {
+		t.Fatalf("Start = %v, %v; want the run started", started, err)
+	}
+	awaitState(t, st, j.ID, queue.StateReview)
+
+	got, err := st.ListAccountUsage(context.Background())
+	if err != nil {
+		t.Fatalf("ListAccountUsage: %v", err)
+	}
+	if len(got) > 8 {
+		t.Errorf("ListAccountUsage kept %d windows, want no more than owl keeps", len(got))
+	}
+	if len(got) == 0 {
+		t.Error("ListAccountUsage kept nothing at all")
 	}
 }

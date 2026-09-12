@@ -1187,13 +1187,11 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64, details 
 			}}
 		}
 		results = append(results, got...)
-		// What that Session spent is the Account's too, and the only place it
-		// says so is in what it printed (ADR-0020). Nothing is ended for it:
-		// the Session is already over, and the figure is what the next Run is
-		// held to.
-		for _, r := range got {
-			s.readUsage(ctx, j.Account, r.Output)
-		}
+		// What that Session spent is the Account's too, and nothing here reads
+		// it: what a Verifier reports is its verdict rather than its stream.
+		// Utilization is account-wide and cumulative, so the next Run's own
+		// figure already counts it - a Run later than a ceiling would like,
+		// which is the cost of not opening the Verifier's stream for this.
 	}
 	if len(results) == 0 {
 		return ""

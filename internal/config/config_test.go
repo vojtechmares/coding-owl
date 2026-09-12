@@ -537,3 +537,17 @@ func TestParseGlobalRefusesACeilingOwlDoesNotKeep(t *testing.T) {
 		}
 	}
 }
+
+func TestParseGlobalRefusesACeilingWithNothingAfterIt(t *testing.T) {
+	// Somebody who wrote the key meant something by it; an empty value is not
+	// the same as leaving it out.
+	_, err := config.ParseGlobal("/somewhere/config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\naccounts:\n  work:\n    limits:\n      fiveHourMax:\n"))
+
+	if err == nil {
+		t.Fatal("ParseGlobal accepted a ceiling with nothing after it")
+	}
+	if !strings.Contains(err.Error(), "fiveHourMax") {
+		t.Errorf("the error does not name the setting: %v", err)
+	}
+}
