@@ -76,6 +76,15 @@ const usageSubtype = "usage_limits"
 // kept against a number nobody can read is no ceiling at all.
 const maxUtilization = 100
 
+// maxWindows is how many windows one line may be about, and maxWindowName how
+// long a window may be called. A tool reports a handful of windows with names
+// of its own; these bound what a tool that does something else costs Owl to
+// read.
+const (
+	maxWindows    = 16
+	maxWindowName = 64
+)
+
 // usageEvent is the shape of that line: a window each, with how much of it is
 // spent and when it starts again.
 type usageEvent struct {
@@ -103,8 +112,14 @@ func (*Driver) Usage(line string) (driver.Usage, bool) {
 	if ev.Type != "system" || ev.Subtype != usageSubtype {
 		return driver.Usage{}, false
 	}
+	if len(ev.Limits) > maxWindows {
+		return driver.Usage{}, false
+	}
 	var out driver.Usage
 	for name, limit := range ev.Limits {
+		if name == "" || len(name) > maxWindowName {
+			continue
+		}
 		if limit.Utilization == nil || *limit.Utilization < 0 || *limit.Utilization > maxUtilization {
 			continue
 		}
@@ -119,7 +134,8 @@ func (*Driver) Usage(line string) (driver.Usage, bool) {
 	if len(out.Windows) == 0 {
 		return driver.Usage{}, false
 	}
-	// In the order the tool wrote them down, whatever a map does with them.
+	// By name, so that a reading reads the same twice: what a map does with
+	// them is not an order.
 	sort.Slice(out.Windows, func(i, j int) bool { return out.Windows[i].Name < out.Windows[j].Name })
 	return out, true
 }

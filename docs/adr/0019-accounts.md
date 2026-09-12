@@ -30,6 +30,11 @@ credentials, not Accounts, and stay in separate configuration.
 Owl-owned configuration directory, a credential reference, its limit ceilings,
 and an optional parallelism cap.
 
+The ceilings were built in the daemon's own `config.yaml`, keyed by Account,
+rather than on the Account row: they are a number a person tunes while reading
+what the last night spent, and the row is written once by `owl account add`
+(ADR-0020).
+
 ```
 ~/.local/share/coding-owl/accounts/<name>/    → CLAUDE_CONFIG_DIR
 ```

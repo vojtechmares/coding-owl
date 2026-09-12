@@ -194,7 +194,7 @@ func (s *jobService) GetOverview(ctx context.Context, _ *connect.Request[codingo
 		}
 		for _, w := range a.Windows {
 			ceiling.Windows = append(ceiling.Windows, &codingowlv1.UsageWindow{
-				Name: w.Name, Utilization: w.Utilization, Ceiling: w.Ceiling,
+				Name: w.Name, Read: w.Read, Utilization: w.Utilization, Ceiling: w.Ceiling,
 				Resets: timestamppb.New(w.Resets),
 			})
 		}

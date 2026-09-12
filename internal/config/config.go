@@ -209,16 +209,20 @@ type file struct {
 	GraceWindow       string           `yaml:"graceWindow"`
 	Idle              *idlePolicy      `yaml:"idle"`
 	Accounts          map[string]struct {
-		Limits *limits `yaml:"limits"`
+		// Limits is read as what was written rather than into fields, so that
+		// a setting Owl does not have is refused rather than ignored: a
+		// ceiling nobody is keeping is the one thing this block exists to
+		// prevent, and a misspelling is indistinguishable from not setting one.
+		Limits map[string]any `yaml:"limits"`
 	} `yaml:"accounts"`
 }
 
-// limits is the on-disk shape of an Account's `limits` block. A ceiling is
-// read as written - `60` or `60%` - because both are what a person means.
-type limits struct {
-	FiveHourMax string `yaml:"fiveHourMax"`
-	WeeklyMax   string `yaml:"weeklyMax"`
-}
+// The ceilings an Account may be held to, which are also the only keys its
+// `limits` block may carry.
+const (
+	fiveHourMax = "fiveHourMax"
+	weeklyMax   = "weeklyMax"
+)
 
 // idlePolicy is the on-disk shape of the `idle` block.
 type idlePolicy struct {
@@ -505,26 +509,43 @@ func parseAccounts(source string, f file) (map[string]Limits, error) {
 		if name == "" {
 			return nil, fmt.Errorf("%s: accounts: an account with no name is held to nothing", source)
 		}
-		if block.Limits == nil {
+		if len(block.Limits) == 0 {
 			continue
 		}
+		// In a fixed order, so that a file with more than one thing wrong with
+		// it is always refused for the same one.
 		var l Limits
-		for what, field := range map[string]struct {
-			value string
-			into  *float64
-		}{
-			"fiveHourMax": {block.Limits.FiveHourMax, &l.FiveHourMax},
-			"weeklyMax":   {block.Limits.WeeklyMax, &l.WeeklyMax},
-		} {
-			pct, err := parsePercent(source, name, what, field.value)
+		for _, what := range []string{fiveHourMax, weeklyMax} {
+			pct, err := parsePercent(source, name, what, written(block.Limits[what]))
 			if err != nil {
 				return nil, err
 			}
-			*field.into = pct
+			switch what {
+			case fiveHourMax:
+				l.FiveHourMax = pct
+			case weeklyMax:
+				l.WeeklyMax = pct
+			}
+		}
+		for what := range block.Limits {
+			if what != fiveHourMax && what != weeklyMax {
+				return nil, fmt.Errorf(
+					"%s: accounts.%s.limits: %q is not a ceiling Owl keeps; it keeps %s and %s",
+					source, name, what, fiveHourMax, weeklyMax)
+			}
 		}
 		out[name] = l
 	}
 	return out, nil
+}
+
+// written is a ceiling as the file wrote it, whether that was a number or a
+// string with a sign on it.
+func written(v any) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprint(v)
 }
 
 // parsePercent reads a ceiling: a number of percent, written with or without

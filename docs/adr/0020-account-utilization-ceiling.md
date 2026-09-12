@@ -20,13 +20,21 @@ stream, so Owl learns them by running, not by asking.
 
 ## Decision
 
-Each Account configures a **ceiling** on total utilization per window:
+Each Account configures a **ceiling** on total utilization per window. Built as
+a block in the daemon's own `config.yaml` (ADR-0014), keyed by Account, in the
+camelCase that file already uses for `credentialStore` and `graceWindow`:
 
 ```yaml
-limits:
-  five_hour_max: 60%
-  weekly_max:    50%
+accounts:
+  work:
+    limits:
+      fiveHourMax: 60
+      weeklyMax:   50
 ```
+
+A key that is not one of those two is refused rather than ignored: a ceiling
+nobody is keeping is what this setting exists to prevent, and a misspelling
+looks exactly like not setting one.
 
 Owl records utilization and `resets_at` from every Run's stream. Before starting
 a Run it checks the last observed figure, discarding it if the window has since

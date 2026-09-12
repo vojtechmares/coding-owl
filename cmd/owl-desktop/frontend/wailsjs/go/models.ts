@@ -2,6 +2,7 @@ export namespace client {
 	
 	export class UsageWindow {
 	    Name: string;
+	    Read: boolean;
 	    Utilization: number;
 	    Ceiling: number;
 	    // Go type: time
@@ -14,6 +15,7 @@ export namespace client {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Name = source["Name"];
+	        this.Read = source["Read"];
 	        this.Utilization = source["Utilization"];
 	        this.Ceiling = source["Ceiling"];
 	        this.Resets = this.convertValues(source["Resets"], null);

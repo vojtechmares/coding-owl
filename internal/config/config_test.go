@@ -521,3 +521,19 @@ func TestParseGlobalTakesAnAccountWithNoLimitsBlock(t *testing.T) {
 		t.Error("an account with no limits block has a ceiling")
 	}
 }
+
+func TestParseGlobalRefusesACeilingOwlDoesNotKeep(t *testing.T) {
+	// The spelling ADR-0020 records, which this file does not use: a user who
+	// copies it must be told rather than left with a ceiling nobody keeps.
+	_, err := config.ParseGlobal("/somewhere/config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\naccounts:\n  work:\n    limits:\n      five_hour_max: 60%\n"))
+
+	if err == nil {
+		t.Fatal("ParseGlobal accepted a ceiling Owl does not keep")
+	}
+	for _, want := range []string{"/somewhere/config.yaml", "five_hour_max", "fiveHourMax"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not carry %q: %v", want, err)
+		}
+	}
+}

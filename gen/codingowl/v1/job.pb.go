@@ -2420,6 +2420,9 @@ type UsageWindow struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Name is the window in Owl's words: `five-hour` or `weekly`.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Read is whether anything has been read about it yet. Utilization and
+	// resets say nothing until it is true.
+	Read bool `protobuf:"varint,5,opt,name=read,proto3" json:"read,omitempty"`
 	// Utilization is how much of it is spent, as a percentage, counting what the
 	// user spent themselves.
 	Utilization float64 `protobuf:"fixed64,2,opt,name=utilization,proto3" json:"utilization,omitempty"`
@@ -2466,6 +2469,13 @@ func (x *UsageWindow) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+func (x *UsageWindow) GetRead() bool {
+	if x != nil {
+		return x.Read
+	}
+	return false
 }
 
 func (x *UsageWindow) GetUtilization() float64 {
@@ -2728,9 +2738,10 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x123\n" +
 	"\awindows\x18\x02 \x03(\v2\x19.codingowl.v1.UsageWindowR\awindows\x12\x18\n" +
 	"\awaiting\x18\x03 \x01(\tR\awaiting\x120\n" +
-	"\x05until\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x05until\"\x91\x01\n" +
+	"\x05until\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x05until\"\xa5\x01\n" +
 	"\vUsageWindow\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04read\x18\x05 \x01(\bR\x04read\x12 \n" +
 	"\vutilization\x18\x02 \x01(\x01R\vutilization\x12\x18\n" +
 	"\aceiling\x18\x03 \x01(\x01R\aceiling\x122\n" +
 	"\x06resets\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x06resets\"\x95\x01\n" +

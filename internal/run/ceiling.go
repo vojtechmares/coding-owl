@@ -30,6 +30,16 @@ const (
 	weeklyPrefix = "seven_day"
 )
 
+// maxAhead is the furthest ahead a window may start again and still be a
+// window Owl keeps a figure about.
+const maxAhead = 30 * 24 * time.Hour
+
+// held reports whether Owl holds an Account to that window, in the tool's own
+// name for it.
+func held(window string) bool {
+	return window == fiveHourName || strings.HasPrefix(window, weeklyPrefix)
+}
+
 // AccountCeiling is what one Account is at against what it is held to, as
 // `owl status` and the app report it.
 type AccountCeiling struct {
@@ -50,6 +60,10 @@ type AccountCeiling struct {
 type WindowUsage struct {
 	// Name is the window in Owl's words.
 	Name string
+	// Read is whether anything has been read about it yet. A window an Account
+	// is held to is worth reporting before any Run has said anything about it,
+	// and Utilization and Resets say nothing until this is true.
+	Read bool
 	// Utilization is how much of it is spent, as a percentage. It is
 	// account-wide: it counts what the user spent themselves.
 	Utilization float64
@@ -59,8 +73,10 @@ type WindowUsage struct {
 	Resets time.Time
 }
 
-// over reports whether this window is one Owl will not work into.
-func (w WindowUsage) over() bool { return w.Ceiling > 0 && w.Utilization >= w.Ceiling }
+// over reports whether this window is one Owl will not work into. A window
+// nothing has been read about is not: a ceiling is kept against a figure, and
+// there is none.
+func (w WindowUsage) over() bool { return w.Read && w.Ceiling > 0 && w.Utilization >= w.Ceiling }
 
 // recordUsage writes down what a Run's stream said about the Account it ran
 // on. Nothing is held against a Run that says nothing: most lines do.
@@ -70,10 +86,20 @@ func (s *Service) recordUsage(ctx context.Context, account string, u driver.Usag
 	}
 	now := s.now().UTC()
 	for _, w := range u.Windows {
+		// Only the windows Owl holds an Account to: a tool is welcome to
+		// report others, and Owl has nothing to say about them and no reason
+		// to keep them.
+		if !held(w.Name) {
+			continue
+		}
 		// A window that has already started again is not one this figure is
 		// about. A tool reporting one is a tool a moment behind the clock, and
 		// keeping it would hold work back for a reason that has passed.
-		if !w.Resets.After(now) {
+		//
+		// Nor is one that starts again next year: the windows Owl knows reset
+		// within a week, and a figure held against work for longer than that
+		// is a tool's mistake becoming Owl's.
+		if !w.Resets.After(now) || w.Resets.After(now.Add(maxAhead)) {
 			continue
 		}
 		if err := s.opts.Store.RecordAccountUsage(ctx, store.AccountUsage{
@@ -101,6 +127,11 @@ func (s *Service) watchUsage(r store.Run, account, line string) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
 	defer cancel()
 	s.recordUsage(ctx, account, u)
+	if _, ending := s.interrupted(r.ID); ending {
+		// Already being ended, by this or by anything else: whatever the Agent
+		// says on its way out changes nothing.
+		return
+	}
 	if why, over := s.crossedCeiling(ctx, account); over {
 		s.opts.Logger.Info("a run took its account past its ceiling", "run", r.ID, "reason", why)
 		s.end(r.ID, why)
@@ -122,9 +153,13 @@ func (s *Service) Ceilings(ctx context.Context) ([]AccountCeiling, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A file that stopped parsing is what `owl start` refuses on; this is the
+	// command that says why nothing is running, so it reports what it knows
+	// and holds nobody to a ceiling it could not read.
 	global, err := s.global()
 	if err != nil {
-		return nil, err
+		s.opts.Logger.Warn("reporting accounts without their ceilings: the configuration could not be read",
+			"error", err)
 	}
 	out := make([]AccountCeiling, 0, len(accounts))
 	for _, a := range accounts {
@@ -142,29 +177,40 @@ func (s *Service) Ceilings(ctx context.Context) ([]AccountCeiling, error) {
 // it to: the short one as the tool reported it, and the weekly one as the most
 // utilized of however many the tool splits it into.
 func windowsOf(account string, readings []store.AccountUsage, limits config.Limits) []WindowUsage {
-	var out []WindowUsage
-	var weekly *WindowUsage
+	var five, weekly *WindowUsage
 	for _, r := range readings {
 		if !strings.EqualFold(r.Account, account) {
 			continue
 		}
 		switch {
 		case r.Window == fiveHourName:
-			out = append(out, WindowUsage{
-				Name: WindowFiveHour, Utilization: r.Utilization,
+			five = &WindowUsage{
+				Name: WindowFiveHour, Read: true, Utilization: r.Utilization,
 				Ceiling: limits.FiveHourMax, Resets: r.Resets,
-			})
+			}
 		case strings.HasPrefix(r.Window, weeklyPrefix):
 			if weekly == nil || r.Utilization > weekly.Utilization {
 				weekly = &WindowUsage{
-					Name: WindowWeekly, Utilization: r.Utilization,
+					Name: WindowWeekly, Read: true, Utilization: r.Utilization,
 					Ceiling: limits.WeeklyMax, Resets: r.Resets,
 				}
 			}
 		}
 	}
-	if weekly != nil {
-		out = append(out, *weekly)
+	// A window an Account is held to is reported whether or not anything has
+	// been read about it: a person who set a ceiling should see it, not learn
+	// that Owl knows nothing about the Account at all.
+	if five == nil && limits.FiveHourMax > 0 {
+		five = &WindowUsage{Name: WindowFiveHour, Ceiling: limits.FiveHourMax}
+	}
+	if weekly == nil && limits.WeeklyMax > 0 {
+		weekly = &WindowUsage{Name: WindowWeekly, Ceiling: limits.WeeklyMax}
+	}
+	var out []WindowUsage
+	for _, w := range []*WindowUsage{five, weekly} {
+		if w != nil {
+			out = append(out, *w)
+		}
 	}
 	return out
 }
@@ -182,7 +228,7 @@ func heldBack(windows []WindowUsage) (WindowUsage, bool) {
 // aboveCeiling is what a person is told about an Account that is over: what it
 // is at, what it is held to, and when that stops being true.
 func aboveCeiling(account string, w WindowUsage) string {
-	return fmt.Sprintf("account %s is at %s of its %s window, above the %s ceiling; it resets at %s",
+	return fmt.Sprintf("account %s is at %s of its %s window, at or above the %s ceiling; it resets at %s",
 		account, percent(w.Utilization), w.Name, percent(w.Ceiling), w.Resets.Format(time.RFC3339))
 }
 

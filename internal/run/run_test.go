@@ -1187,3 +1187,38 @@ func TestStartRunsUnderACeilingOnAToolThatReportsUsage(t *testing.T) {
 		t.Fatalf("Start = %v, %v; want the run started", started, err)
 	}
 }
+
+// What a Run's stream says about the account is written down as it arrives,
+// so that the next Run is held to what this one spent (ADR-0020).
+func TestARunsStreamIsReadForWhatTheAccountHasUsed(t *testing.T) {
+	resets := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	reporting := &fakeDriver{reports: map[string]driver.Usage{
+		"the usage line": {Windows: []driver.UsageWindow{
+			{Name: "five_hour", Utilization: 42, Resets: resets},
+			{Name: "seven_day", Utilization: 7, Resets: resets},
+		}},
+	}}
+	svc, st, _, _ := newVerifiedFixture(t, reporting, &fakeExecutor{
+		lines: []string{`{"type":"system"}`, "the usage line", `{"type":"result"}`},
+	}, &fakeVerifier{})
+	j := queueJob(t, st, "work")
+
+	if _, _, started, err := svc.Start(context.Background()); err != nil || !started {
+		t.Fatalf("Start = %v, %v; want the run started", started, err)
+	}
+	awaitState(t, st, j.ID, queue.StateReview)
+
+	got, err := st.ListAccountUsage(context.Background())
+	if err != nil {
+		t.Fatalf("ListAccountUsage: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListAccountUsage = %+v, want both windows the run reported", got)
+	}
+	if got[0].Account != testAccount || got[0].Window != "five_hour" || got[0].Utilization != 42 {
+		t.Errorf("the five-hour reading is %+v, want the account at 42%%", got[0])
+	}
+	if !got[0].Resets.Equal(resets) {
+		t.Errorf("the reading resets at %s, want %s", got[0].Resets, resets)
+	}
+}

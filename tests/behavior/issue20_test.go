@@ -17,9 +17,14 @@ type window struct {
 	resets      time.Time
 }
 
-// far is a reset time nothing in a scenario will reach, and past one that has
-// already gone.
-func far() time.Time  { return time.Date(2031, 1, 1, 0, 0, 0, 0, time.UTC) }
+// farReset is a window that starts again long after any scenario here ends,
+// and no longer ahead than a window Owl keeps a figure about: the windows a
+// tool reports reset within a week, so one that resets next year is a tool's
+// mistake rather than a window.
+var farReset = time.Now().Add(6 * 24 * time.Hour).UTC().Truncate(time.Second)
+
+// far is that time, and past one that has already gone.
+func far() time.Time  { return farReset }
 func past() time.Time { return time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC) }
 
 // reports is the line an Agent emits about the account's utilization. The
@@ -110,7 +115,7 @@ func usageOf(t *testing.T, out, account, window string) usageRow {
 func TestS1CeilingWhatARunReportsIsKept(t *testing.T) {
 	l, _ := ceilingLayout(t, reporting(
 		window{"five_hour", 42, far()},
-		window{"seven_day", 10, far().AddDate(0, 0, 7)},
+		window{"seven_day", 10, far().Add(12 * time.Hour)},
 	), "")
 	daemonUp(t, l)
 	checkedProject(t, l, "apiVersion: codingowl.dev/v1\n")
@@ -129,13 +134,20 @@ func TestS1CeilingWhatARunReportsIsKept(t *testing.T) {
 	if weekly.used != "10%" {
 		t.Errorf("the weekly window is at %q, want what the run reported", weekly.used)
 	}
+	if !strings.Contains(weekly.resets, far().Add(12*time.Hour).Format(time.RFC3339)) {
+		t.Errorf("the weekly window resets at %q, want what the run reported", weekly.resets)
+	}
 }
 
 func TestS2CeilingAnAccountAboveItsCeilingIsNotScheduled(t *testing.T) {
-	l, _ := ceilingLayout(t, reporting(window{"five_hour", 75, far()}), "      fiveHourMax: 60\n")
+	// The figure is reported first and the ceiling set afterwards, so that the
+	// Job refused below is one nothing has happened to: a Run ended for
+	// crossing a ceiling mid-flight is S5's, not this one's.
+	l, _ := ceilingLayout(t, reporting(window{"five_hour", 75, far()}), "")
 	daemonUp(t, l)
 	r := checkedProject(t, l, "apiVersion: codingowl.dev/v1\n")
 	finishedJob(t, l)
+	globalConfig(t, l, limitsFor("      fiveHourMax: 60\n"))
 	addJob(t, l, r.dir, "and another", "--no-plan")
 
 	res := runOwl(t, l, "start")
@@ -148,6 +160,8 @@ func TestS2CeilingAnAccountAboveItsCeilingIsNotScheduled(t *testing.T) {
 			t.Errorf("the refusal does not carry %q:\n%s", want, res.stderr)
 		}
 	}
+	// The Job the queue would have taken, which is the one the refusal was
+	// about: it is waiting its turn, not blamed for anything.
 	out := mustOwl(t, l, "jobs", "show", "2").stdout
 	if got := line(t, out, "state"); got != "pending" {
 		t.Errorf("state = %q, want the job still waiting its turn", got)
@@ -161,10 +175,11 @@ func TestS3CeilingTheWeeklyCeilingTakesTheMostUtilizedWindow(t *testing.T) {
 	l, _ := ceilingLayout(t, reporting(
 		window{"seven_day", 10, far()},
 		window{"seven_day_opus", 80, far()},
-	), "      weeklyMax: 50\n")
+	), "")
 	daemonUp(t, l)
 	r := checkedProject(t, l, "apiVersion: codingowl.dev/v1\n")
 	finishedJob(t, l)
+	globalConfig(t, l, limitsFor("      weeklyMax: 50\n"))
 	addJob(t, l, r.dir, "and another", "--no-plan")
 
 	res := runOwl(t, l, "start")
@@ -194,10 +209,9 @@ func TestS4CeilingAReadingPastItsResetIsDiscarded(t *testing.T) {
 	}
 	// And what Owl knew about that window is not reported as though it still
 	// said something about this one.
-	for _, row := range usageRows(t, mustOwl(t, l, "status").stdout) {
-		if row.account == harnessAccount && row.window == "five-hour" && row.used == "75%" {
-			t.Errorf("status still reports a reading whose window has reset: %+v", row)
-		}
+	five := usageOf(t, mustOwl(t, l, "status").stdout, harnessAccount, "five-hour")
+	if five.used != "(none)" {
+		t.Errorf("status reports %q used from a reading whose window had already reset", five.used)
 	}
 }
 
@@ -285,13 +299,24 @@ func TestS8CeilingFiguresBelowTheCeilingStopNothing(t *testing.T) {
 }
 
 func TestS9CeilingStatusShowsEachAccountAgainstItsCeilings(t *testing.T) {
-	l, _ := ceilingLayout(t, reporting(window{"five_hour", 75, far()}), "      fiveHourMax: 60\n")
+	l, s := ceilingLayout(t, reporting(window{"five_hour", 75, far()}), "")
 	daemonUp(t, l)
 	checkedProject(t, l, "apiVersion: codingowl.dev/v1\n")
 	finishedJob(t, l)
-	// A second Account, under no ceiling and with nothing observed, is still
-	// an Account somebody may be waiting on.
+
+	// A second Account, held to the same ceiling and under it: what the Agent
+	// says next is 42%, and a Project of its own runs on it.
 	addAccount(t, l, "spare", testToken)
+	says(t, s, reporting(window{"five_hour", 42, far()}))
+	other := newRepo(t, l, "other")
+	other.commit(".coding-owl.yaml", "apiVersion: codingowl.dev/v1\naccount: spare\n", "configure owl")
+	addProject(t, l, other)
+	addJob(t, l, other.dir, "work", "--no-plan")
+	globalConfig(t, l, "apiVersion: codingowl.dev/v1\naccounts:\n"+
+		"  "+harnessAccount+":\n    limits:\n      fiveHourMax: 60\n"+
+		"  spare:\n    limits:\n      fiveHourMax: 60\n")
+	run, job := startRun(t, l)
+	waitRun(t, l, job, run)
 
 	out := mustOwl(t, l, "status").stdout
 
@@ -299,15 +324,40 @@ func TestS9CeilingStatusShowsEachAccountAgainstItsCeilings(t *testing.T) {
 	if over.used != "75%" || over.ceiling != "60%" {
 		t.Errorf("the account over its ceiling reads %+v, want 75%% against 60%%", over)
 	}
-	if len(usageRows(t, out)) < 2 {
-		t.Errorf("status reports only one account:\n%s", out)
+	under := usageOf(t, out, "spare", "five-hour")
+	if under.used != "42%" || under.ceiling != "60%" {
+		t.Errorf("the account under its ceiling reads %+v, want 42%% against 60%%", under)
 	}
-	if !strings.Contains(out, "spare") {
-		t.Errorf("status does not report the account nothing was observed for:\n%s", out)
+	// And which Account is waiting, and until when - that one and not the
+	// other, or the report says nothing by saying it about everybody.
+	waiting := waitingLines(out)
+	if len(waiting) != 1 {
+		t.Fatalf("status says %d accounts are waiting, want the one that is:\n%s", len(waiting), out)
 	}
-	// And which Account is waiting, and until when.
-	if !strings.Contains(out, "waiting") || !strings.Contains(out, far().Format(time.RFC3339)) {
-		t.Errorf("status does not say which account is waiting and until when:\n%s", out)
+	if !strings.Contains(waiting[0], harnessAccount) || strings.Contains(waiting[0], "spare") {
+		t.Errorf("status says %q is waiting, want the account over its ceiling", waiting[0])
+	}
+	if !strings.Contains(waiting[0], far().Format(time.RFC3339)) {
+		t.Errorf("status says %q, want it to say until when", waiting[0])
+	}
+}
+
+// waitingLines is what status says about the Accounts that are waiting.
+func waitingLines(out string) []string {
+	var lines []string
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.HasPrefix(ln, "waiting:") {
+			lines = append(lines, ln)
+		}
+	}
+	return lines
+}
+
+// says rewrites what the stub agent will say from its next invocation on.
+func says(t *testing.T, s *stub, script []string) {
+	t.Helper()
+	if err := os.WriteFile(s.script, []byte(strings.Join(script, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -329,7 +379,57 @@ func TestS10CeilingACeilingThatIsNotAPercentageIsRefused(t *testing.T) {
 	}
 }
 
-func TestS11CeilingTheAppShowsEachAccountAgainstItsCeilings(t *testing.T) {
+func TestS11CeilingAWindowThatStartsAgainReleasesTheJob(t *testing.T) {
+	// A window that starts again while the scenario watches: long enough to
+	// be refused for, short enough to wait out.
+	soon := time.Now().Add(6 * time.Second).UTC().Truncate(time.Second)
+	l, _ := ceilingLayout(t, reporting(window{"five_hour", 75, soon}), "      fiveHourMax: 60\n")
+	daemonUp(t, l)
+	checkedProject(t, l, "apiVersion: codingowl.dev/v1\n")
+	// The Run reports the figure and is ended for crossing the ceiling, which
+	// leaves the Job pending and the Account over.
+	run, job := startRun(t, l)
+	if row := waitRun(t, l, job, run); row.outcome != "interrupted" {
+		t.Fatalf("run outcome = %q, want the run ended for crossing the ceiling", row.outcome)
+	}
+
+	refused := runOwl(t, l, "start")
+
+	if refused.code == 0 {
+		t.Fatalf("owl start ran the job while the window was still open:\n%s", refused.stdout)
+	}
+	if !strings.Contains(refused.stderr, soon.Format(time.RFC3339)) {
+		t.Errorf("the refusal does not say when the window starts again:\n%s", refused.stderr)
+	}
+
+	// And after it starts again, what Owl knew is about a window that is over.
+	// This is waiting for a moment to arrive rather than for anything to
+	// happen, so it is waited out rather than polled for.
+	if left := time.Until(soon); left > 0 {
+		sleep(left)
+	}
+	sleep(time.Second)
+
+	// The window is still reported, because a ceiling is set on it; what is
+	// gone is the figure, which was about the window that has started again.
+	out := mustOwl(t, l, "status").stdout
+	five := usageOf(t, out, harnessAccount, "five-hour")
+	if five.used != "(none)" {
+		t.Errorf("status still reports %q used of a window that has started again", five.used)
+	}
+	if five.ceiling != "60%" {
+		t.Errorf("status reports the ceiling as %q, want the one that is set", five.ceiling)
+	}
+	again, sameJob := startRun(t, l)
+	if sameJob != job {
+		t.Fatalf("owl start took job %s, want the one that was waiting", sameJob)
+	}
+	if row := waitRun(t, l, job, again); row.outcome != "succeeded" {
+		t.Errorf("run outcome = %q, want the job carried out once the window started again", row.outcome)
+	}
+}
+
+func TestS12CeilingTheAppShowsEachAccountAgainstItsCeilings(t *testing.T) {
 	l, _ := ceilingLayout(t, reporting(window{"five_hour", 75, far()}), "      fiveHourMax: 60\n")
 	daemonUp(t, l)
 	checkedProject(t, l, "apiVersion: codingowl.dev/v1\n")
@@ -367,11 +467,18 @@ func TestS11CeilingTheAppShowsEachAccountAgainstItsCeilings(t *testing.T) {
 	}
 
 	// The window shows it, rather than the app merely knowing it.
-	body := readFile(t, filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src", "views", "Overview.tsx"))
+	src := filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src")
+	body := readFile(t, filepath.Join(src, "views", "Overview.tsx"))
 	for _, want := range []string{`title="Accounts"`, "Ceiling", "Resets"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the overview view does not render %s", want)
 		}
+	}
+	// An Account nothing has been read about yet crosses the bindings as null
+	// rather than as an empty list, and a view that read it as a list would
+	// take the window down with it.
+	if got := readFile(t, filepath.Join(src, "lib", "api.ts")); !strings.Contains(got, "a.Windows = list(") {
+		t.Error("the bindings do not make an account's windows a list")
 	}
 }
 

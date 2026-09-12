@@ -35,6 +35,10 @@ function overview(o: Overview): Overview {
   o.Blocked = list(o.Blocked);
   o.Exhausted = list(o.Exhausted);
   o.Unfinished = list(o.Unfinished);
+  o.Accounts = list(o.Accounts).map((a) => {
+    a.Windows = list(a.Windows);
+    return a;
+  });
   return o;
 }
 
