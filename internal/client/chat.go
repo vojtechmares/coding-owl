@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"connectrpc.com/connect"
@@ -133,11 +134,64 @@ type SendMessageRequest struct {
 	Text string
 }
 
-// SendMessage says something in a conversation and calls onDelta for each
-// piece of the answer as it arrives, with the conversation it belongs to. It
-// returns that conversation, which is the one the daemon started when none was
-// named.
-func (c *Client) SendMessage(ctx context.Context, req SendMessageRequest, onDelta func(conversation int64, delta string) error) (int64, error) {
+// CommandProposal is a command the chat wants to run, waiting to be answered.
+// It carries what will run rather than what the model wrote (ADR-0022).
+type CommandProposal struct {
+	// ID is what an answer names.
+	ID string
+	// Argv is the program and its arguments, exactly as they will be passed.
+	Argv []string
+	// Directory is where it will run.
+	Directory string
+}
+
+// CommandRun is what came of one.
+type CommandRun struct {
+	// ID is the proposal it answers.
+	ID string
+	// Argv and Directory are what ran, and where.
+	Argv      []string
+	Directory string
+	// Output is what it printed, bounded.
+	Output string
+	// ExitCode is how it ended.
+	ExitCode int
+	// Cut is whether it printed more than Owl kept.
+	Cut bool
+}
+
+// CommandDecision is what a person answered about a command.
+type CommandDecision string
+
+const (
+	// CommandAllowOnce runs this command and asks again about the next.
+	CommandAllowOnce CommandDecision = "once"
+	// CommandAllowConversation runs this one and stops asking for the rest of
+	// the conversation.
+	CommandAllowConversation CommandDecision = "conversation"
+	// CommandRefuse runs nothing.
+	CommandRefuse CommandDecision = "refuse"
+)
+
+// SendMessageEvent is one thing the daemon said while answering: a piece of
+// the answer, a command it wants to run, or a command that has run.
+type SendMessageEvent struct {
+	// Conversation is the conversation it belongs to, carried by every event
+	// including the first, which carries only that.
+	Conversation int64
+	// Delta is a piece of the answer, empty when this event is about a
+	// command.
+	Delta string
+	// Proposal is a command waiting to be answered, nil when it is not one.
+	Proposal *CommandProposal
+	// Ran is a command that has run, nil when it is not one.
+	Ran *CommandRun
+}
+
+// SendMessage says something in a conversation and calls on for each thing the
+// daemon says while answering, with the conversation it belongs to. It returns
+// that conversation, which is the one the daemon started when none was named.
+func (c *Client) SendMessage(ctx context.Context, req SendMessageRequest, on func(SendMessageEvent) error) (int64, error) {
 	conversation := req.Conversation
 	stream, err := c.chat.SendMessage(ctx, connect.NewRequest(&codingowlv1.SendMessageRequest{
 		ConversationId: req.Conversation, Model: req.Model, Text: req.Text, Provider: req.Provider,
@@ -152,12 +206,15 @@ func (c *Client) SendMessage(ctx context.Context, req SendMessageRequest, onDelt
 		if msg.GetConversationId() != 0 {
 			id = msg.GetConversationId()
 		}
-		if onDelta == nil {
+		if on == nil {
 			continue
 		}
-		// Every piece carries the conversation it belongs to, including the
-		// first message, which carries only that.
-		if err := onDelta(id, msg.GetDelta()); err != nil {
+		if err := on(SendMessageEvent{
+			Conversation: id,
+			Delta:        msg.GetDelta(),
+			Proposal:     proposalFromProto(msg.GetProposal()),
+			Ran:          commandRunFromProto(msg.GetRan()),
+		}); err != nil {
 			return id, err
 		}
 	}
@@ -165,6 +222,43 @@ func (c *Client) SendMessage(ctx context.Context, req SendMessageRequest, onDelt
 		return id, c.wrap(err)
 	}
 	return id, nil
+}
+
+// AnswerCommand answers a command the chat asked about. Nothing runs until it
+// does, and nothing runs at all if the answer is to refuse.
+func (c *Client) AnswerCommand(ctx context.Context, id string, d CommandDecision) error {
+	decision, ok := decisionToProto[d]
+	if !ok {
+		return fmt.Errorf("%q is not an answer; a command is allowed once, allowed for the conversation, or refused", d)
+	}
+	_, err := c.chat.AnswerCommand(ctx, connect.NewRequest(&codingowlv1.AnswerCommandRequest{
+		Id: id, Decision: decision,
+	}))
+	return c.wrap(err)
+}
+
+// decisionToProto is the answers a person may give, on the wire.
+var decisionToProto = map[CommandDecision]codingowlv1.CommandDecision{
+	CommandAllowOnce:         codingowlv1.CommandDecision_COMMAND_DECISION_ALLOW_ONCE,
+	CommandAllowConversation: codingowlv1.CommandDecision_COMMAND_DECISION_ALLOW_CONVERSATION,
+	CommandRefuse:            codingowlv1.CommandDecision_COMMAND_DECISION_REFUSE,
+}
+
+func proposalFromProto(p *codingowlv1.CommandProposal) *CommandProposal {
+	if p == nil {
+		return nil
+	}
+	return &CommandProposal{ID: p.GetId(), Argv: p.GetArgv(), Directory: p.GetDirectory()}
+}
+
+func commandRunFromProto(r *codingowlv1.CommandRun) *CommandRun {
+	if r == nil {
+		return nil
+	}
+	return &CommandRun{
+		ID: r.GetId(), Argv: r.GetArgv(), Directory: r.GetDirectory(),
+		Output: r.GetOutput(), ExitCode: int(r.GetExitCode()), Cut: r.GetCut(),
+	}
 }
 
 func providerFromProto(p *codingowlv1.ChatProvider) ChatProvider {

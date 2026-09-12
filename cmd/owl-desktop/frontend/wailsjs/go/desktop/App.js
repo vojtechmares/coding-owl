@@ -6,6 +6,10 @@ export function Accept(arg1, arg2) {
   return window['go']['desktop']['App']['Accept'](arg1, arg2);
 }
 
+export function AnswerCommand(arg1, arg2) {
+  return window['go']['desktop']['App']['AnswerCommand'](arg1, arg2);
+}
+
 export function Conversation(arg1) {
   return window['go']['desktop']['App']['Conversation'](arg1);
 }

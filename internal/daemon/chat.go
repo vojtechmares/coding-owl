@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -104,6 +105,7 @@ func (s *chatService) SendMessage(ctx context.Context, req *connect.Request[codi
 		told = true
 		return stream.Send(&codingowlv1.SendMessageResponse{
 			ConversationId: d.Conversation, Delta: d.Text,
+			Proposal: toProposalProto(d.Proposal), Ran: toCommandRunProto(d.Ran),
 		})
 	})
 	// A caller that hangs up ends the stream; that is how a chat is left, not
@@ -119,6 +121,45 @@ func (s *chatService) SendMessage(ctx context.Context, req *connect.Request[codi
 		return stream.Send(&codingowlv1.SendMessageResponse{ConversationId: id})
 	}
 	return nil
+}
+
+// AnswerCommand answers a command the chat asked about. The answer reaches the
+// exchange that is waiting for it, which then runs the command or does not
+// (ADR-0022).
+func (s *chatService) AnswerCommand(_ context.Context, req *connect.Request[codingowlv1.AnswerCommandRequest]) (*connect.Response[codingowlv1.AnswerCommandResponse], error) {
+	decision, ok := decisionFromProto[req.Msg.GetDecision()]
+	if !ok {
+		return nil, rpcError(&chat.InvalidError{Err: fmt.Errorf(
+			"no answer was given; a command is allowed once, allowed for the conversation, or refused")})
+	}
+	if err := s.chat.AnswerCommand(req.Msg.GetId(), decision); err != nil {
+		return nil, rpcError(err)
+	}
+	return connect.NewResponse(&codingowlv1.AnswerCommandResponse{}), nil
+}
+
+// decisionFromProto is the answers a person may give, as they arrive.
+var decisionFromProto = map[codingowlv1.CommandDecision]chat.Decision{
+	codingowlv1.CommandDecision_COMMAND_DECISION_ALLOW_ONCE:         chat.AllowOnce,
+	codingowlv1.CommandDecision_COMMAND_DECISION_ALLOW_CONVERSATION: chat.AllowConversation,
+	codingowlv1.CommandDecision_COMMAND_DECISION_REFUSE:             chat.Refuse,
+}
+
+func toProposalProto(p *chat.Proposal) *codingowlv1.CommandProposal {
+	if p == nil {
+		return nil
+	}
+	return &codingowlv1.CommandProposal{Id: p.ID, Argv: p.Argv, Directory: p.Directory}
+}
+
+func toCommandRunProto(r *chat.CommandRun) *codingowlv1.CommandRun {
+	if r == nil {
+		return nil
+	}
+	return &codingowlv1.CommandRun{
+		Id: r.ID, Argv: r.Argv, Directory: r.Directory,
+		Output: r.Output, ExitCode: int32(r.ExitCode), Cut: r.Cut,
+	}
 }
 
 func toProviderProto(p chat.Config) *codingowlv1.ChatProvider {

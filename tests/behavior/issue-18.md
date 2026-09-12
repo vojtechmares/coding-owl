@@ -69,11 +69,12 @@ Given two conversations, the older one spoken to last
 When the app lists conversations
 Then the older one is first, and each carries what it is about
 
-### S9 - the model is told what tools it may use, and they only read
+### S9 - the model is told what tools it may use, and none of them changes anything
 Given a configured provider
 When the app sends a message
 Then the request the provider received offers tools for projects, jobs, runs, logs and diffs
-And no tool that writes, runs a command, or changes anything Owl holds
+And one command tool, which runs nothing until the user has allowed it (issue #21)
+And no tool that writes or changes anything Owl holds
 
 ### S10 - a question about Owl's state is answered from Owl's state
 Given a Project, a Job that ran and was blocked by a check, and a fake provider that asks for the job

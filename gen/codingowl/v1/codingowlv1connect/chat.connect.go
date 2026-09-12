@@ -51,6 +51,9 @@ const (
 	ChatServiceGetConversationProcedure = "/codingowl.v1.ChatService/GetConversation"
 	// ChatServiceSendMessageProcedure is the fully-qualified name of the ChatService's SendMessage RPC.
 	ChatServiceSendMessageProcedure = "/codingowl.v1.ChatService/SendMessage"
+	// ChatServiceAnswerCommandProcedure is the fully-qualified name of the ChatService's AnswerCommand
+	// RPC.
+	ChatServiceAnswerCommandProcedure = "/codingowl.v1.ChatService/AnswerCommand"
 )
 
 // ChatServiceClient is a client for the codingowl.v1.ChatService service.
@@ -69,7 +72,12 @@ type ChatServiceClient interface {
 	// GetConversation returns one with what was said in it.
 	GetConversation(context.Context, *connect.Request[v1.GetConversationRequest]) (*connect.Response[v1.GetConversationResponse], error)
 	// SendMessage says something and streams the answer back, a piece at a time.
+	// A command the chat wants to run arrives in that stream and waits there for
+	// AnswerCommand (ADR-0022).
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.ServerStreamForClient[v1.SendMessageResponse], error)
+	// AnswerCommand answers a command the chat asked about. Nothing runs until
+	// it does, and nothing runs at all if the answer is to refuse.
+	AnswerCommand(context.Context, *connect.Request[v1.AnswerCommandRequest]) (*connect.Response[v1.AnswerCommandResponse], error)
 }
 
 // NewChatServiceClient constructs a client for the codingowl.v1.ChatService service. By default, it
@@ -125,6 +133,12 @@ func NewChatServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(chatServiceMethods.ByName("SendMessage")),
 			connect.WithClientOptions(opts...),
 		),
+		answerCommand: connect.NewClient[v1.AnswerCommandRequest, v1.AnswerCommandResponse](
+			httpClient,
+			baseURL+ChatServiceAnswerCommandProcedure,
+			connect.WithSchema(chatServiceMethods.ByName("AnswerCommand")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -137,6 +151,7 @@ type chatServiceClient struct {
 	listConversations *connect.Client[v1.ListConversationsRequest, v1.ListConversationsResponse]
 	getConversation   *connect.Client[v1.GetConversationRequest, v1.GetConversationResponse]
 	sendMessage       *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
+	answerCommand     *connect.Client[v1.AnswerCommandRequest, v1.AnswerCommandResponse]
 }
 
 // AddProvider calls codingowl.v1.ChatService.AddProvider.
@@ -174,6 +189,11 @@ func (c *chatServiceClient) SendMessage(ctx context.Context, req *connect.Reques
 	return c.sendMessage.CallServerStream(ctx, req)
 }
 
+// AnswerCommand calls codingowl.v1.ChatService.AnswerCommand.
+func (c *chatServiceClient) AnswerCommand(ctx context.Context, req *connect.Request[v1.AnswerCommandRequest]) (*connect.Response[v1.AnswerCommandResponse], error) {
+	return c.answerCommand.CallUnary(ctx, req)
+}
+
 // ChatServiceHandler is an implementation of the codingowl.v1.ChatService service.
 type ChatServiceHandler interface {
 	// AddProvider configures a way to reach models, putting its key in the
@@ -190,7 +210,12 @@ type ChatServiceHandler interface {
 	// GetConversation returns one with what was said in it.
 	GetConversation(context.Context, *connect.Request[v1.GetConversationRequest]) (*connect.Response[v1.GetConversationResponse], error)
 	// SendMessage says something and streams the answer back, a piece at a time.
+	// A command the chat wants to run arrives in that stream and waits there for
+	// AnswerCommand (ADR-0022).
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest], *connect.ServerStream[v1.SendMessageResponse]) error
+	// AnswerCommand answers a command the chat asked about. Nothing runs until
+	// it does, and nothing runs at all if the answer is to refuse.
+	AnswerCommand(context.Context, *connect.Request[v1.AnswerCommandRequest]) (*connect.Response[v1.AnswerCommandResponse], error)
 }
 
 // NewChatServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -242,6 +267,12 @@ func NewChatServiceHandler(svc ChatServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(chatServiceMethods.ByName("SendMessage")),
 		connect.WithHandlerOptions(opts...),
 	)
+	chatServiceAnswerCommandHandler := connect.NewUnaryHandler(
+		ChatServiceAnswerCommandProcedure,
+		svc.AnswerCommand,
+		connect.WithSchema(chatServiceMethods.ByName("AnswerCommand")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/codingowl.v1.ChatService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ChatServiceAddProviderProcedure:
@@ -258,6 +289,8 @@ func NewChatServiceHandler(svc ChatServiceHandler, opts ...connect.HandlerOption
 			chatServiceGetConversationHandler.ServeHTTP(w, r)
 		case ChatServiceSendMessageProcedure:
 			chatServiceSendMessageHandler.ServeHTTP(w, r)
+		case ChatServiceAnswerCommandProcedure:
+			chatServiceAnswerCommandHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -293,4 +326,8 @@ func (UnimplementedChatServiceHandler) GetConversation(context.Context, *connect
 
 func (UnimplementedChatServiceHandler) SendMessage(context.Context, *connect.Request[v1.SendMessageRequest], *connect.ServerStream[v1.SendMessageResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.ChatService.SendMessage is not implemented"))
+}
+
+func (UnimplementedChatServiceHandler) AnswerCommand(context.Context, *connect.Request[v1.AnswerCommandRequest]) (*connect.Response[v1.AnswerCommandResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.ChatService.AnswerCommand is not implemented"))
 }

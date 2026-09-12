@@ -152,7 +152,7 @@ func TestS1CommandsAnAllowedCommandRunsWhereItWasAskedFor(t *testing.T) {
 	if want := []string{"git", "status", "--short"}; !equalArgv(proposal.Argv, want) {
 		t.Errorf("the proposal is %v, want %v", proposal.Argv, want)
 	}
-	if proposal.Directory != r.dir {
+	if !samePath(proposal.Directory, r.dir) {
 		t.Errorf("the proposal runs in %q, want the project's directory %q", proposal.Directory, r.dir)
 	}
 	if len(got.ran) != 1 {
@@ -311,7 +311,7 @@ func TestS6CommandsADirectoryThatIsNoProjectIsRefused(t *testing.T) {
 		t.Errorf("a command ran outside every project: %+v", got.ran)
 	}
 	told := p.told(t, 1)
-	for _, want := range []string{"project", elsewhere} {
+	for _, want := range []string{"Project", elsewhere} {
 		if !strings.Contains(told, want) {
 			t.Errorf("the refusal does not carry %q:\n%s", want, told)
 		}
@@ -344,7 +344,7 @@ func TestS7CommandsAJobsWorktreeIsADirectoryTheChatMayUse(t *testing.T) {
 	if len(got.ran) != 1 {
 		t.Fatalf("the chat reported %d commands as having run, want one: %+v", len(got.ran), got.ran)
 	}
-	if got.ran[0].Directory != worktree {
+	if !samePath(got.ran[0].Directory, worktree) {
 		t.Errorf("the command ran in %q, want the job's worktree %q", got.ran[0].Directory, worktree)
 	}
 	if !strings.Contains(got.ran[0].Output, "only-here.txt") {
@@ -493,7 +493,7 @@ func TestS13CommandsTheDaemonRunsItWithNoAgentAndNoJob(t *testing.T) {
 	}
 	// And nothing was queued to do it: a command is not a Job, and no Agent
 	// was asked to run anything (ADR-0022).
-	queued := mustOwl(t, l, "jobs", "list").stdout
+	queued := mustOwl(t, l, "queue", "list").stdout
 	if !strings.Contains(queued, "queue is empty") {
 		t.Errorf("running a command left jobs behind:\n%s", queued)
 	}
@@ -530,21 +530,24 @@ func TestS15CommandsTheAppAsksForConsentAndShowsWhatRan(t *testing.T) {
 	source := readFile(t, filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src", "views", "Chat.tsx"))
 
 	// What will run is named before the user answers.
-	for _, want := range []string{"Argv", "Directory"} {
+	for _, want := range []string{"c.argv.join", "c.directory"} {
 		if !strings.Contains(source, want) {
-			t.Errorf("the chat does not show the command's %s before it runs", want)
+			t.Errorf("the chat does not show %s before the command runs", want)
 		}
 	}
-	// The three answers a person may give.
-	for _, want := range []string{"answerCommand", "once", "conversation", "refuse"} {
+	// The three answers a person may give, each reaching the daemon.
+	if !strings.Contains(source, "api.answerCommand(") {
+		t.Error("the chat never answers a command")
+	}
+	for _, want := range []string{`decision: "once"`, `decision: "conversation"`, `decision: "refuse"`} {
 		if !strings.Contains(source, want) {
-			t.Errorf("the chat does not offer %q as an answer", want)
+			t.Errorf("the chat does not offer %s as an answer", want)
 		}
 	}
 	// And what came of it.
-	for _, want := range []string{"Output", "ExitCode"} {
+	for _, want := range []string{"done.output", "done.exitCode"} {
 		if !strings.Contains(source, want) {
-			t.Errorf("the chat does not show the command's %s", want)
+			t.Errorf("the chat does not show %s", want)
 		}
 	}
 }

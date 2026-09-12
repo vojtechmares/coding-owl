@@ -50,8 +50,23 @@ type fakeView struct {
 	job      string
 	log      string
 	diff     string
+	// where is the directory a command may run in, and whereErr what a
+	// directory that is neither a Project nor a worktree is refused with.
+	where    string
+	whereErr error
 	asked    []string
 	err      error
+}
+
+func (v *fakeView) Where(_ context.Context, dir string) (string, error) {
+	v.asked = append(v.asked, "where "+dir)
+	if v.whereErr != nil {
+		return "", v.whereErr
+	}
+	if v.where != "" {
+		return v.where, nil
+	}
+	return dir, nil
 }
 
 func (v *fakeView) Projects(context.Context) (string, error) {

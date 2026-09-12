@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/vojtechmares/coding-owl/internal/git"
@@ -178,4 +179,65 @@ func orRunning(outcome string) string {
 		return "running"
 	}
 	return outcome
+}
+
+// Where is the directory a command may run in: a Project's own directory, or
+// the worktree of one of its Jobs, named explicitly and nothing else
+// (ADR-0022). It answers with the directory as Owl holds it, so that what a
+// person is asked about is what will run.
+func (v *chatView) Where(ctx context.Context, dir string) (string, error) {
+	projects, err := v.projects.List(ctx)
+	if err != nil {
+		return "", err
+	}
+	asked := strings.TrimSpace(dir)
+	if asked == "" {
+		return "", fmt.Errorf("a command needs a directory to run in; %s", worksIn(projects))
+	}
+	// A Project's path is kept resolved, and what the model was told is what
+	// it repeats back: both sides are resolved so that a symbolic link on the
+	// way to a Project is not a different Project.
+	resolved := resolvedPath(asked)
+	for _, p := range projects {
+		if resolved == resolvedPath(p.Path) {
+			return p.Path, nil
+		}
+	}
+	jobs, err := v.jobs.List(ctx, true)
+	if err != nil {
+		return "", err
+	}
+	for _, j := range jobs {
+		if j.Worktree != "" && resolved == resolvedPath(j.Worktree) {
+			return j.Worktree, nil
+		}
+	}
+	return "", fmt.Errorf("%s is not a Project or one of its worktrees; %s", asked, worksIn(projects))
+}
+
+// worksIn says where a command may run, which is what a refusal has to carry:
+// being told no without being told where is not something to act on.
+func worksIn(projects []project.Project) string {
+	if len(projects) == 0 {
+		return "Owl knows no Project, so there is nowhere a command may run"
+	}
+	places := make([]string, 0, len(projects))
+	for _, p := range projects {
+		places = append(places, fmt.Sprintf("%s (%s)", p.Name, p.Path))
+	}
+	return "Owl runs commands in the Project " + strings.Join(places, ", ") +
+		", and in the worktrees of their Jobs, which owl jobs show reports"
+}
+
+// resolvedPath is a directory with the links on the way to it followed, so
+// that two names for one directory compare equal.
+func resolvedPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		return real
+	}
+	return abs
 }

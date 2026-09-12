@@ -579,6 +579,33 @@ select {
   background: var(--color-row-selected);
 }
 
+/* A command the chat ran, and one it is waiting to be allowed to run. The one
+   waiting is set apart, because it is the only thing on the page that is
+   asking for an answer (ADR-0022). */
+.message.command {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.message.command code {
+  word-break: break-all;
+}
+
+.message.command.asking {
+  padding: var(--space-2);
+  border: 1px solid var(--color-button-edge);
+  border-radius: var(--radius-control);
+  background: var(--color-row-selected);
+}
+
+.message.command.asking .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .ask {
   display: flex;
   gap: var(--space-2);

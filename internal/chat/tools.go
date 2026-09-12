@@ -22,8 +22,9 @@ const (
 	toolGetJobDiff   = "get_job_diff"
 )
 
-// View is what the chat may read. Every method answers from what the daemon
-// already holds, and none of them changes anything: the chat never acts.
+// View is what the chat may reach. Every method but the last answers from what
+// the daemon already holds and changes nothing; the last says where a command
+// may run, which is a read of what Owl holds too (ADR-0022).
 type View interface {
 	// Projects is every registered Project, as `owl project list` reports it.
 	Projects(ctx context.Context) (string, error)
@@ -36,6 +37,11 @@ type View interface {
 	RunLog(ctx context.Context, id int64, max int) (string, error)
 	// JobDiff is what a Job's branch changed, at most max bytes.
 	JobDiff(ctx context.Context, id int64, max int) (string, error)
+	// Where is the directory a command may run in: a Project's own directory
+	// or the worktree of one of its Jobs, and nothing else. It answers with
+	// the directory as Owl holds it, and refuses anything else by saying what
+	// it does hold (ADR-0022).
+	Where(ctx context.Context, dir string) (string, error)
 }
 
 // Tools is the set the model is offered, over one View.
