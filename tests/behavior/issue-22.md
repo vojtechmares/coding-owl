@@ -106,6 +106,7 @@ Given `.github/workflows/release.yml`
 Then one job renders both the formula and the cask, so they cannot race each other to the tap's branch
 And the formula goes first, so that what a failed push can leave is an older app against a newer daemon, which is the skew ADR-0004 makes safe, rather than the other way round, which it does not
 And it waits for both the release and the build of the app, and each of them is given the checksum of the thing it points at
+And two releases cut close together do not run it twice over, nor cancel it while it is pushing
 And it is skipped for a prerelease
 
 ### S17 - the release workflow is one GitHub Actions will run
