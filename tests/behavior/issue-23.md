@@ -138,3 +138,9 @@ Given a Project whose `.coding-owl.yaml` Owl cannot read, with the oldest Job, a
 When the machine goes idle
 Then the Job in the Project that is fine runs
 And the older one is passed over, with a reason saying its Project could not be read
+
+### S21 - a failure to start is raised, not buried
+Given a Project on an idle machine, and a worktree directory Owl cannot make
+When the scheduler tries to start it
+Then the daemon says so in its log at the level it prints by default, because a
+Job that is waiting is what `owl status` is for and something that broke is not
