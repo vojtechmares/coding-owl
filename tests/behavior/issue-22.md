@@ -104,7 +104,7 @@ And the job that publishes the release waits for it, attaches the desktop zip al
 ### S14 - one job points the tap at both, and a prerelease points it at neither
 Given `.github/workflows/release.yml`
 Then one job renders both the formula and the cask, so they cannot race each other to the tap's branch
-And the formula goes first, so that what a failed push can leave is a newer daemon than app rather than an app whose daemon nobody can install
+And the formula goes first, so that what a failed push can leave is an older app against a newer daemon, which is the skew ADR-0004 makes safe, rather than the other way round, which it does not
 And it waits for both the release and the build of the app, and each of them is given the checksum of the thing it points at
 And it is skipped for a prerelease
 
