@@ -264,7 +264,8 @@ func TestCheckRefusesEveryMetacharacterAShellReads(t *testing.T) {
 	}
 	// And what the gate says it knows is refused, so the two lists cannot
 	// drift apart in either direction.
-	for _, r := range append(shellReads, []rune(command.Metacharacters)...) {
+	both := append(append([]rune(nil), shellReads...), []rune(command.Metacharacters)...)
+	for _, r := range both {
 		// Built rather than parsed: a newline or a quote would not survive
 		// Parse as one argument, and it is Check that has to refuse it.
 		argv := []string{"cat", "own" + string(r) + "ed.txt"}
