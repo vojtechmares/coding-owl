@@ -1196,6 +1196,10 @@ func TestARunsStreamIsReadForWhatTheAccountHasUsed(t *testing.T) {
 		"the usage line": {Windows: []driver.UsageWindow{
 			{Name: "five_hour", Utilization: 42, Resets: resets},
 			{Name: "seven_day", Utilization: 7, Resets: resets},
+			// A window Owl holds nothing to, and one that starts again next
+			// year: neither is a window Owl keeps a figure about.
+			{Name: "monthly", Utilization: 99, Resets: resets},
+			{Name: "seven_day_later", Utilization: 99, Resets: resets.AddDate(0, 0, 60)},
 		}},
 	}}
 	svc, st, _, _ := newVerifiedFixture(t, reporting, &fakeExecutor{
@@ -1213,7 +1217,7 @@ func TestARunsStreamIsReadForWhatTheAccountHasUsed(t *testing.T) {
 		t.Fatalf("ListAccountUsage: %v", err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("ListAccountUsage = %+v, want both windows the run reported", got)
+		t.Fatalf("ListAccountUsage = %+v, want the two windows Owl holds the account to", got)
 	}
 	if got[0].Account != testAccount || got[0].Window != "five_hour" || got[0].Utilization != 42 {
 		t.Errorf("the five-hour reading is %+v, want the account at 42%%", got[0])

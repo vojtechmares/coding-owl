@@ -34,6 +34,11 @@ const (
 // window Owl keeps a figure about.
 const maxAhead = 30 * 24 * time.Hour
 
+// maxWindows is how many windows Owl keeps a figure about for one Account. A
+// tool has a handful; this is what stops one that invents them from filling
+// the table, and from making every line of its stream cost more to read.
+const maxWindows = 8
+
 // held reports whether Owl holds an Account to that window, in the tool's own
 // name for it.
 func held(window string) bool {
@@ -85,6 +90,18 @@ func (s *Service) recordUsage(ctx context.Context, account string, u driver.Usag
 		return
 	}
 	now := s.now().UTC()
+	known, err := s.opts.Store.ListAccountUsage(ctx)
+	if err != nil {
+		s.opts.Logger.Error("reading what is known about an account's windows",
+			"account", account, "error", err)
+		return
+	}
+	kept := map[string]bool{}
+	for _, r := range known {
+		if strings.EqualFold(r.Account, account) {
+			kept[r.Window] = true
+		}
+	}
 	for _, w := range u.Windows {
 		// Only the windows Owl holds an Account to: a tool is welcome to
 		// report others, and Owl has nothing to say about them and no reason
@@ -102,6 +119,14 @@ func (s *Service) recordUsage(ctx context.Context, account string, u driver.Usag
 		if !w.Resets.After(now) || w.Resets.After(now.Add(maxAhead)) {
 			continue
 		}
+		// And only so many windows to an Account: a tool has a handful, and
+		// one that invents them is not one to keep a table for.
+		if !kept[w.Name] && len(kept) >= maxWindows {
+			s.opts.Logger.Warn("a window was not kept: the account already has as many as Owl keeps",
+				"account", account, "window", w.Name, "kept", len(kept))
+			continue
+		}
+		kept[w.Name] = true
 		if err := s.opts.Store.RecordAccountUsage(ctx, store.AccountUsage{
 			Account: account, Window: w.Name, Utilization: w.Utilization,
 			Resets: w.Resets, Observed: now,
@@ -135,6 +160,17 @@ func (s *Service) watchUsage(r store.Run, account, line string) {
 	if why, over := s.crossedCeiling(ctx, account); over {
 		s.opts.Logger.Info("a run took its account past its ceiling", "run", r.ID, "reason", why)
 		s.end(r.ID, why)
+	}
+}
+
+// readUsage writes down whatever lines of that output said about the Account.
+// It is for output read after the fact - what a Verification Session printed -
+// where a Run's own stream is read line by line as it arrives.
+func (s *Service) readUsage(ctx context.Context, account, output string) {
+	for _, line := range strings.Split(output, "\n") {
+		if u, ok := s.opts.Driver.Usage(line); ok {
+			s.recordUsage(ctx, account, u)
+		}
 	}
 }
 

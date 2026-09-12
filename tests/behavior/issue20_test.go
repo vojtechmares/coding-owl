@@ -155,7 +155,7 @@ func TestS2CeilingAnAccountAboveItsCeilingIsNotScheduled(t *testing.T) {
 	if res.code == 0 {
 		t.Fatalf("owl start ran a job on an account over its ceiling:\n%s", res.stdout)
 	}
-	for _, want := range []string{harnessAccount, "75%", "60%", far().Format(time.RFC3339)} {
+	for _, want := range []string{"account " + harnessAccount, "75%", "60%", far().Format(time.RFC3339)} {
 		if !strings.Contains(res.stderr, want) {
 			t.Errorf("the refusal does not carry %q:\n%s", want, res.stderr)
 		}
@@ -340,6 +340,20 @@ func TestS9CeilingStatusShowsEachAccountAgainstItsCeilings(t *testing.T) {
 	if !strings.Contains(waiting[0], far().Format(time.RFC3339)) {
 		t.Errorf("status says %q, want it to say until when", waiting[0])
 	}
+
+	// And a file that has stopped parsing does not take the report with it:
+	// `owl start` is where that is refused, and this is the command that says
+	// why nothing is running.
+	globalConfig(t, l, "apiVersion: codingowl.dev/v1\naccounts:\n  work:\n    limits:\n      fiveHourMax: soon\n")
+
+	res := runOwl(t, l, "status")
+
+	if res.code != 0 {
+		t.Fatalf("owl status exited %d with a configuration that does not parse:\n%s", res.code, res.stderr)
+	}
+	if got := usageOf(t, res.stdout, harnessAccount, "five-hour"); got.used != "75%" {
+		t.Errorf("status reports %q used, want what was read before the file broke", got.used)
+	}
 }
 
 // waitingLines is what status says about the Accounts that are waiting.
@@ -410,22 +424,25 @@ func TestS11CeilingAWindowThatStartsAgainReleasesTheJob(t *testing.T) {
 	}
 	sleep(time.Second)
 
-	// The window is still reported, because a ceiling is set on it; what is
-	// gone is the figure, which was about the window that has started again.
-	out := mustOwl(t, l, "status").stdout
-	five := usageOf(t, out, harnessAccount, "five-hour")
-	if five.used != "(none)" {
-		t.Errorf("status still reports %q used of a window that has started again", five.used)
-	}
-	if five.ceiling != "60%" {
-		t.Errorf("status reports the ceiling as %q, want the one that is set", five.ceiling)
-	}
+	// Asked before anything else looks: what discards a reading whose window
+	// has started again has to be the scheduling decision itself, not a report
+	// that happened to sweep first.
 	again, sameJob := startRun(t, l)
 	if sameJob != job {
 		t.Fatalf("owl start took job %s, want the one that was waiting", sameJob)
 	}
 	if row := waitRun(t, l, job, again); row.outcome != "succeeded" {
 		t.Errorf("run outcome = %q, want the job carried out once the window started again", row.outcome)
+	}
+
+	// And the window is still reported, because a ceiling is set on it; what is
+	// gone is the figure, which was about the window that has started again.
+	five := usageOf(t, mustOwl(t, l, "status").stdout, harnessAccount, "five-hour")
+	if five.used != "(none)" {
+		t.Errorf("status still reports %q used of a window that has started again", five.used)
+	}
+	if five.ceiling != "60%" {
+		t.Errorf("status reports the ceiling as %q, want the one that is set", five.ceiling)
 	}
 }
 
@@ -469,7 +486,7 @@ func TestS12CeilingTheAppShowsEachAccountAgainstItsCeilings(t *testing.T) {
 	// The window shows it, rather than the app merely knowing it.
 	src := filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src")
 	body := readFile(t, filepath.Join(src, "views", "Overview.tsx"))
-	for _, want := range []string{`title="Accounts"`, "Ceiling", "Resets"} {
+	for _, want := range []string{`title="Accounts"`, "<th>Ceiling</th>", "<th>Resets</th>"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the overview view does not render %s", want)
 		}

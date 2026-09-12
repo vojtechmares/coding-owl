@@ -93,3 +93,28 @@ func TestAccountUsageIsForgottenWithItsAccount(t *testing.T) {
 		t.Errorf("ListAccountUsage = %+v, want only the account that is still there", got)
 	}
 }
+
+func TestAccountUsageIsBoundedByWhatOwlKeeps(t *testing.T) {
+	// Not a store rule but the one the store would otherwise carry: see
+	// internal/run, which is what decides how many windows an Account keeps.
+	s := openStore(t, filepath.Join(t.TempDir(), "owl.db"))
+	resets := time.Now().Add(time.Hour).UTC()
+	for at := range 3 {
+		if err := s.RecordAccountUsage(ctx, reading("work", "seven_day_"+string(rune('a'+at)), 10, resets)); err != nil {
+			t.Fatalf("RecordAccountUsage: %v", err)
+		}
+	}
+
+	got, err := s.ListAccountUsage(ctx)
+
+	if err != nil {
+		t.Fatalf("ListAccountUsage: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("ListAccountUsage = %+v, want a row per window", got)
+	}
+	// In a steady order, so a report reads the same twice.
+	if got[0].Window != "seven_day_a" || got[2].Window != "seven_day_c" {
+		t.Errorf("ListAccountUsage = %+v, want the windows in order", got)
+	}
+}

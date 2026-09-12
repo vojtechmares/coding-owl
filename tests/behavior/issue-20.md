@@ -60,7 +60,7 @@ When `owl start` is called with a Job queued on that Account
 Then it is refused, naming 80% rather than 10%
 
 ### S4 - a reading whose window has already reset is discarded
-Given an Account over its ceiling on a reading that resets in the past
+Given an Account under a ceiling, and a Run that reports a window which has already started again
 When `owl start` is called
 Then the Run starts, because what Owl knew is no longer about this window
 And `owl status` no longer reports the window it was about
@@ -92,6 +92,7 @@ Given two Accounts, one over its ceiling and one under
 When `owl status` is run
 Then it reports both, each window's utilization against its ceiling and when it resets
 And it says which Account is waiting and until when
+And it still reports what it knows when the configuration has stopped parsing, because it is the command that says why nothing is running
 
 ### S10 - a ceiling that is not a percentage is refused
 Given global configuration whose `accounts` block sets a ceiling of `soon`, or of `200`
