@@ -19,12 +19,23 @@ type Skip struct {
 	Job queue.Job
 	// Reason is what stopped it: the cap that is binding, or the ceiling.
 	Reason string
+	// Clears is whether this goes away on its own. A cap does, as soon as a
+	// Run finishes, and a watcher that backed off on one would leave a slot
+	// idle for minutes. A ceiling that has hours to run, a Project nobody can
+	// read and a Project that names no Account do not: they are worth waiting
+	// longer between looks for, and worth saying out loud (ADR-0011).
+	Clears bool
 }
 
 // CappedError is a refusal because every cap that applies is already taken. It
 // clears itself as Runs finish, so nothing waits on it - what is waiting is
 // said by the Jobs that were passed over rather than by this.
-type CappedError struct{ Err error }
+type CappedError struct {
+	Err error
+	// Clears is whether anything that was passed over will become runnable
+	// without a person doing something.
+	Clears bool
+}
 
 func (e *CappedError) Error() string { return e.Err.Error() }
 func (e *CappedError) Unwrap() error { return e.Err }
@@ -80,14 +91,14 @@ func (s *Service) scan(ctx context.Context) (store.Job, []Skip, bool, error) {
 	var skipped []Skip
 	look := newLookup()
 	for _, j := range pending {
-		why, err := s.holds(ctx, j, f, global, look)
+		why, clears, err := s.holds(ctx, j, f, global, look)
 		if err != nil {
 			return store.Job{}, nil, false, err
 		}
 		if why == "" {
 			return j, skipped, true, nil
 		}
-		skipped = append(skipped, Skip{Job: queue.FromStore(j), Reason: why})
+		skipped = append(skipped, Skip{Job: queue.FromStore(j), Reason: why, Clears: clears})
 	}
 	return store.Job{}, skipped, false, nil
 }
@@ -101,11 +112,11 @@ func (s *Service) scan(ctx context.Context) (store.Job, []Skip, bool, error) {
 // the support question. A Job told to raise the global cap, and then still
 // held by a Project cap nobody mentioned, has been answered twice and helped
 // once.
-func (s *Service) holds(ctx context.Context, j store.Job, f flight, global config.Global, look *lookup) (string, error) {
+func (s *Service) holds(ctx context.Context, j store.Job, f flight, global config.Global, look *lookup) (string, bool, error) {
 	// A Job with no attempts left is not one the scheduler is choosing
 	// between; start is what moves it out of the queue (ADR-0025).
 	if j.TTL <= 0 {
-		return "it has no attempts left", nil
+		return "it has no attempts left", false, nil
 	}
 	// What the Project is configured to do is read from its base branch, so an
 	// Agent cannot raise its own cap (ADR-0014). A Project Owl cannot read is
@@ -114,10 +125,10 @@ func (s *Service) holds(ctx context.Context, j store.Job, f flight, global confi
 	// Jobs as well as its own.
 	details, err := look.project(ctx, s, j.Project)
 	if err != nil {
-		return fmt.Sprintf("the project %s could not be read: %v", j.Project, err), nil
+		return fmt.Sprintf("the project %s could not be read: %v", j.Project, err), false, nil
 	}
 	if cap := details.Config.MaxParallelRuns; f.project[j.Project] >= cap {
-		return fmt.Sprintf("the project %s is at its cap of %s", j.Project, runs(cap)), nil
+		return fmt.Sprintf("the project %s is at its cap of %s", j.Project, runs(cap)), true, nil
 	}
 	name := j.Account
 	if name == "" {
@@ -127,25 +138,27 @@ func (s *Service) holds(ctx context.Context, j store.Job, f flight, global confi
 		// A Project that names no Account cannot run at all. That is for a
 		// person rather than something that clears itself, and saying so here
 		// is what stops it holding up everything behind it.
-		return noAccount(details), nil
+		return noAccount(details), false, nil
 	}
 	if limits, ok := global.Ceiling(name); ok && limits.MaxParallel > 0 {
 		if f.account[accountKey(name)] >= limits.MaxParallel {
-			return fmt.Sprintf("account %s is at its cap of %s", name, runs(limits.MaxParallel)), nil
+			return fmt.Sprintf("account %s is at its cap of %s", name, runs(limits.MaxParallel)), true, nil
 		}
 	}
 	// And whether that Account has the headroom: Owl never leaves the user
 	// without any (ADR-0020). A ceiling nobody can keep is for a person and
 	// stops the scan; being over it is a wait, and the Job is passed over.
+	// A window that resets in hours is not something to look again for every
+	// few seconds, so it is not a reason that clears itself (ADR-0020).
 	if waiting, err := look.ceiling(ctx, s, name); err != nil || waiting != "" {
-		return waiting, err
+		return waiting, false, err
 	}
 	// Owl's own cap last, so that a Job held by something narrower is told
 	// about the narrower thing.
 	if f.total >= global.MaxParallelRuns {
-		return fmt.Sprintf("owl is at its cap of %s", runs(global.MaxParallelRuns)), nil
+		return fmt.Sprintf("owl is at its cap of %s", runs(global.MaxParallelRuns)), true, nil
 	}
-	return "", nil
+	return "", false, nil
 }
 
 // lookup is what one scan remembers, so that a queue of fifty Jobs in one
@@ -225,6 +238,18 @@ func (s *Service) exhaust(ctx context.Context) error {
 		s.opts.Logger.Warn("a job out of attempts was still queued", "job", j.ID)
 	}
 	return nil
+}
+
+// clearing reports whether anything that was passed over will become runnable
+// on its own. One Job waiting for a slot is enough: the others may need a
+// person, but looking again soon is still worth it.
+func clearing(skipped []Skip) bool {
+	for _, s := range skipped {
+		if s.Clears {
+			return true
+		}
+	}
+	return false
 }
 
 // PassedOver is the Jobs the scheduler would pass over if it looked now, and

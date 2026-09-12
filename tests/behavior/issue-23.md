@@ -39,10 +39,10 @@ Then two Runs are in flight
 And `owl status` names the global cap as what is holding the third back
 
 ### S4 - a Project that says its checks are hermetic runs two of its own Runs
-Given a daemon whose `maxParallelRuns` is 4 and one Project whose `maxParallelRuns` is 2, with three Jobs queued
+Given a daemon whose `maxParallelRuns` is 4, one Project whose `maxParallelRuns` is 2 with three Jobs queued, and another that says nothing with two
 When the machine goes idle
-Then two Runs are in flight, both in that Project
-And the third Job is passed over for the Project's cap
+Then three Runs are in flight: two in the hermetic Project and one in the other
+And each Project's passed-over Job names that Project's own cap, because reading one Project's file never answers for another's
 
 ### S5 - an ineligible Job at the head does not block a younger eligible one
 Given two Projects, the older Job's Project holding its cap with a Run already in flight, and a younger Job in the other Project
@@ -51,10 +51,10 @@ Then the younger Job is started
 And the older Job is still pending
 
 ### S6 - a Job that is passed over keeps its position
-Given the queue of S5 after the younger Job was started
+Given three Projects and a daemon that runs two Runs at once, so that one Job is passed over and another stays queued behind it
 When `owl queue list` is read
-Then the older Job is still ahead of anything queued after it
-And its position is the one it had
+Then each passed-over Job is at the position it had
+And one that was queued after another is still behind it
 
 ### S7 - `owl status` says why each passed-over Job was passed over
 Given a Job passed over for its Project's cap and a Job passed over for the global cap
@@ -100,7 +100,7 @@ And leaving again continues both
 Given every cap taken by the Runs in flight
 When `owl start` runs
 Then it exits non-zero
-And it names the cap that is binding - the narrowest one, so that raising the one it names is what changes the answer - rather than saying only that something is running
+And it names the cap that is binding - the narrowest one that applies, so that a person is told about the one nearest to them rather than one they may have to raise twice - rather than saying only that something is running
 
 ### S15 - a cap that is not one is refused
 Given a daemon file whose `maxParallelRuns` is zero, negative, or not a number
@@ -124,3 +124,17 @@ And the other Job is passed over for Owl's own cap of one
 Given the desktop app
 When its sources are read
 Then they render the Runs in flight, each passed-over Job, and the reason it was passed over
+
+### S19 - what will not clear itself is said out loud as well as listed
+Given a Project on an Account whose window its Run reports past, on an idle machine
+Then `owl status` says nothing is running and why, because a window with hours to run is not something looking again in a moment will change
+And the same reason is in the passed-over list, which is where a Job's own reason lives
+
+A cap that is taken is never on that line, because a cap can only be taken
+while something is running, and the line is not printed then.
+
+### S20 - a Project nobody can read is passed over, not a wall the rest queue behind
+Given a Project whose `.coding-owl.yaml` Owl cannot read, with the oldest Job, and a second Project that is fine
+When the machine goes idle
+Then the Job in the Project that is fine runs
+And the older one is passed over, with a reason saying its Project could not be read

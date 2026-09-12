@@ -235,18 +235,37 @@ func TestS3CapsTheGlobalCapBindsWhenThereAreMoreProjectsThanItAllows(t *testing.
 func TestS4CapsAProjectThatSaysItIsHermeticRunsTwoOfItsOwn(t *testing.T) {
 	c := capsLayout(t, "maxParallelRuns: 4\n")
 	c.project(t, "api", "maxParallelRuns: 2\n", 3)
+	// And one that says nothing, beside it: each Project is held to its own
+	// cap, so reading one Project's file cannot answer for another's.
+	c.project(t, "web", "", 2)
 
 	c.away(t)
 
-	c.waitRunning(t, 2)
-	over := c.passedOver(t)
-	if len(over) != 1 {
-		t.Fatalf("owl status passed over %d jobs, want the third: %v", len(over), over)
+	c.waitRunning(t, 3)
+	inProject := map[string]int{}
+	for _, name := range columnOf(c.status(t), "runs in progress:", 2) {
+		inProject[name]++
 	}
+	if inProject["api"] != 2 || inProject["web"] != 1 {
+		t.Errorf("the runs in flight are %v, want two in api and one in web", inProject)
+	}
+	over := c.passedOver(t)
+	if len(over) != 2 {
+		t.Fatalf("owl status passed over %d jobs, want one from each project: %v", len(over), over)
+	}
+	var hermetic, ordinary int
 	for job, why := range over {
-		if !strings.Contains(why, "api") || !strings.Contains(why, "2") {
-			t.Errorf("job %s was passed over for %q, want it to name the project's cap of 2", job, why)
+		switch {
+		case strings.Contains(why, "the project api is at its cap of 2 runs"):
+			hermetic++
+		case strings.Contains(why, "the project web is at its cap of 1 run"):
+			ordinary++
+		default:
+			t.Errorf("job %s was passed over for %q, which names neither project's own cap", job, why)
 		}
+	}
+	if hermetic != 1 || ordinary != 1 {
+		t.Errorf("the reasons are %v, want each project held to its own cap", over)
 	}
 }
 
@@ -273,22 +292,23 @@ func TestS5CapsAnIneligibleJobDoesNotBlockAYoungerEligibleOne(t *testing.T) {
 }
 
 func TestS6CapsAJobThatIsPassedOverKeepsItsPosition(t *testing.T) {
-	c := capsLayout(t, "maxParallelRuns: 4\n")
+	// Two Runs at once, and three Projects: one Job is passed over for its own
+	// Project's cap and the one behind it stays queued, so that "still ahead of
+	// what came after it" is something the scenario can see.
+	c := capsLayout(t, "maxParallelRuns: 2\n")
 	c.project(t, "api", "", 2)
 	c.project(t, "web", "", 1)
-	// Queued behind the one that will be passed over, so that "still ahead of
-	// what came after it" is something the scenario can see.
 	c.project(t, "cli", "", 1)
 	before := queuePositions(t, c.l)
 
 	c.away(t)
-	c.waitRunning(t, 3)
+	c.waitRunning(t, 2)
 
-	// The Job that could not start is still pending, and still where it was:
-	// being passed over is not being moved (ADR-0025).
+	// The Jobs that could not start are still pending, and still where they
+	// were: being passed over is not being moved (ADR-0025).
 	over := c.passedOver(t)
-	if len(over) != 1 {
-		t.Fatalf("owl status passed over %d jobs, want the second api job: %v", len(over), over)
+	if len(over) != 2 {
+		t.Fatalf("owl status passed over %d jobs, want the api job and the cli job: %v", len(over), over)
 	}
 	after := queuePositions(t, c.l)
 	for job := range over {
@@ -517,11 +537,16 @@ func TestS15CapsACapThatIsNotOneIsRefused(t *testing.T) {
 			t.Errorf("the daemon started with %q configured:\n%s", bad, p.out())
 			continue
 		}
-		// The setting and the value, so that a person can find the line.
-		for _, want := range []string{"maxParallelRuns", strings.TrimSpace(strings.SplitN(bad, ":", 2)[1])} {
-			if !strings.Contains(p.out(), want) {
-				t.Errorf("the daemon does not say %q when it refuses %q:\n%s", want, bad, p.out())
-			}
+		// The setting and the value, in the sentence they belong to, so that a
+		// number that happens to appear in a timestamp does not answer for
+		// them.
+		value := strings.TrimSpace(strings.SplitN(bad, ":", 2)[1])
+		if value == "many" {
+			value = `"many"`
+		}
+		want := "maxParallelRuns: " + value + " is not a number of runs"
+		if !strings.Contains(p.out(), want) {
+			t.Errorf("the daemon does not say %q when it refuses %q:\n%s", want, bad, p.out())
 		}
 	}
 }
@@ -589,5 +614,65 @@ func TestS16CapsTheAppShowsWhatIsRunningAndWhyTheRestIsNot(t *testing.T) {
 	api := readFile(t, filepath.Join(src, "lib", "api.ts"))
 	if !strings.Contains(api, "o.PassedOver = list(o.PassedOver)") {
 		t.Errorf("the app does not read what was passed over:\n%s", api)
+	}
+}
+
+func TestS19CapsWhatWillNotClearItselfIsSaidOutLoud(t *testing.T) {
+	c := capsLayout(t, "maxParallelRuns: 4\naccounts:\n  spent:\n    limits:\n      fiveHourMax: 60\n")
+	addAccount(t, c.l, "spent", testToken)
+	// One Project, on an account whose window it reports past. Its Run is
+	// ended and its Job waits for hours, which nothing but time will change.
+	c.project(t, "api", "account: spent\n", 1)
+
+	c.away(t)
+
+	// Said on the line about nothing running, rather than left to the list: a
+	// person looking at an idle machine is owed the reason it is idle.
+	waitFor(t, "owl status to say why nothing is running", func() bool {
+		return strings.Contains(maybeLine(c.status(t), "nothing is running"), "ceiling")
+	})
+	// And it is in the passed-over list too, because that is where a Job's own
+	// reason lives.
+	over := c.passedOver(t)
+	if len(over) != 1 {
+		t.Fatalf("owl status passed over %d jobs, want the one with no headroom: %v", len(over), over)
+	}
+	for job, why := range over {
+		if !strings.Contains(why, "ceiling") {
+			t.Errorf("job %s was passed over for %q, want the ceiling", job, why)
+		}
+	}
+}
+
+func TestS20CapsAProjectNobodyCanReadIsPassedOverNotAWall(t *testing.T) {
+	c := capsLayout(t, "maxParallelRuns: 4\n")
+	// Registered while it reads, then broken on its base branch, which is
+	// where Owl reads it from (ADR-0014).
+	r := newRepo(t, c.l, "api")
+	r.commit(".coding-owl.yaml", "apiVersion: codingowl.dev/v1\n", "configure owl")
+	addProject(t, c.l, r)
+	addJob(t, c.l, r.dir, "work in api", "--no-plan")
+	r.commit(".coding-owl.yaml", "apiVersion: codingowl.dev/v1\nmaxParallelRuns: 0\n", "break owl")
+	c.project(t, "web", "", 1)
+
+	c.away(t)
+
+	// The younger Job runs: one Project nobody can read is not a wall the rest
+	// of the queue stands behind.
+	c.waitRunning(t, 1)
+	if got := columnOf(c.status(t), "runs in progress:", 2); len(got) != 1 || got[0] != "web" {
+		t.Fatalf("the run in flight is in %v, want the project that reads", got)
+	}
+	over := c.passedOver(t)
+	if len(over) != 1 {
+		t.Fatalf("owl status passed over %d jobs, want the one whose project is broken: %v", len(over), over)
+	}
+	for job, why := range over {
+		if !strings.Contains(why, "could not be read") {
+			t.Errorf("job %s was passed over for %q, want it to say its project could not be read", job, why)
+		}
+		if !strings.Contains(why, "maxParallelRuns") {
+			t.Errorf("job %s was passed over for %q, want it to carry what the file said", job, why)
+		}
 	}
 }
