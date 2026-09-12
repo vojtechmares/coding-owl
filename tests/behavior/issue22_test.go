@@ -455,20 +455,24 @@ func TestS16CaskInstallsTheAppUnquarantinedAndTakesItAway(t *testing.T) {
 	cask := renderedCaskFor(t, "0.1.0", sha256Of(t, zip))
 	cask = replaceLine(t, cask, "  url ", `  url "file://`+zip+`"`)
 	cask = replaceLine(t, cask, `  depends_on formula:`, "")
-	local := filepath.Join(t.TempDir(), "coding-owl-desktop.rb")
-	if err := os.WriteFile(local, []byte(cask), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// Homebrew installs casks from taps and from nowhere else, so the scenario
+	// makes one of its own and takes it away again.
+	name := installedFrom(t, cask)
+	// An applications directory of its own, so the scenario does not put
+	// anything in the one the person using this machine sees.
 	appdir := t.TempDir()
+	brew := func(args ...string) ([]byte, error) {
+		cmd := exec.Command("brew", args...)
+		cmd.Env = append(os.Environ(), "HOMEBREW_CASK_OPTS=--appdir="+appdir)
+		return cmd.CombinedOutput()
+	}
 
-	out, err := exec.Command("brew", "install", "--cask", "--appdir="+appdir, local).CombinedOutput()
+	out, err := brew("install", "--cask", name)
 
 	if err != nil {
-		t.Fatalf("brew install refused the cask: %v\n%s", err, out)
+		t.Fatalf("brew install refused the cask: %v\n%s\ncask:\n%s", err, out, cask)
 	}
-	t.Cleanup(func() {
-		_ = exec.Command("brew", "uninstall", "--cask", "--appdir="+appdir, local).Run()
-	})
+	t.Cleanup(func() { _, _ = brew("uninstall", "--cask", name) })
 	app := filepath.Join(appdir, "Coding Owl.app")
 	if _, err := os.Stat(app); err != nil {
 		t.Fatalf("the app is not where the cask put it: %v\n%s", err, out)
@@ -480,12 +484,48 @@ func TestS16CaskInstallsTheAppUnquarantinedAndTakesItAway(t *testing.T) {
 		t.Errorf("the installed app is still quarantined: %s", flag)
 	}
 
-	if out, err := exec.Command("brew", "uninstall", "--cask", "--appdir="+appdir, local).CombinedOutput(); err != nil {
+	if out, err := brew("uninstall", "--cask", name); err != nil {
 		t.Fatalf("brew uninstall refused the cask: %v\n%s", err, out)
 	}
 	if _, err := os.Stat(app); err == nil {
 		t.Errorf("the app is still installed after uninstalling it")
 	}
+}
+
+// installedFrom puts the cask in a tap of its own and returns the name brew
+// installs it by. The tap goes away with the scenario.
+func installedFrom(t *testing.T, cask string) string {
+	t.Helper()
+	const tapName = "owlsmoke/cask"
+	root, err := exec.Command("brew", "--repository", tapName).Output()
+	if err != nil {
+		t.Fatalf("brew --repository %s: %v", tapName, err)
+	}
+	where := strings.TrimSpace(string(root))
+	// A tap left behind by an interrupted run would make the next one fail on
+	// a name that already exists. brew untap refuses while something from it is
+	// installed, so the directory goes either way.
+	takeAway := func() {
+		// The cask goes before the tap it came from: brew untap refuses while
+		// something from it is installed, and an install left behind would
+		// make the next run think there is nothing to do.
+		_ = exec.Command("brew", "uninstall", "--cask", "--force", tapName+"/coding-owl-desktop").Run()
+		_ = exec.Command("brew", "untap", tapName).Run()
+		_ = os.RemoveAll(where)
+	}
+	takeAway()
+	if out, err := exec.Command("brew", "tap-new", "--no-git", tapName).CombinedOutput(); err != nil {
+		t.Fatalf("brew tap-new: %v\n%s", err, out)
+	}
+	t.Cleanup(takeAway)
+	casks := filepath.Join(where, "Casks")
+	if err := os.MkdirAll(casks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(casks, "coding-owl-desktop.rb"), []byte(cask), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return tapName + "/coding-owl-desktop"
 }
 
 // renderedCaskFor is the cask as the script writes it for one version and
