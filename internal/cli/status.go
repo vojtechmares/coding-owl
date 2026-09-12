@@ -69,6 +69,7 @@ func printOverview(env Env, o client.Overview) {
 		_ = w.Flush()
 		_, _ = fmt.Fprintln(env.Stdout)
 	}
+	printPassedOver(env, o.PassedOver)
 	printAccounts(env, o.Accounts)
 	if len(o.Counts) > 0 {
 		_, _ = fmt.Fprintln(env.Stdout, "jobs:")
@@ -91,6 +92,26 @@ func printOverview(env Env, o client.Overview) {
 	// Out of attempts is its own list, not part of blocked: nothing is wrong
 	// with this work, it has simply had its Runs (ADR-0025).
 	printJobList(env, "out of attempts", o.Exhausted, false)
+}
+
+// printPassedOver names the Jobs the scheduler would not start now and what
+// stopped each of them. Without it the queue's order looks arbitrary: it is
+// scanned oldest first and the first Job that can run is the one that does
+// (ADR-0025).
+func printPassedOver(env Env, jobs []client.PassedOverJob) {
+	if len(jobs) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(env.Stdout, "passed over:")
+	w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "JOB\tPROJECT\tREASON")
+	for _, j := range jobs {
+		// The reason carries an Account's name and a Project's, both of which
+		// come from outside Owl, so it reaches the terminal as text.
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\n", j.Job.ID, j.Job.Project, terminalSafe(j.Reason))
+	}
+	_ = w.Flush()
+	_, _ = fmt.Fprintln(env.Stdout)
 }
 
 // printJobList names the Jobs a person has to do something about. The reason

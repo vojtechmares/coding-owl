@@ -63,10 +63,10 @@ Then each is listed with its own reason
 And each reason names the cap that stopped it
 
 ### S8 - a Job whose Account is over its ceiling is passed over, and says so
-Given an Account over its five-hour ceiling with a Job queued against it, and a second Project on another Account with a younger Job
+Given a Project on an Account held to a five-hour ceiling its Run reports past, and a second Project on an Account with headroom
 When the machine goes idle
-Then the younger Job runs
-And the older one is passed over, with a reason naming its Account and its ceiling
+Then the Run that went past its ceiling is ended and its Job waits, while the other carries on
+And the waiting Job is passed over, with a reason naming its Account and its ceiling
 
 ### S9 - an Account's own cap holds across Projects
 Given an Account whose `maxParallel` is 1, two Projects on it, and a daemon whose `maxParallelRuns` is 4
@@ -81,7 +81,7 @@ Then two Runs are in flight
 
 ### S11 - concurrent Runs each stream their own log
 Given two Runs in flight in different Projects
-When `owl runs log` follows each of them
+When `owl logs` is read for each of them
 Then each carries only what its own Agent wrote
 
 ### S12 - pause freezes every Run in flight, and resume continues them all
@@ -103,9 +103,10 @@ Then it exits non-zero
 And it names the cap that is binding rather than saying only that something is running
 
 ### S15 - a cap that is not one is refused
-Given a daemon file, or a Project file, whose `maxParallelRuns` is zero, negative, or not a number
-When the daemon reads it
-Then it is refused, naming the file and the value
+Given a daemon file whose `maxParallelRuns` is zero, negative, or not a number
+When the daemon starts
+Then it does not: a daemon whose own configuration cannot be read would run on numbers nobody wrote
+And it says which setting it refused
 
 ### S16 - the desktop app shows what is running and why the rest is not
 Given the desktop app

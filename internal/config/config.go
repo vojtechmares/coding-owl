@@ -91,6 +91,12 @@ type Config struct {
 	// Skills are the Skills every Job in this Project gets, by source and ref
 	// (ADR-0024). The manifest carries intent; the lockfile carries identity.
 	Skills []Skill
+	// MaxParallelRuns is how many Runs of this Project may go at once. One
+	// unless the file says otherwise: two worktrees of one repository will
+	// each happily bind the same port and write the same test database, so
+	// raising it is a Project-specific decision by somebody who knows those
+	// checks are hermetic (ADR-0021).
+	MaxParallelRuns int
 }
 
 // Verification is what a Project asks of Verification beyond its own checks.
@@ -140,12 +146,20 @@ type Global struct {
 	// Accounts is what each named Account is held to, keyed by its name in
 	// lower case: Account names are case-insensitive (ADR-0019).
 	Accounts map[string]Limits
+	// MaxParallelRuns is how many Runs Owl carries out at once, across every
+	// Project. One unless the file says otherwise: nothing runs in parallel
+	// until somebody asks (ADR-0021).
+	MaxParallelRuns int
 }
 
 // Limits is the ceiling an Account's utilization is held to, per window
 // (ADR-0020). Utilization is account-wide, so a ceiling is what Owl leaves the
 // user rather than what Owl may spend. A zero field is one nobody set.
 type Limits struct {
+	// MaxParallel is how many Runs may draw on this Account at once, zero for
+	// as many as the other caps allow: burn rate is already governed by the
+	// ceiling (ADR-0021).
+	MaxParallel int
 	// FiveHourMax is the most of the five-hour window Owl will work into, as
 	// a percentage.
 	FiveHourMax float64
@@ -187,10 +201,16 @@ type GarbageCollection struct {
 // configuration file sets branchPrefix.
 const defaultBranchPrefix = "owl/"
 
+// DefaultGlobal is the daemon's own configuration when it has no file: one Run
+// at a time, and nothing else set (ADR-0021).
+func DefaultGlobal() Global {
+	return Global{MaxParallelRuns: 1}
+}
+
 // Default is the configuration a Project has when no file is found anywhere in
 // the discovery order.
 func Default() Config {
-	return Config{BranchPrefix: defaultBranchPrefix}
+	return Config{BranchPrefix: defaultBranchPrefix, MaxParallelRuns: 1}
 }
 
 // file is the on-disk shape of a configuration file.
@@ -209,7 +229,14 @@ type file struct {
 	GarbageCollection *garbage         `yaml:"garbageCollection"`
 	GraceWindow       string           `yaml:"graceWindow"`
 	Idle              *idlePolicy      `yaml:"idle"`
-	Accounts          map[string]struct {
+	// MaxParallelRuns is read as what was written rather than into an int, so
+	// that a value nobody can read is refused by name: a decoder's own message
+	// says the line number and not the setting (ADR-0021).
+	MaxParallelRuns any `yaml:"maxParallelRuns"`
+	Accounts        map[string]struct {
+		// MaxParallel is how many Runs may draw on this Account at once. Unset
+		// is unlimited, because the ceiling already governs burn rate.
+		MaxParallel any `yaml:"maxParallel"`
 		// Limits is read as what was written rather than into fields, so that
 		// a setting Owl does not have is refused rather than ignored: a
 		// ceiling nobody is keeping is the one thing this block exists to
@@ -320,6 +347,11 @@ func Parse(source string, data []byte) (Config, error) {
 		return Config{}, err
 	}
 	cfg.Skills = skills
+	parallel, err := parseParallel(source, maxParallelRuns, f.MaxParallelRuns, 1)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.MaxParallelRuns = parallel
 	return cfg, nil
 }
 
@@ -487,6 +519,10 @@ func ParseGlobal(source string, data []byte) (Global, error) {
 	if err != nil {
 		return Global{}, err
 	}
+	parallel, err := parseParallel(source, maxParallelRuns, f.MaxParallelRuns, 1)
+	if err != nil {
+		return Global{}, err
+	}
 	return Global{
 		Phases:            phases,
 		CredentialStore:   strings.TrimSpace(f.CredentialStore),
@@ -494,7 +530,34 @@ func ParseGlobal(source string, data []byte) (Global, error) {
 		GraceWindow:       grace,
 		Idle:              when,
 		Accounts:          accounts,
+		MaxParallelRuns:   parallel,
 	}, nil
+}
+
+// The settings that say how many Runs may go at once (ADR-0021).
+const (
+	maxParallelRuns = "maxParallelRuns"
+	maxParallel     = "maxParallel"
+)
+
+// parseParallel reads one of them: a whole number of Runs, at least one.
+// Unset is whatever the caller defaults to, and zero is not a default anybody
+// writes - it would mean nothing ever runs, which is what stopping the daemon
+// is for.
+func parseParallel(source, what string, v any, missing int) (int, error) {
+	text := strings.TrimSpace(written(v))
+	if v == nil || text == "" {
+		return missing, nil
+	}
+	n, err := strconv.Atoi(text)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %s: %q is not a number of runs", source, what, text)
+	}
+	if n < 1 {
+		return 0, fmt.Errorf("%s: %s: %d is not a number of runs; it is at least one, "+
+			"and stopping the daemon is how nothing runs", source, what, n)
+	}
+	return n, nil
 }
 
 // parseAccounts reads the `accounts` block: what each Account is held to. A
@@ -521,12 +584,19 @@ func parseAccounts(source string, f file) (map[string]Limits, error) {
 		}
 		named[as] = name
 		name = as
+		parallel, err := parseParallel(source, "accounts."+name+"."+maxParallel, block.MaxParallel, 0)
+		if err != nil {
+			return nil, err
+		}
 		if len(block.Limits) == 0 {
+			if parallel > 0 {
+				out[name] = Limits{MaxParallel: parallel}
+			}
 			continue
 		}
 		// In a fixed order, so that a file with more than one thing wrong with
 		// it is always refused for the same one.
-		var l Limits
+		l := Limits{MaxParallel: parallel}
 		for _, what := range []string{fiveHourMax, weeklyMax} {
 			value, set := block.Limits[what]
 			if set && strings.TrimSpace(written(value)) == "" {

@@ -138,11 +138,11 @@ Then it exits 0
 And stdout says there is nothing pending to run
 And no Run is recorded
 
-### S17 - only one Run at a time
+### S17 - one Run at a time unless somebody asks for more
 Given a running daemon, two pending Jobs, and a stub agent that waits for a release file
 When `owl start` runs and a second `owl start` follows while the first Run is in progress
 Then the second exits with a non-zero code
-And stderr says a Run is already in progress and names the Job it is for
+And stderr names the cap that stopped it, which is Owl's own and is one by default (issue #23, ADR-0021 superseding the one-Run clause of ADR-0011)
 And the second Job is still pending
 
 ### S18 - owl jobs show reports the Job, its Runs and where the log is

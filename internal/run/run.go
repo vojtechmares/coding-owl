@@ -369,8 +369,10 @@ func (s *Service) Recover(ctx context.Context) error {
 	return s.requeueLeftOver(ctx)
 }
 
-// Start takes the Job at the head of the queue and runs it, because somebody
-// asked. started is false when nothing is pending, which is not an error.
+// Start takes the oldest Job whose caps and Account ceiling permit and runs
+// it, because somebody asked (ADR-0025). started is false when nothing is
+// pending, which is not an error; when something is pending and every cap that
+// applies is taken, it refuses and says which cap.
 func (s *Service) Start(ctx context.Context) (queue.Job, Run, bool, error) {
 	return s.start(ctx, ByUser)
 }
@@ -387,15 +389,23 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 	if s.stopping || s.ctx.Err() != nil {
 		return queue.Job{}, Run{}, false, busy("the daemon is stopping; nothing new is started now")
 	}
-	if r, ok, err := s.opts.Store.RunInProgress(ctx); err != nil {
+	// The Jobs with no attempts left leave the queue before anything is chosen
+	// between what is in it (ADR-0025).
+	if err := s.exhaust(ctx); err != nil {
 		return queue.Job{}, Run{}, false, err
-	} else if ok {
-		return queue.Job{}, Run{}, false,
-			busy("a run for job %d is already in progress; only one agent runs at a time", r.JobID)
 	}
-	j, ok, err := s.nextRunnable(ctx)
-	if err != nil || !ok {
+	j, skipped, ok, err := s.scan(ctx)
+	if err != nil {
 		return queue.Job{}, Run{}, false, err
+	}
+	if !ok {
+		// Nothing could start. If something was passed over, the caps are
+		// what stopped it, and the first one is the binding one: a person who
+		// asked deserves to be told which rather than that nothing happened.
+		if len(skipped) > 0 {
+			return queue.Job{}, Run{}, false, &CappedError{Err: errors.New(skipped[0].Reason)}
+		}
+		return queue.Job{}, Run{}, false, nil
 	}
 	// What the Project is configured to do is read from its base branch, so an
 	// Agent cannot change the terms it runs under (ADR-0014).
@@ -429,8 +439,10 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 	// And whether that Account has the headroom: Owl never leaves the user
 	// without any (ADR-0020). Being over is a refusal, so the Job waits
 	// exactly where it is until the window starts again.
-	if err := s.underCeiling(ctx, acct.Name); err != nil {
+	if waiting, err := s.underCeiling(ctx, acct.Name); err != nil {
 		return queue.Job{}, Run{}, false, err
+	} else if waiting != "" {
+		return queue.Job{}, Run{}, false, &CappedError{Err: errors.New(waiting)}
 	}
 
 	if j.Branch == "" {
@@ -1021,35 +1033,6 @@ func (s *Service) accountFor(ctx context.Context, j store.Job, details project.D
 	return acct, token, nil
 }
 
-// nextRunnable takes the Job at the head of the queue, passing over one that
-// has no attempts left and reporting it as exhausted on the way. A Job only
-// reaches the queue with attempts to spend, so this holds that invariant
-// rather than expecting to find a Job it catches: at zero a Job is never
-// scheduled (ADR-0025), whatever put it there.
-func (s *Service) nextRunnable(ctx context.Context) (store.Job, bool, error) {
-	for {
-		j, ok, err := s.opts.Store.NextQueued(ctx, string(queue.StatePending))
-		if err != nil || !ok {
-			return store.Job{}, false, err
-		}
-		if j.TTL > 0 {
-			return j, true, nil
-		}
-		state, err := s.opts.Store.ReturnJobToQueue(ctx, j.ID,
-			string(queue.StatePending), string(queue.StateExhausted))
-		if err != nil {
-			return store.Job{}, false, err
-		}
-		if queue.State(state) != queue.StateExhausted {
-			// The Job is still at the head of the queue, so looking again
-			// would find it again. Stopping says so instead of spinning.
-			return store.Job{}, false, fmt.Errorf(
-				"job %d has no attempts left but is %s", j.ID, state)
-		}
-		s.opts.Logger.Warn("a job out of attempts was still queued", "job", j.ID)
-	}
-}
-
 // carry records whether this daemon has a Run going for a Job.
 func (s *Service) carry(jobID int64, going bool) {
 	s.carryingMu.Lock()
@@ -1276,10 +1259,15 @@ func (s *Service) agentRequest(j store.Job, details project.Details, req driver.
 // next Run rather than on the next restart.
 func (s *Service) global() (config.Global, error) {
 	if s.opts.ConfigPath == "" {
-		return config.Global{}, nil
+		return config.DefaultGlobal(), nil
 	}
-	cfg, _, err := config.LoadGlobal(s.opts.ConfigPath)
-	return cfg, err
+	cfg, found, err := config.LoadGlobal(s.opts.ConfigPath)
+	if err != nil || !found {
+		// A daemon with no file of its own still has the defaults the file
+		// would have given it.
+		return config.DefaultGlobal(), err
+	}
+	return cfg, nil
 }
 
 // execute starts the Agent, captures its output and reports how it ended, with

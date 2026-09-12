@@ -103,6 +103,31 @@ export function Overview({
         {machineDetail(data?.Machine) ? <div className="dim">{machineDetail(data?.Machine)}</div> : null}
       </Panel>
 
+      <Panel title="Passed over">
+        {(data?.PassedOver ?? []).length === 0 ? (
+          <Empty>Nothing is waiting on a cap.</Empty>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Job</th>
+                <th>Project</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.PassedOver ?? []).map((p) => (
+                <tr key={p.Job.ID}>
+                  <td>{p.Job.ID}</td>
+                  <td>{p.Job.Project}</td>
+                  <td>{p.Reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+
       <Panel title="Accounts">
         {(data?.Accounts ?? []).length === 0 ? (
           <Empty>No Account yet. Add one with owl account add.</Empty>

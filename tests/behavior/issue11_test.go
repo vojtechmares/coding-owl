@@ -786,10 +786,15 @@ func TestS22DesktopPausesAndResumesAndShowsTheFrozenRun(t *testing.T) {
 	run, job := startRun(t, b.l)
 	b.started(t)
 
-	paused, err := app.Pause()
+	// Pause reaches every Run in flight (ADR-0021), and there is one here.
+	frozen, err := app.Pause()
 	if err != nil {
 		t.Fatalf("Pause: %v", err)
 	}
+	if len(frozen) != 1 {
+		t.Fatalf("Pause reported %d runs, want the one that was going: %+v", len(frozen), frozen)
+	}
+	paused := frozen[0]
 	if got := strconv.FormatInt(paused.ID, 10); got != run || !paused.Paused {
 		t.Errorf("Pause reported run %d paused=%v, want run %s frozen", paused.ID, paused.Paused, run)
 	}
@@ -813,10 +818,14 @@ func TestS22DesktopPausesAndResumesAndShowsTheFrozenRun(t *testing.T) {
 		t.Errorf("the overview does not show the frozen run as paused: %+v", overview.Running)
 	}
 
-	resumed, err := app.Resume()
+	going, err := app.Resume()
 	if err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
+	if len(going) != 1 {
+		t.Fatalf("Resume reported %d runs, want the one that was frozen: %+v", len(going), going)
+	}
+	resumed := going[0]
 	if resumed.ID != paused.ID || resumed.Paused {
 		t.Errorf("Resume reported run %d paused=%v, want run %d running", resumed.ID, resumed.Paused, paused.ID)
 	}

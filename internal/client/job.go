@@ -260,6 +260,9 @@ type Overview struct {
 	// Accounts is what each Account has used against what it is held to
 	// (ADR-0020).
 	Accounts []AccountCeiling
+	// PassedOver is the Jobs the scheduler would not start now, and why: the
+	// cap that is binding, or the ceiling (ADR-0021, ADR-0025).
+	PassedOver []PassedOverJob
 }
 
 // AccountCeiling is one Account against what it is held to (ADR-0020).
@@ -309,9 +312,15 @@ type Machine struct {
 }
 
 // Empty reports whether there is nothing at all to say.
+// PassedOverJob is a Job the scheduler would not start now, and why.
+type PassedOverJob struct {
+	Job    Job
+	Reason string
+}
+
 func (o Overview) Empty() bool {
 	return len(o.Running) == 0 && len(o.Counts) == 0 && len(o.Unfinished) == 0 &&
-		len(o.Accounts) == 0
+		len(o.Accounts) == 0 && len(o.PassedOver) == 0
 }
 
 // GetOverview reports where the work stands.
@@ -365,6 +374,11 @@ func (c *Client) GetOverview(ctx context.Context) (Overview, error) {
 			})
 		}
 		o.Accounts = append(o.Accounts, ceiling)
+	}
+	for _, p := range res.Msg.GetPassedOver() {
+		o.PassedOver = append(o.PassedOver, PassedOverJob{
+			Job: jobFromProto(p.GetJob()), Reason: p.GetReason(),
+		})
 	}
 	return o, nil
 }

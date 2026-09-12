@@ -107,7 +107,7 @@ ends.`,
 
 // interruptCmd builds owl pause and owl resume, which differ only in what they
 // ask the daemon to do to the Run in progress.
-func interruptCmd(env Env, verb, short, long string, act func(context.Context, *client.Client) (client.Run, error), done string) *cobra.Command {
+func interruptCmd(env Env, verb, short, long string, act func(context.Context, *client.Client) ([]client.Run, error), done string) *cobra.Command {
 	return &cobra.Command{
 		Use:   verb,
 		Short: short,
@@ -119,7 +119,11 @@ func interruptCmd(env Env, verb, short, long string, act func(context.Context, *
 				if err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(env.Stdout, "run %d of job %d is %s\n", r.ID, r.JobID, done)
+				// One line each: more than one Run may be going (ADR-0021),
+				// and a person who froze four of them should see four.
+				for _, one := range r {
+					_, _ = fmt.Fprintf(env.Stdout, "run %d of job %d is %s\n", one.ID, one.JobID, done)
+				}
 				return nil
 			})
 		},
@@ -128,10 +132,10 @@ func interruptCmd(env Env, verb, short, long string, act func(context.Context, *
 
 func newPauseCmd(env Env) *cobra.Command {
 	return interruptCmd(env, "pause",
-		"Freeze the Run in progress and give the machine back",
-		`Freeze the Run in progress and give the machine back.
+		"Freeze every Run in flight and give the machine back",
+		`Freeze every Run in flight and give the machine back.
 
-The Agent and everything it started - test runners, compilers, package
+The Agents and everything they started - test runners, compilers, package
 managers - stop where they are, so the machine is yours again immediately.
 Nothing is lost: owl resume continues the same Run where it was.
 
@@ -139,18 +143,18 @@ A Run that stays frozen for the whole grace window is ended rather than left
 holding its sockets, and its Job goes back in the queue to be carried on from
 its handoff. The window is graceWindow in the daemon's configuration, and is
 fifteen minutes unless that says otherwise.`,
-		func(ctx context.Context, c *client.Client) (client.Run, error) { return c.PauseRun(ctx) },
+		func(ctx context.Context, c *client.Client) ([]client.Run, error) { return c.PauseRun(ctx) },
 		"frozen")
 }
 
 func newResumeCmd(env Env) *cobra.Command {
 	return interruptCmd(env, "resume",
-		"Continue the Run that is frozen",
-		`Continue the Run that is frozen.
+		"Continue the Runs that are frozen",
+		`Continue the Runs that are frozen.
 
-The same Run carries on where it was, with everything the Agent had in mind
+The same Runs carry on where they were, with everything the Agent had in mind
 still in its head - nothing was ended, only stopped.`,
-		func(ctx context.Context, c *client.Client) (client.Run, error) { return c.ResumeRun(ctx) },
+		func(ctx context.Context, c *client.Client) ([]client.Run, error) { return c.ResumeRun(ctx) },
 		"running again")
 }
 
