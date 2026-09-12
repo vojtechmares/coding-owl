@@ -38,7 +38,26 @@ action is proposed and confirmed in the Claude Desktop / ChatGPT style, with a
 - anything unmatched is denied
 
 Commands run with the working directory set to a Project or one of its
-worktrees, chosen explicitly, never an arbitrary path.
+worktrees, chosen explicitly, never an arbitrary path. An argument stays inside
+that directory: an absolute path, a `..` that climbs out of it, and a link that
+leads out of it are all denied. Where an argument really leads is what decides,
+not how it is spelt.
+
+A repository's `.git` is not part of what is in the repository. It holds the
+credential the remote is reached with, so an argument inside it is denied,
+whatever case it is written in - the filesystem this ships for does not tell
+`.Git` from `.git`, and neither does the rule.
+
+Where a program's own default would reach past those rules, Owl puts the
+argument in itself rather than hoping the model does: `grep` is given
+`--exclude-dir=.git`. What Owl puts in is part of what the user is shown and
+part of what `execve` is called with, and it goes through the same gate as what
+the model asked for.
+
+The rules narrow as cases turn up, and narrowing needs no new decision. Two so
+far: `grep -R` follows every link it meets while recursing, and a link met that
+way is not one anything checked, so only `-r` is permitted; and `git branch`
+reads only without a name after it, so its reading form takes no operand.
 
 ## Consequences
 

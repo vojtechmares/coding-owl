@@ -603,21 +603,39 @@ func TestS17CommandsWhatIsInsideDotGitIsRefused(t *testing.T) {
 	// The pattern is not the secret: a grep echoes what it was asked
 	// for, and a scenario that looked for the pattern would find its own
 	// question.
-	for _, command := range []string{"cat .git/config", "grep -rn example.invalid ."} {
+	for _, command := range []string{
+		"cat .git/config", "grep -rn example.invalid .",
+		// The same directory by another spelling: the filesystem Owl ships
+		// for folds case, and so must the rule (ADR-0010).
+		"cat .Git/config",
+		// And by a link that leads there, which the path itself does not say.
+		"cat gitdir/config",
+	} {
 		t.Run(command, func(t *testing.T) {
 			l, r, p := commandLayout(t, "", anthropicText("I cannot read that."))
 			// What a repository's .git really holds: the credential its remote
-			// is reached with (ADR-0019).
+			// is reached with (ADR-0022).
 			write(t, filepath.Join(r.dir, ".git"), "config",
 				"[remote \"origin\"]\n\turl = https://owl:hunter2@example.invalid/api.git\n")
+			if err := os.Symlink(filepath.Join(r.dir, ".git"), filepath.Join(r.dir, "gitdir")); err != nil {
+				t.Fatalf("Symlink: %v", err)
+			}
 			p.replies[0] = asksToRun("call-1", command, r.dir)
 			app, ev := desktopApp(t, l)
 
 			_, got := commanding(t, app, ev, 0, anthropicModel(t, app), "what is the remote",
 				allowing(desktop.AllowOnce))
 
-			if len(got.proposed) != 0 && command == "cat .git/config" {
-				t.Errorf("consent was asked for %q: %+v", command, got.proposed)
+			// A command that names .git is refused before anybody is asked.
+			// A grep of the whole Project is a command Owl runs: it is asked
+			// about, it runs, and it finds nothing, because what it would have
+			// found is not walked into.
+			asked, wantAsked := len(got.proposed), 0
+			if strings.HasPrefix(command, "grep") {
+				wantAsked = 1
+			}
+			if asked != wantAsked {
+				t.Errorf("consent was asked %d times for %q, want %d: %+v", asked, command, wantAsked, got.proposed)
 			}
 			for _, ran := range got.ran {
 				if strings.Contains(ran.Output, "hunter2") {

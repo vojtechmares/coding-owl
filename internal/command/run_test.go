@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/vojtechmares/coding-owl/internal/command"
@@ -191,5 +193,27 @@ func TestRunSaysWhetherItWasStoppedOrTookTooLong(t *testing.T) {
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("the error %q does not carry why it stopped", err)
+	}
+}
+
+// The deadline is the deadline. What a command starts holds the pipe Owl is
+// reading from, and without a bound on waiting for that, a command that leaves
+// something behind outlives the time it was given.
+func TestRunDoesNotWaitForWhatTheCommandLeftBehind(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skipf("no shell to leave something behind with: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+
+	// A command that ends leaving a child holding its output.
+	_, err := command.Run(ctx, t.TempDir(), []string{"sh", "-c", "sleep 30 & exec sleep 30"})
+
+	if err == nil {
+		t.Fatal("Run = nil, want it stopped")
+	}
+	if took := time.Since(started); took > 10*time.Second {
+		t.Errorf("Run took %s, want it to stop rather than wait for what the command left behind", took)
 	}
 }

@@ -2,6 +2,8 @@ package chat
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -91,4 +93,94 @@ func TestACommandTheUserRefusesSaysTheUserRefusedIt(t *testing.T) {
 func call(t *testing.T, input string) ToolCall {
 	t.Helper()
 	return ToolCall{ID: "call-1", Name: toolRunCommand, Input: []byte(input)}
+}
+
+// One command carries one id from the asking to the running, so that what ran
+// can be matched to what was agreed to.
+func TestACommandCarriesOneIdFromTheAskingToTheRunning(t *testing.T) {
+	dir := t.TempDir()
+	s := NewService(nil, nil, NewTools(&nothingSaid{where: dir}))
+	var proposed, ran string
+	emit := func(d Delta) error {
+		if d.Proposal != nil {
+			proposed = d.Proposal.ID
+			go func() {
+				if err := s.AnswerCommand(proposed, AllowOnce); err != nil {
+					t.Errorf("AnswerCommand: %v", err)
+				}
+			}()
+		}
+		if d.Ran != nil {
+			ran = d.Ran.ID
+		}
+		return nil
+	}
+
+	got, err := s.runCommand(context.Background(), 1,
+		call(t, `{"command":"ls","directory":"`+dir+`"}`), emit)
+
+	if err != nil {
+		t.Fatalf("runCommand: %v", err)
+	}
+	if got.Failed {
+		t.Fatalf("the command was refused: %+v", got)
+	}
+	if proposed == "" || ran != proposed {
+		t.Errorf("the command that ran is %q and the one that was asked about is %q, want the same one",
+			ran, proposed)
+	}
+	// And the model's own call id is what answers the model, which is a
+	// different thing and must not have been swapped for it.
+	if got.CallID != "call-1" {
+		t.Errorf("the result answers %q, want the call the model made", got.CallID)
+	}
+}
+
+// The directory is read before the user is asked and the user takes their
+// time, so what is about to run is checked against how the directory is now.
+func TestACommandIsCheckedAgainAfterTheWait(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("hunter2\n"), 0o600); err != nil {
+		t.Fatalf("writing: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("nothing here\n"), 0o600); err != nil {
+		t.Fatalf("writing: %v", err)
+	}
+	s := NewService(nil, nil, NewTools(&nothingSaid{where: dir}))
+	emit := func(d Delta) error {
+		if d.Proposal == nil {
+			return nil
+		}
+		// While the prompt is open, what was a file becomes a link out.
+		if err := os.Remove(filepath.Join(dir, "notes.txt")); err != nil {
+			return err
+		}
+		if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(dir, "notes.txt")); err != nil {
+			return err
+		}
+		id := d.Proposal.ID
+		go func() {
+			if err := s.AnswerCommand(id, AllowOnce); err != nil {
+				t.Errorf("AnswerCommand: %v", err)
+			}
+		}()
+		return nil
+	}
+
+	got, err := s.runCommand(context.Background(), 1,
+		call(t, `{"command":"cat notes.txt","directory":"`+dir+`"}`), emit)
+
+	if err != nil {
+		t.Fatalf("runCommand: %v", err)
+	}
+	if !got.Failed {
+		t.Fatalf("the command ran against what the directory became: %+v", got)
+	}
+	if strings.Contains(got.Text, "hunter2") {
+		t.Errorf("what is outside the directory was read: %q", got.Text)
+	}
+	if !strings.Contains(got.Text, "outside the working directory") {
+		t.Errorf("the model was told %q, want it to say the link leaves the working directory", got.Text)
+	}
 }
