@@ -551,6 +551,30 @@ func TestS15CapsACapThatIsNotOneIsRefused(t *testing.T) {
 	}
 }
 
+func TestS16CapsTheAppShowsWhatIsRunningAndWhyTheRestIsNot(t *testing.T) {
+	src := filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src")
+	body := readFile(t, filepath.Join(src, "views", "Overview.tsx"))
+
+	// The Runs in flight, and each passed-over Job with the reason itself
+	// rather than a column heading that happens to spell it.
+	for _, want := range []string{
+		`title="Running"`,
+		`title="Passed over"`,
+		"{p.Job.ID}",
+		"{p.Job.Project}",
+		"{p.Reason}",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the overview view does not render %s", want)
+		}
+	}
+	// And the app is told about them at all.
+	api := readFile(t, filepath.Join(src, "lib", "api.ts"))
+	if !strings.Contains(api, "o.PassedOver = list(o.PassedOver)") {
+		t.Errorf("the app does not read what was passed over:\n%s", api)
+	}
+}
+
 func TestS17CapsAProjectsCapThatIsNotOneRefusesTheProject(t *testing.T) {
 	l := newLayout(t)
 	globalConfig(t, l, "apiVersion: codingowl.dev/v1\n")
@@ -590,30 +614,6 @@ func TestS18CapsNothingRunsInParallelUntilSomebodyAsks(t *testing.T) {
 		if why != "owl is at its cap of 1 run" {
 			t.Errorf("job %s was passed over for %q, want owl's own cap of one", job, why)
 		}
-	}
-}
-
-func TestS16CapsTheAppShowsWhatIsRunningAndWhyTheRestIsNot(t *testing.T) {
-	src := filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src")
-	body := readFile(t, filepath.Join(src, "views", "Overview.tsx"))
-
-	// The Runs in flight, and each passed-over Job with the reason itself
-	// rather than a column heading that happens to spell it.
-	for _, want := range []string{
-		`title="Running"`,
-		`title="Passed over"`,
-		"{p.Job.ID}",
-		"{p.Job.Project}",
-		"{p.Reason}",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the overview view does not render %s", want)
-		}
-	}
-	// And the app is told about them at all.
-	api := readFile(t, filepath.Join(src, "lib", "api.ts"))
-	if !strings.Contains(api, "o.PassedOver = list(o.PassedOver)") {
-		t.Errorf("the app does not read what was passed over:\n%s", api)
 	}
 }
 

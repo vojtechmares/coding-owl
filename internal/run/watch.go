@@ -298,12 +298,32 @@ func (s *Service) beginOne(ctx context.Context) (string, bool) {
 	why := waitingFor(ctx, err)
 	switch {
 	case why == "":
-	case errors.Is(err, context.Canceled), ctx.Err() != nil:
+	case broke(err):
+		// Something went wrong rather than refused: a worktree that could not
+		// be made, a store that will not answer. The watcher treats it the
+		// same way either way, but a log nobody raises is one nobody reads.
+		s.opts.Logger.Error("starting a run on an idle machine", "error", err)
 	default:
 		s.opts.Logger.Debug("nothing was started on an idle machine", "reason", err)
 	}
 	s.holdingBack(why)
 	return why, false
+}
+
+// broke reports whether a failure to start is something going wrong rather
+// than something refusing: a Job waiting for a person or a window is what
+// `owl status` is for, and everything else is worth raising.
+func broke(err error) bool {
+	var refusal *RefusedError
+	var capped *CappedError
+	switch {
+	case err == nil, errors.Is(err, context.Canceled):
+		return false
+	case errors.As(err, &capped), errors.As(err, &refusal):
+		return false
+	default:
+		return true
+	}
 }
 
 // waitingFor is what a failure to start means to the watcher: the empty string
