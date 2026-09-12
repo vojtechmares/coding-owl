@@ -163,17 +163,6 @@ func (s *Service) watchUsage(r store.Run, account, line string) {
 	}
 }
 
-// readUsage writes down whatever lines of that output said about the Account.
-// It is for output read after the fact - what a Verification Session printed -
-// where a Run's own stream is read line by line as it arrives.
-func (s *Service) readUsage(ctx context.Context, account, output string) {
-	for _, line := range strings.Split(output, "\n") {
-		if u, ok := s.opts.Driver.Usage(line); ok {
-			s.recordUsage(ctx, account, u)
-		}
-	}
-}
-
 // Ceilings is every Account against what it is held to, with the readings
 // whose windows have started again dropped first: a figure about a window that
 // is over says nothing about the one that replaced it (ADR-0020).

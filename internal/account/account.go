@@ -267,12 +267,13 @@ func (s *Service) Remove(ctx context.Context, name string) (Account, error) {
 			"account %s is what %s ran on; removing it would leave them naming an account that is not there",
 			row.Name, plural(jobs, "job"))}
 	}
-	if err := s.store.DeleteAccount(ctx, row.Name); err != nil {
+	// What was read about its windows goes first: a figure about an Account
+	// nobody has is about nothing (ADR-0020), and a failure here is worth
+	// reporting while the Account is still there to report it about.
+	if err := s.store.ForgetAccountUsage(ctx, row.Name); err != nil {
 		return Account{}, err
 	}
-	// What was read about its windows goes with it: a figure about an Account
-	// nobody has is about nothing (ADR-0020).
-	if err := s.store.ForgetAccountUsage(ctx, row.Name); err != nil {
+	if err := s.store.DeleteAccount(ctx, row.Name); err != nil {
 		return Account{}, err
 	}
 	// The row is gone, so the secret has nothing left referring to it. The

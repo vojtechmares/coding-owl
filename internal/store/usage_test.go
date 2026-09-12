@@ -94,9 +94,9 @@ func TestAccountUsageIsForgottenWithItsAccount(t *testing.T) {
 	}
 }
 
-func TestAccountUsageIsBoundedByWhatOwlKeeps(t *testing.T) {
-	// Not a store rule but the one the store would otherwise carry: see
-	// internal/run, which is what decides how many windows an Account keeps.
+// A report reads the same twice, whatever order the readings arrived in. How
+// many windows an Account keeps is internal/run's to decide, and tested there.
+func TestAccountUsageIsListedInASteadyOrder(t *testing.T) {
 	s := openStore(t, filepath.Join(t.TempDir(), "owl.db"))
 	resets := time.Now().Add(time.Hour).UTC()
 	for at := range 3 {

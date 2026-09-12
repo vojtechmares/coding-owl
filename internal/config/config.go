@@ -517,7 +517,13 @@ func parseAccounts(source string, f file) (map[string]Limits, error) {
 		// it is always refused for the same one.
 		var l Limits
 		for _, what := range []string{fiveHourMax, weeklyMax} {
-			pct, err := parsePercent(source, name, what, written(block.Limits[what]))
+			value, set := block.Limits[what]
+			if set && strings.TrimSpace(written(value)) == "" {
+				return nil, fmt.Errorf(
+					"%s: accounts.%q.limits.%s: nothing was written after it; leave it out for no ceiling",
+					source, name, what)
+			}
+			pct, err := parsePercent(source, name, what, written(value))
 			if err != nil {
 				return nil, err
 			}
@@ -535,12 +541,10 @@ func parseAccounts(source string, f file) (map[string]Limits, error) {
 			}
 		}
 		sort.Strings(unknown)
-		for _, what := range unknown {
-			{
-				return nil, fmt.Errorf(
-					"%s: accounts.%q.limits: %q is not a ceiling Owl keeps; it keeps %s and %s",
-					source, name, what, fiveHourMax, weeklyMax)
-			}
+		if len(unknown) > 0 {
+			return nil, fmt.Errorf(
+				"%s: accounts.%q.limits: %q is not a ceiling Owl keeps; it keeps %s and %s",
+				source, name, unknown[0], fiveHourMax, weeklyMax)
 		}
 		out[name] = l
 	}
