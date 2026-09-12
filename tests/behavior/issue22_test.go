@@ -351,6 +351,10 @@ func TestS12CaskRefusesAVersionOrChecksumThatIsNotOne(t *testing.T) {
 		{"nightly", testDigest, "version"},
 		{"0.1", testDigest, "version"},
 		{"0.1.0", "not-a-digest", "checksum"},
+		// Hex, but not a sha256: a digest of the wrong length is a digest of
+		// something else.
+		{"0.1.0", testDigest[:32], "short checksum"},
+		{"0.1.0", testDigest + "00", "long checksum"},
 		{"", testDigest, "missing version"},
 		{"0.1.0", "", "missing checksum"},
 	} {
@@ -371,57 +375,98 @@ func TestS12CaskRefusesAVersionOrChecksumThatIsNotOne(t *testing.T) {
 	}
 }
 
-func TestS13CaskAndArchiveShipFromOneRelease(t *testing.T) {
-	workflow := readFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"))
+// jobOf is one job out of the workflow: from its name to the next job at the
+// same indentation. Cutting to the end of the file would let one job's text
+// answer for another's.
+func jobOf(t *testing.T, workflow, name string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(workflow, "\n  "+name+":\n")
+	if !ok {
+		t.Fatalf("the workflow has no %s job:\n%s", name, workflow)
+	}
+	for at, line := range strings.Split(rest, "\n") {
+		if at == 0 || line == "" || strings.HasPrefix(line, " ") || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Nothing at the top level but another job.
+		return strings.Join(strings.Split(rest, "\n")[:at], "\n")
+	}
+	return rest
+}
 
+// job is one job of the release workflow.
+func job(t *testing.T, name string) string {
+	t.Helper()
+	return jobOf(t, readFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml")), name)
+}
+
+func TestS13CaskAndArchiveShipFromOneRelease(t *testing.T) {
 	// The app can only be built on the platform it runs on, and nothing runs
 	// before the tag is checked.
-	desktop, _, ok := strings.Cut(workflow, "\n  release:")
-	if !ok {
-		t.Fatalf("the workflow has no release job:\n%s", workflow)
-	}
-	_, desktop, ok = strings.Cut(desktop, "\n  desktop:")
-	if !ok {
-		t.Fatalf("the workflow has no desktop job:\n%s", workflow)
-	}
-	if !strings.Contains(desktop, "runs-on: macos") {
-		t.Errorf("the desktop job does not run on a mac:\n%s", desktop)
-	}
-	if !strings.Contains(desktop, "needs: guard") {
-		t.Errorf("the desktop job is not guarded by the tag check:\n%s", desktop)
-	}
-	if !strings.Contains(desktop, "build-desktop-release.sh") {
-		t.Errorf("the desktop job does not build the release:\n%s", desktop)
+	desktop := job(t, "desktop")
+	for _, want := range []string{"runs-on: macos", "needs: guard", "build-desktop-release.sh"} {
+		if !strings.Contains(desktop, want) {
+			t.Errorf("the desktop job does not carry %q:\n%s", want, desktop)
+		}
 	}
 	// One release carries both, so a user cannot install an app whose daemon
 	// was never published.
-	release, _, ok := strings.Cut(workflow, "\n  cask:")
-	if !ok {
-		t.Fatalf("the workflow has no cask job:\n%s", workflow)
-	}
-	_, release, _ = strings.Cut(release, "\n  release:")
-	for _, want := range []string{"needs: [guard, desktop]", "CodingOwl-", "checksums.txt"} {
+	release := job(t, "release")
+	for _, want := range []string{
+		"needs: [guard, desktop]",
+		"download-artifact",
+		// Against the bytes it is about to publish: the zip and its digest
+		// travelled from the other job separately.
+		`shasum -a 256 -c "$ZIP.sha256"`,
+	} {
 		if !strings.Contains(release, want) {
 			t.Errorf("the release job does not carry %q:\n%s", want, release)
 		}
 	}
-	_, cask, ok := strings.Cut(workflow, "\n  cask:")
+	// What is published, rather than what is merely mentioned somewhere in the
+	// job: the zip and the checksums have to be arguments of the release.
+	_, publish, ok := strings.Cut(release, "gh release create")
 	if !ok {
-		t.Fatalf("the workflow has no cask job:\n%s", workflow)
+		t.Fatalf("the release job publishes nothing:\n%s", release)
 	}
-	for _, want := range []string{"needs: [guard, release]", "bump-cask.sh", "HOMEBREW_TAP_TOKEN"} {
-		if !strings.Contains(cask, want) {
-			t.Errorf("the cask job does not carry %q:\n%s", want, cask)
+	publish, _, _ = strings.Cut(publish, "\n\n")
+	for _, want := range []string{"CodingOwl-", "coding-owl_", "checksums.txt"} {
+		if !strings.Contains(publish, want) {
+			t.Errorf("the release does not carry %q:\n%s", want, publish)
 		}
 	}
 }
 
-func TestS14CaskAPrereleasePointsTheTapAtNeither(t *testing.T) {
-	workflow := readFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"))
+func TestS14CaskOneJobPointsTheTapAtBothAndAPrereleaseAtNeither(t *testing.T) {
+	tap := job(t, "tap")
 
-	const skip = "if: needs.release.outputs.prerelease == 'false'"
-	if n := strings.Count(workflow, skip); n != 2 {
-		t.Errorf("%d jobs are skipped for a prerelease, want the formula and the cask:\n%s", n, workflow)
+	// One job, so the two cannot race each other to the tap's branch.
+	for _, want := range []string{"bump-formula.sh", "bump-cask.sh"} {
+		if !strings.Contains(tap, want) {
+			t.Errorf("the tap job does not render %q:\n%s", want, tap)
+		}
+	}
+	workflow := readFile(t, filepath.Join(repoDir, ".github", "workflows", "release.yml"))
+	if n := strings.Count(workflow, "run: ./scripts/bump-"); n != 2 {
+		t.Errorf("the tap is pointed at from %d steps, want one job doing both:\n%s", n, workflow)
+	}
+	// Each checksum comes from the job that computed it, and the job waits for
+	// both of them.
+	if !strings.Contains(tap, "needs: [guard, desktop, release]") {
+		t.Errorf("the tap job does not wait for the app and the release:\n%s", tap)
+	}
+	if !strings.Contains(tap, "${{ needs.desktop.outputs.sha256 }}") {
+		t.Errorf("the cask is not given the checksum of the app that was built:\n%s", tap)
+	}
+	if !strings.Contains(tap, "${{ needs.release.outputs.sha256 }}") {
+		t.Errorf("the formula is not given the checksum of the archive that was built:\n%s", tap)
+	}
+	if !strings.Contains(tap, "HOMEBREW_TAP_TOKEN") {
+		t.Errorf("the tap job has no token to push with:\n%s", tap)
+	}
+	// And nothing reaches the tap for a prerelease.
+	if !strings.Contains(tap, "if: needs.release.outputs.prerelease == 'false'") {
+		t.Errorf("the tap job is not skipped for a prerelease:\n%s", tap)
 	}
 }
 
@@ -505,6 +550,11 @@ func installedFrom(t *testing.T, cask string) string {
 	// A tap left behind by an interrupted run would make the next one fail on
 	// a name that already exists. brew untap refuses while something from it is
 	// installed, so the directory goes either way.
+	// Only ever this tap: a RemoveAll built from a name brew did not give back
+	// is not something to run in somebody's Homebrew prefix.
+	if !strings.HasSuffix(where, filepath.Join("owlsmoke", "homebrew-cask")) {
+		t.Fatalf("brew --repository %s is %q, which is not the tap this scenario makes", tapName, where)
+	}
 	takeAway := func() {
 		// The cask goes before the tap it came from: brew untap refuses while
 		// something from it is installed, and an install left behind would
@@ -566,4 +616,28 @@ func replaceLine(t *testing.T, body, prefix, with string) string {
 		t.Fatalf("%d lines start with %q, want one:\n%s", found, prefix, body)
 	}
 	return strings.Join(out, "\n")
+}
+
+func TestS17CaskTheWorkflowIsOneActionsWillRun(t *testing.T) {
+	// A workflow only runs on a tag, where a mistake is found by the release
+	// failing. This reads it beforehand: an expression naming a job the job it
+	// is in does not depend on is exactly what it catches.
+	if _, err := exec.LookPath("actionlint"); err != nil {
+		t.Skip("actionlint is not installed; CI runs the same check on every push")
+	}
+	workflows, err := filepath.Glob(filepath.Join(repoDir, ".github", "workflows", "*.yml"))
+	if err != nil || len(workflows) == 0 {
+		t.Fatalf("no workflows to read: %v", err)
+	}
+
+	out, err := exec.Command("actionlint", workflows...).CombinedOutput()
+
+	if err != nil {
+		t.Errorf("actionlint refused the workflows: %v\n%s", err, out)
+	}
+	// And CI reads them too, so this holds for whoever has not installed it.
+	ci := readFile(t, filepath.Join(repoDir, ".github", "workflows", "ci.yml"))
+	if !strings.Contains(ci, "actionlint") {
+		t.Errorf("ci does not read the workflows:\n%s", ci)
+	}
 }

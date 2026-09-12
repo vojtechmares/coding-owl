@@ -40,6 +40,15 @@ jobs:
       - name: buf lint
         run: buf lint
 
+      # The release workflow is code that only ever runs on a tag, where a
+      # mistake is found by the release failing. actionlint reads it here
+      # instead - an expression naming a job that is not a dependency is the
+      # sort of thing it catches.
+      - name: Workflows are workflows Actions will run
+        run: |
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 \
+            .github/workflows/*.yml
+
       - name: Generated code is current
         run: buf generate && git diff --exit-code -- gen
 
