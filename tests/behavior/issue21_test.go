@@ -564,6 +564,15 @@ func TestS15CommandsTheAppAsksForConsentAndShowsWhatRan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the app could not read the conversation back: %v", err)
 	}
+	// One turn each way, whatever happened inside the exchange: the answer is
+	// accumulated and written once, so a command's output kept as a message of
+	// its own would show here whichever role it was given.
+	if len(kept.Messages) != 2 {
+		t.Errorf("the conversation holds %d messages, want the question and the answer: %+v",
+			len(kept.Messages), kept.Messages)
+	}
+	// And what the model quoted is the model's answer, which is what a
+	// conversation is for. Anything else carrying it is the output being kept.
 	for _, m := range kept.Messages {
 		if m.Role != "assistant" && strings.Contains(m.Text, "PRINTEDMARKER") {
 			t.Errorf("what the command printed is in the conversation as a %s message: %q", m.Role, m.Text)

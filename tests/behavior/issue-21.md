@@ -98,7 +98,7 @@ When its sources are read
 Then they show the command being proposed with its program, arguments and directory
 And offer allowing it once, allowing it for the conversation, and refusing
 And render what the command printed and how it exited
-And the conversation the daemon keeps holds what was said rather than what a command printed, so the app's own copy is the only record of it
+And the conversation the daemon keeps holds what was said - one turn each way - rather than what a command printed beyond what the model quoted, so the app's own copy is the only record of it
 
 ### S16 - An argument that is a link out of the working directory is denied
 Given a Project holds a symbolic link to a file outside it
