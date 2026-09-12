@@ -324,9 +324,15 @@ func TestS9CeilingStatusShowsEachAccountAgainstItsCeilings(t *testing.T) {
 	if over.used != "75%" || over.ceiling != "60%" {
 		t.Errorf("the account over its ceiling reads %+v, want 75%% against 60%%", over)
 	}
+	if !strings.Contains(over.resets, far().Format(time.RFC3339)) {
+		t.Errorf("the account over its ceiling resets at %q, want when the window starts again", over.resets)
+	}
 	under := usageOf(t, out, "spare", "five-hour")
 	if under.used != "42%" || under.ceiling != "60%" {
 		t.Errorf("the account under its ceiling reads %+v, want 42%% against 60%%", under)
+	}
+	if !strings.Contains(under.resets, far().Format(time.RFC3339)) {
+		t.Errorf("the account under its ceiling resets at %q, want when the window starts again", under.resets)
 	}
 	// And which Account is waiting, and until when - that one and not the
 	// other, or the report says nothing by saying it about everybody.

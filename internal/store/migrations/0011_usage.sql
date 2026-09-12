@@ -12,8 +12,8 @@ CREATE TABLE account_usage (
     window_name  TEXT NOT NULL,
     utilization  REAL NOT NULL,
     -- When the window starts again, and when this was read, as seconds since
-    -- the epoch: a reading is compared with now, and text that sorts by
-    -- accident is not a time (ADR-0025).
+    -- the epoch: a reading is compared with now and swept by it, and text that
+    -- sorts by accident is not a time.
     resets_unix   INTEGER NOT NULL,
     observed_unix INTEGER NOT NULL,
     PRIMARY KEY (account, window_name)
