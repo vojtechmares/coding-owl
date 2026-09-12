@@ -12,6 +12,12 @@ ADR-XXXX` and stays where it is.
 
 - **Status:** Proposed | Accepted | Superseded by ADR-XXXX
 - **Date:** YYYY-MM-DD
+- **Supersedes:** what of an earlier record this replaces, when it replaces part
+  of one rather than all of it. Optional.
+- **Amended:** YYYY-MM-DD, and what was corrected. For a record that said
+  something untrue about its own mechanism: the decision stands, so the status
+  does not change, but a reader should be able to see that the project once
+  held it the other way. Optional.
 
 ## Context
 What forces are at play; what made this a decision rather than a default.
