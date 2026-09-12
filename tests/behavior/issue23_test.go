@@ -20,6 +20,7 @@ import (
 type caps struct {
 	l       *layout
 	m       *machine
+	d       *daemonProc
 	release string
 }
 
@@ -46,8 +47,8 @@ func capsLayout(t *testing.T, global string) *caps {
 		config += "idle:\n  interval: 100ms\n"
 	}
 	l, m := watching(t, l, config)
-	daemonUp(t, l)
-	return &caps{l: l, m: m, release: release}
+	d := daemonUp(t, l)
+	return &caps{l: l, m: m, d: d, release: release}
 }
 
 // project registers a Project of its own with that configuration and queues
@@ -675,4 +676,19 @@ func TestS20CapsAProjectNobodyCanReadIsPassedOverNotAWall(t *testing.T) {
 			t.Errorf("job %s was passed over for %q, want it to carry what the file said", job, why)
 		}
 	}
+}
+
+func TestS21CapsAFailureToStartIsRaisedNotBuried(t *testing.T) {
+	c := capsLayout(t, "maxParallelRuns: 2\n")
+	// A plain file where the worktrees directory goes, so that making one
+	// fails with something that is neither a cap nor a refusal: the daemon
+	// logs at its default level, where a Debug line would not be seen at all.
+	if err := os.WriteFile(filepath.Join(c.l.data, "coding-owl", "worktrees"), []byte("in the way\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c.project(t, "api", "", 1)
+
+	c.away(t)
+
+	waitForLog(t, c.d, `level=ERROR msg="starting a run on an idle machine"`)
 }
