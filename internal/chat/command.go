@@ -137,6 +137,11 @@ func (s *Service) runCommand(ctx context.Context, conversation int64, call ToolC
 	if err != nil {
 		return refusedCall(call, err.Error()), nil
 	}
+	// And then what only the directory can answer: an operand that is a link
+	// out of it. The rules above cannot see one (ADR-0022).
+	if err := command.CheckIn(dir, argv); err != nil {
+		return refusedCall(call, err.Error()), nil
+	}
 
 	allowed, err := s.consent(ctx, conversation, argv, dir, emit)
 	if err != nil {

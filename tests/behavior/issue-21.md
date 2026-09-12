@@ -98,3 +98,9 @@ When its sources are read
 Then they show the command being proposed with its program, arguments and directory
 And offer allowing it once, allowing it for the conversation, and refusing
 And render what the command printed and how it exited
+
+### S16 - An argument that is a link out of the working directory is denied
+Given a Project holds a symbolic link to a file outside it
+When a model asks to read that link and the answer streams
+Then it is denied without asking for consent, saying the link is outside the working directory
+And what is outside the Project does not reach the model
