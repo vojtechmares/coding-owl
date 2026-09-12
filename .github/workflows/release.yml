@@ -266,10 +266,12 @@ jobs:
 
   # One job for both, because two jobs pushing to one branch race each other
   # and leave the tap half bumped - which is the opposite of the lockstep
-  # ADR-0010 asks for. The formula goes first: what that leaves if the cask
-  # cannot be pushed is a newer daemon than app, which is the skew ADR-0004's
-  # breaking-change detection is there to make safe. The other way round would
-  # leave an app whose daemon nobody can install.
+  # ADR-0010 asks for. The formula goes first, so that what a failed cask push
+  # leaves is an older app against a newer daemon: that is the skew ADR-0004's
+  # breaking-change detection makes safe. The other way round is the skew it
+  # does not cover, because a newer app can call an RPC an older daemon never
+  # had and adding one is not a breaking change - and on a first release it
+  # leaves a cask whose formula is not in the tap at all.
   #
   # The tap lives in another repository, so github.token cannot reach it -
   # HOMEBREW_TAP_TOKEN is a PAT with contents:write on the tap.
@@ -279,6 +281,13 @@ jobs:
     if: needs.release.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Two releases cut minutes apart would otherwise race two of these to the
+    # same branch. On this job rather than the workflow, so the macOS build is
+    # not serialised with it, and queueing rather than cancelling, because a
+    # tap job cancelled mid-push is worse than one that waits.
+    concurrency:
+      group: release-tap
+      cancel-in-progress: false
 
     steps:
       # An unset secret checks out the public tap happily and only fails on the

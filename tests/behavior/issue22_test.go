@@ -398,6 +398,24 @@ func jobOf(t *testing.T, workflow, name string) string {
 	return rest
 }
 
+// stepName is a step's own line, whatever order its keys are written in.
+var stepName = regexp.MustCompile(`(?m)^      - (name|uses|run):`)
+
+// stepOf is one step of a job, from its name to the next step. Cutting by
+// where a key happens to sit inside a step would fail a workflow that is right
+// and merely written in another order.
+func stepOf(t *testing.T, job, name string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(job, "      - name: "+name+"\n")
+	if !ok {
+		t.Fatalf("the job has no %q step:\n%s", name, job)
+	}
+	if at := stepName.FindStringIndex(rest); at != nil {
+		return rest[:at[0]]
+	}
+	return rest
+}
+
 // job is one job of the release workflow.
 func job(t *testing.T, name string) string {
 	t.Helper()
@@ -463,14 +481,15 @@ func TestS14CaskOneJobPointsTheTapAtBothAndAPrereleaseAtNeither(t *testing.T) {
 		t.Errorf("the tap job does not render the formula before the cask:\n%s", tap)
 	}
 	// Each is given the checksum of the thing it points at, rather than of the
-	// other one: swapped, both would fail their sha256 on install. A step's
-	// environment is written above the run line that uses it, so the formula's
-	// is what comes before its run line and the cask's what comes between.
-	if want := "${{ needs.release.outputs.sha256 }}"; !strings.Contains(tap[:formula], want) {
-		t.Errorf("the formula step is not given %s:\n%s", want, tap[:formula])
-	}
-	if want := "${{ needs.desktop.outputs.sha256 }}"; !strings.Contains(tap[formula:cask], want) {
-		t.Errorf("the cask step is not given %s:\n%s", want, tap[formula:cask])
+	// other one: swapped, both would fail their sha256 on install.
+	for _, want := range []struct{ step, sha string }{
+		{"Render and push the formula", "${{ needs.release.outputs.sha256 }}"},
+		{"Render and push the cask", "${{ needs.desktop.outputs.sha256 }}"},
+	} {
+		step := stepOf(t, tap, want.step)
+		if !strings.Contains(step, want.sha) {
+			t.Errorf("the %q step is not given %s:\n%s", want.step, want.sha, step)
+		}
 	}
 	// And the job waits for both of the jobs those come from.
 	if !strings.Contains(tap, "needs: [guard, desktop, release]") {
