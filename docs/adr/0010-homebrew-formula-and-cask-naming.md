@@ -34,9 +34,11 @@ CDN at `releases.codingowl.dev` and a plugin registry at
   existing GoReleaser-generated `statica` formula. Both are pushed to the tap by
   CI with a `contents:write` token. Versions are ZeroVer (`v0.x.y`) with no
   prereleases until SemVer is adopted.
-- Two artifacts must be released in lockstep, and users will inevitably run a
-  desktop app against an older daemon. ADR-0004's Buf breaking-change detection
-  is what makes that safe.
+- Two artifacts must be released in lockstep, and users will inevitably end up
+  with one of them older than the other. ADR-0004's Buf breaking-change
+  detection covers an older app against a newer daemon and not the reverse, so
+  the daemon is the half to get there first: the release renders the formula
+  before the cask, and the cask depends on the formula.
 - The formula name does not match the binary name (`owl`). This is ordinary in
   Homebrew - `ripgrep` installs `rg`.
 - Pointing formulae at GitHub Release assets rather than a custom domain keeps

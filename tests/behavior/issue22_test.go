@@ -398,8 +398,10 @@ func jobOf(t *testing.T, workflow, name string) string {
 	return rest
 }
 
-// stepName is a step's own line, whatever order its keys are written in.
-var stepName = regexp.MustCompile(`(?m)^      - (name|uses|run):`)
+// stepName is a step's own line: any key at a step's indentation, so that a
+// step written with something other than name, uses or run first still ends
+// the one before it.
+var stepName = regexp.MustCompile(`(?m)^      - [A-Za-z_-]+:`)
 
 // stepOf is one step of a job, from its name to the next step. Cutting by
 // where a key happens to sit inside a step would fail a workflow that is right
@@ -497,6 +499,14 @@ func TestS14CaskOneJobPointsTheTapAtBothAndAPrereleaseAtNeither(t *testing.T) {
 	}
 	if !strings.Contains(tap, "HOMEBREW_TAP_TOKEN") {
 		t.Errorf("the tap job has no token to push with:\n%s", tap)
+	}
+	// And two releases cut close together do not race two of these to the same
+	// branch, nor cancel one mid-push.
+	if !strings.Contains(tap, "group: release-tap") {
+		t.Errorf("the tap job may run twice over:\n%s", tap)
+	}
+	if !strings.Contains(tap, "cancel-in-progress: false") {
+		t.Errorf("the tap job may be cancelled while it is pushing:\n%s", tap)
 	}
 	// And nothing reaches the tap for a prerelease.
 	if !strings.Contains(tap, "if: needs.release.outputs.prerelease == 'false'") {

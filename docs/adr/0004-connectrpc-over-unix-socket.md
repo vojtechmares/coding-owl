@@ -42,9 +42,13 @@ remote daemons generally.
   no h2c setup. Server-streaming - the log tail - works over HTTP/1.1; only
   full bidirectional streaming would need HTTP/2. Plain grpc-go mandates HTTP/2
   everywhere.
-- Buf's breaking-change detection guards the case that actually matters at
-  release time: a shipped CLI or desktop app talking to a daemon the user has
-  not upgraded.
+- Buf's breaking-change detection guards one direction of skew and not the
+  other. `breaking: use: [FILE]` forbids removing or renumbering what is
+  already there, so a client that has not been upgraded keeps working against a
+  newer daemon. It permits additions, so a newer client calling something an
+  older daemon never had is not covered - it gets Unimplemented. The daemon is
+  therefore the half to upgrade first, which is what ADR-0010's lockstep
+  release is for.
 - `buf` becomes a required tool in the build and in CI.
 - Adding TCP later is a listener swap; adding auth is an interceptor. Neither
   touches service definitions.
