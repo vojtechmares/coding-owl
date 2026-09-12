@@ -1,6 +1,8 @@
 package command_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -201,4 +203,46 @@ func same(got, want []string) bool {
 		}
 	}
 	return true
+}
+
+// The literal path rules cannot see a link: a Project holding one to somewhere
+// else would otherwise be a way out of the directory the command was confined
+// to (ADR-0022).
+func TestCheckInRefusesAnOperandThatLinksOutOfTheWorkingDirectory(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	write(t, outside, "secret.txt", "the password is hunter2\n")
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(root, "secret.txt")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "elsewhere")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+	write(t, root, "owl.txt", "owl was here\n")
+
+	for _, line := range []string{"cat secret.txt", "ls elsewhere", "grep -rn owl elsewhere"} {
+		argv, err := command.Parse(line)
+		if err != nil {
+			t.Fatalf("Parse(%q) = %v", line, err)
+		}
+		err = command.CheckIn(root, argv)
+		if err == nil {
+			t.Errorf("CheckIn(%q) = nil, want it denied", line)
+			continue
+		}
+		if !strings.Contains(err.Error(), "outside the working directory") {
+			t.Errorf("CheckIn(%q) = %q, want it to say the link leaves the working directory", line, err)
+		}
+	}
+	// What is really in the directory is still allowed, and so is an operand
+	// that is not a file at all.
+	for _, line := range []string{"cat owl.txt", "git show HEAD", "grep -rn owl ."} {
+		argv, err := command.Parse(line)
+		if err != nil {
+			t.Fatalf("Parse(%q) = %v", line, err)
+		}
+		if err := command.CheckIn(root, argv); err != nil {
+			t.Errorf("CheckIn(%q) = %v, want it allowed", line, err)
+		}
+	}
 }

@@ -7,6 +7,7 @@ package command
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -246,3 +247,54 @@ func checkOperand(arg string) error {
 // shown is an argument as a refusal quotes it, so that a refusal about an
 // empty or odd-looking argument still reads as a sentence.
 func shown(arg string) string { return fmt.Sprintf("%q", arg) }
+
+// CheckIn is Check, and then what only the working directory can answer: an
+// operand that is a link out of it. The literal path rules cannot see one,
+// and a Project that holds a link to somewhere else would otherwise be a way
+// out of the directory Owl confined the command to (ADR-0022).
+//
+// A name that is not a file is left alone: most of git's operands are
+// revisions, and grep's first operand is a pattern.
+func CheckIn(dir string, argv []string) error {
+	if err := Check(argv); err != nil {
+		return err
+	}
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return denied("the working directory cannot be read: %v", err)
+	}
+	for _, arg := range operands(argv) {
+		at := filepath.Join(root, arg)
+		real, err := filepath.EvalSymlinks(at)
+		if err != nil {
+			// Nothing of that name, which is a revision, a pattern, or a file
+			// the command will complain about itself.
+			continue
+		}
+		if real != root && !strings.HasPrefix(real, root+string(filepath.Separator)) {
+			return denied("the argument %s is a link to %s, which is outside the working directory",
+				shown(arg), real)
+		}
+	}
+	return nil
+}
+
+// operands are the arguments that are not options: what the command will work
+// on, as opposed to how.
+func operands(argv []string) []string {
+	if len(argv) == 0 {
+		return nil
+	}
+	rest := argv[1:]
+	if r, ok := allowed[argv[0]]; ok && len(r.subcommands) > 0 && len(rest) > 0 {
+		rest = rest[1:]
+	}
+	var out []string
+	for _, arg := range rest {
+		if arg == "" || strings.HasPrefix(arg, "-") {
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
+}

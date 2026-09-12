@@ -551,3 +551,32 @@ func TestS15CommandsTheAppAsksForConsentAndShowsWhatRan(t *testing.T) {
 		}
 	}
 }
+
+func TestS16CommandsAnArgumentThatLinksOutOfTheProjectIsDenied(t *testing.T) {
+	l, r, p := commandLayout(t, "", anthropicText("I cannot read that."))
+	outside := write(t, filepath.Dir(r.dir), "secret.txt", "the password is hunter2\n")
+	// A link inside the Project that leads out of it: the path itself says
+	// nothing, so only following it tells.
+	if err := os.Symlink(outside, filepath.Join(r.dir, "secret.txt")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+	p.replies[0] = asksToRun("call-1", "cat secret.txt", r.dir)
+	app, ev := desktopApp(t, l)
+
+	_, got := commanding(t, app, ev, 0, anthropicModel(t, app), "read secret.txt",
+		allowing(desktop.AllowOnce))
+
+	if len(got.proposed) != 0 {
+		t.Errorf("consent was asked for a link out of the project: %+v", got.proposed)
+	}
+	if len(got.ran) != 0 {
+		t.Errorf("a link out of the project was read anyway: %+v", got.ran)
+	}
+	told := p.told(t, 1)
+	if !strings.Contains(told, "outside the working directory") {
+		t.Errorf("the model was not told the link leaves the working directory:\n%s", told)
+	}
+	if strings.Contains(told, "hunter2") {
+		t.Errorf("what is outside the project reached the model:\n%s", told)
+	}
+}
