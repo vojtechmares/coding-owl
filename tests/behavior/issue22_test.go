@@ -502,7 +502,10 @@ func TestS14CaskOneJobPointsTheTapAtBothAndAPrereleaseAtNeither(t *testing.T) {
 	}
 	// And two releases cut close together do not race two of these to the same
 	// branch, nor cancel one mid-push.
-	if !strings.Contains(tap, "group: release-tap") {
+	// The whole group and nothing after it: `release-tap-${{ github.ref }}` is
+	// one group per tag, which serialises nothing, and appending a ref is the
+	// commonest edit anybody makes to one of these.
+	if !strings.Contains(tap, "group: release-tap\n") {
 		t.Errorf("the tap job may run twice over:\n%s", tap)
 	}
 	if !strings.Contains(tap, "cancel-in-progress: false") {
