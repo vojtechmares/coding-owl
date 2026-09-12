@@ -50,7 +50,9 @@ func printOverview(env Env, o client.Overview) {
 	// read, a Project's setup command - so both reach the terminal as text.
 	_, _ = fmt.Fprintln(env.Stdout, terminalSafe(machineLine(o.Machine)))
 	if why := heldBy(o); why != "" {
-		_, _ = fmt.Fprintf(env.Stdout, "nothing is running: %s\n", terminalSafe(why))
+		// One line, because what it carries is whatever a tool or a git said,
+		// and a message with newlines in it would look like several answers.
+		_, _ = fmt.Fprintf(env.Stdout, "nothing is running: %s\n", oneLineCell(why))
 	}
 	_, _ = fmt.Fprintln(env.Stdout)
 	if o.Empty() {
