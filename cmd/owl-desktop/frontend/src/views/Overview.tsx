@@ -133,11 +133,11 @@ export function Overview({
                       <tr key={`${a.Name}/${w.Name}`}>
                         <td>{a.Name}</td>
                         <td>{w.Name}</td>
-                        <td className={w.Ceiling > 0 && w.Utilization >= w.Ceiling ? "over" : ""}>
-                          {share(w.Utilization)}
+                        <td className={w.Read && w.Ceiling > 0 && w.Utilization >= w.Ceiling ? "over" : ""}>
+                          {w.Read ? share(w.Utilization) : "-"}
                         </td>
                         <td>{w.Ceiling > 0 ? share(w.Ceiling) : "-"}</td>
-                        <td className="dim">{when(w.Resets)}</td>
+                        <td className="dim">{w.Read ? when(w.Resets) : "-"}</td>
                       </tr>
                     )),
               )}

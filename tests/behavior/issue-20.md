@@ -98,7 +98,13 @@ Given global configuration whose `accounts` block sets a ceiling of `soon`, or o
 When the daemon reads it
 Then it refuses to start, naming the file and the setting
 
-### S11 - the app shows each Account against its ceilings
+### S11 - a window that starts again while the Job waits releases it
+Given an Account over its five-hour ceiling on a reading whose window starts again in a few seconds
+When `owl start` is called before that, and again after it
+Then the first is refused, and the second runs the Job
+And `owl status` no longer reports the window the reading was about
+
+### S12 - the app shows each Account against its ceilings
 Given the desktop app on a daemon with an Account over its ceiling
 When the app is asked for the overview
 Then it carries that Account's windows, their utilization, their ceilings and their reset times

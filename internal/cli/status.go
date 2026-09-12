@@ -196,9 +196,12 @@ func printAccounts(env Env, accounts []client.AccountCeiling) {
 			continue
 		}
 		for _, u := range a.Windows {
+			used, resets := noneYet, noneYet
+			if u.Read {
+				used, resets = share(u.Utilization), u.Resets.UTC().Format(time.RFC3339)
+			}
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-				a.Name, u.Name, share(u.Utilization), orNoCeiling(u.Ceiling),
-				u.Resets.UTC().Format(time.RFC3339))
+				a.Name, u.Name, used, orNoCeiling(u.Ceiling), resets)
 		}
 	}
 	_ = w.Flush()

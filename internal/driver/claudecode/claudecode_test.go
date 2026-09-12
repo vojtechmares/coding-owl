@@ -2,6 +2,7 @@ package claudecode_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -300,5 +301,25 @@ func TestUsageKeepsTheWindowsItCanReadFromOneItCannot(t *testing.T) {
 
 	if !ok || len(got.Windows) != 1 || got.Windows[0].Name != "five_hour" {
 		t.Errorf("Usage = %+v, %v; want the window it could read and not the one it could not", got, ok)
+	}
+}
+
+func TestUsageWillNotReadWhatAToolShouldNotBeSaying(t *testing.T) {
+	d := claudecode.New()
+	long := strings.Repeat("w", 65)
+	if got, ok := d.Usage(`{"type":"system","subtype":"usage_limits","limits":{"` + long +
+		`":{"utilization":10,"resets_at":"2031-01-01T00:00:00Z"}}}`); ok {
+		t.Errorf("Usage = %+v, want nothing read out of a window with a name that long", got)
+	}
+
+	// A line about more windows than a tool has is a line about something
+	// else.
+	var many []string
+	for at := range 20 {
+		many = append(many, fmt.Sprintf(`"w%d":{"utilization":1,"resets_at":"2031-01-01T00:00:00Z"}`, at))
+	}
+	if got, ok := d.Usage(`{"type":"system","subtype":"usage_limits","limits":{` +
+		strings.Join(many, ",") + `}}`); ok {
+		t.Errorf("Usage = %+v, want nothing read out of a line about %d windows", got, len(many))
 	}
 }

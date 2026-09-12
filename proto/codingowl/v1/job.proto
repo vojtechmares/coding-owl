@@ -414,6 +414,9 @@ message AccountCeiling {
 message UsageWindow {
   // Name is the window in Owl's words: `five-hour` or `weekly`.
   string name = 1;
+  // Read is whether anything has been read about it yet. Utilization and
+  // resets say nothing until it is true.
+  bool read = 5;
   // Utilization is how much of it is spent, as a percentage, counting what the
   // user spent themselves.
   double utilization = 2;

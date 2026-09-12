@@ -280,6 +280,9 @@ type AccountCeiling struct {
 type UsageWindow struct {
 	// Name is the window in Owl's words: `five-hour` or `weekly`.
 	Name string
+	// Read is whether anything has been read about it yet; Utilization and
+	// Resets say nothing until it is true.
+	Read bool
 	// Utilization is how much of it is spent, as a percentage, counting what
 	// the user spent themselves.
 	Utilization float64
@@ -356,7 +359,7 @@ func (c *Client) GetOverview(ctx context.Context) (Overview, error) {
 		}
 		for _, w := range a.GetWindows() {
 			ceiling.Windows = append(ceiling.Windows, UsageWindow{
-				Name: w.GetName(), Utilization: w.GetUtilization(),
+				Name: w.GetName(), Read: w.GetRead(), Utilization: w.GetUtilization(),
 				Ceiling: w.GetCeiling(), Resets: w.GetResets().AsTime(),
 			})
 		}
