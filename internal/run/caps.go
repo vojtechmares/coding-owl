@@ -24,6 +24,11 @@ type Skip struct {
 	// idle for minutes. A ceiling that has hours to run, a Project nobody can
 	// read and a Project that names no Account do not: they are worth waiting
 	// longer between looks for, and worth saying out loud (ADR-0011).
+	//
+	// It is set true only where a counter has met a cap, and every cap is at
+	// least one, so a Run is necessarily in flight whenever it is - which is
+	// what makes looking again soon worth the work. A cap of zero becoming
+	// representable is what would break that.
 	Clears bool
 }
 

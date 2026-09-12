@@ -70,6 +70,28 @@ func TestWhatTheWatcherWaitsFor(t *testing.T) {
 	}
 }
 
+// And whether it is worth raising. The watcher treats a refusal and a failure
+// the same way; the log is the only place they read differently, and a log
+// nobody raises is one nobody reads.
+func TestWhatTheWatcherRaises(t *testing.T) {
+	for _, c := range []struct {
+		what string
+		err  error
+		want bool
+	}{
+		{what: "nothing went wrong", err: nil, want: false},
+		{what: "a cap", err: &CappedError{Err: errors.New("owl is at its cap of 1 run")}, want: false},
+		{what: "a refusal for a person", err: refused("claude is older than owl drives"), want: false},
+		{what: "work already in hand", err: busy("a run is already in progress"), want: false},
+		{what: "a daemon on its way out", err: context.Canceled, want: false},
+		{what: "a worktree that could not be made", err: errors.New("git worktree add: no space left"), want: true},
+	} {
+		if got := broke(c.err); got != c.want {
+			t.Errorf("with %s, raising it is %v, want %v", c.what, got, c.want)
+		}
+	}
+}
+
 // One Job waiting only for a slot is enough to keep looking, whatever else is
 // in the queue: the slot opens the moment a Run ends, and a watcher that waited
 // because an older Job needs a person would leave it idle for minutes.
