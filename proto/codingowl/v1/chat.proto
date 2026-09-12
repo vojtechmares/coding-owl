@@ -6,8 +6,10 @@ import "google/protobuf/timestamp.proto";
 
 // ChatService is the conversation the desktop app holds with a model
 // (ADR-0022). The daemon holds the model credentials and keeps the
-// conversations, and the tools it offers a model only read: the chat never
-// acts. The CLI configures the providers and surfaces no chat of its own.
+// conversations. Every tool it offers a model reads what Owl holds, but for
+// one: a command tool that runs a program from a short allowlist in a Project,
+// with no shell and only after the user has allowed it. The CLI configures the
+// providers and surfaces no chat of its own.
 service ChatService {
   // AddProvider configures a way to reach models, putting its key in the
   // credential store and only a reference to it in the database (ADR-0019).
@@ -23,7 +25,12 @@ service ChatService {
   // GetConversation returns one with what was said in it.
   rpc GetConversation(GetConversationRequest) returns (GetConversationResponse) {}
   // SendMessage says something and streams the answer back, a piece at a time.
+  // A command the chat wants to run arrives in that stream and waits there for
+  // AnswerCommand (ADR-0022).
   rpc SendMessage(SendMessageRequest) returns (stream SendMessageResponse) {}
+  // AnswerCommand answers a command the chat asked about. Nothing runs until
+  // it does, and nothing runs at all if the answer is to refuse.
+  rpc AnswerCommand(AnswerCommandRequest) returns (AnswerCommandResponse) {}
 }
 
 // ChatProvider is a configured way to reach models. Its key is never here.
@@ -132,4 +139,59 @@ message SendMessageResponse {
   int64 conversation_id = 1;
   // Delta is a piece of the answer as it arrived.
   string delta = 2;
+  // Proposal is a command the chat wants to run, waiting to be answered.
+  CommandProposal proposal = 3;
+  // Ran is a command that has run, and what it printed.
+  CommandRun ran = 4;
 }
+
+// CommandProposal is a command the chat wants to run. It carries what will
+// run rather than what the model wrote, so that what a person agrees to is
+// what happens (ADR-0022).
+message CommandProposal {
+  // Id is what an answer names.
+  string id = 1;
+  // Argv is the program and its arguments, exactly as they will be passed.
+  repeated string argv = 2;
+  // Directory is where it will run: a Project, or one of its worktrees.
+  string directory = 3;
+}
+
+// CommandRun is what came of one.
+message CommandRun {
+  // Id is the proposal it answers.
+  string id = 1;
+  // Argv and Directory are what ran, and where.
+  repeated string argv = 2;
+  string directory = 3;
+  // Output is what it printed, standard output and standard error together,
+  // bounded.
+  string output = 4;
+  // ExitCode is how it ended.
+  int32 exit_code = 5;
+  // Cut is whether it printed more than Owl kept.
+  bool cut = 6;
+}
+
+// CommandDecision is what a person answered about a command.
+enum CommandDecision {
+  // COMMAND_DECISION_UNSPECIFIED is no answer, which runs nothing.
+  COMMAND_DECISION_UNSPECIFIED = 0;
+  // COMMAND_DECISION_ALLOW_ONCE runs this command and asks again about the
+  // next.
+  COMMAND_DECISION_ALLOW_ONCE = 1;
+  // COMMAND_DECISION_ALLOW_CONVERSATION runs this one and stops asking for the
+  // rest of the conversation.
+  COMMAND_DECISION_ALLOW_CONVERSATION = 2;
+  // COMMAND_DECISION_REFUSE runs nothing.
+  COMMAND_DECISION_REFUSE = 3;
+}
+
+message AnswerCommandRequest {
+  // Id is the proposal being answered.
+  string id = 1;
+  // Decision is the answer.
+  CommandDecision decision = 2;
+}
+
+message AnswerCommandResponse {}

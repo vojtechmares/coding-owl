@@ -80,6 +80,10 @@ export const api = {
     App.Send(conversation, model, text),
   sendTo: (conversation: number, provider: string, model: string, text: string): Promise<number> =>
     App.SendTo(conversation, provider, model, text),
+  // Answering a command is how consent is given: once, for the rest of the
+  // conversation, or not at all (ADR-0022). Nothing runs until this is called.
+  answerCommand: (requestId: string, decision: CommandDecision): Promise<void> =>
+    App.AnswerCommand(requestId, decision),
   followLog: (runId: number): Promise<void> => App.FollowLog(runId),
   stopLog: (runId: number): Promise<void> => App.StopLog(runId),
 };
@@ -89,6 +93,31 @@ export const EVENT_LOG_LINE = "run:log";
 export const EVENT_LOG_END = "run:log:end";
 export const EVENT_CHAT_DELTA = "chat:delta";
 export const EVENT_CHAT_END = "chat:end";
+export const EVENT_CHAT_COMMAND = "chat:command";
+export const EVENT_CHAT_COMMAND_DONE = "chat:command-done";
+
+// The answers a person may give about a command, as internal/chat names them.
+export type CommandDecision = "once" | "conversation" | "refuse";
+
+// ChatCommand is a command the chat wants to run, waiting to be answered. It
+// carries what will run rather than what the model wrote.
+export interface ChatCommand {
+  conversationId: number;
+  requestId: string;
+  argv: string[];
+  directory: string;
+}
+
+// ChatCommandDone is a command that has run, and what came of it.
+export interface ChatCommandDone {
+  conversationId: number;
+  requestId: string;
+  argv: string[];
+  directory: string;
+  output: string;
+  exitCode: number;
+  cut: boolean;
+}
 
 export interface ChatDelta {
   conversationId: number;

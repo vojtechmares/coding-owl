@@ -5,6 +5,8 @@ import {desktop} from '../models';
 
 export function Accept(arg1:number,arg2:boolean):Promise<client.Job>;
 
+export function AnswerCommand(arg1:string,arg2:string):Promise<void>;
+
 export function Conversation(arg1:number):Promise<client.ConversationDetails>;
 
 export function Conversations():Promise<Array<client.Conversation>>;

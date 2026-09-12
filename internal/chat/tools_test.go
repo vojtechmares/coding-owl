@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -116,5 +117,37 @@ func TestToolsCarryOnlySoMuch(t *testing.T) {
 	}
 	if !strings.Contains(got.Text, "not carried") {
 		t.Errorf("what was left out is not said: %q", got.Text[max(len(got.Text)-120, 0):])
+	}
+}
+
+// An answer names the command it is about. One that names nothing waiting is a
+// window that was left open, or an answer that arrived twice: it is refused
+// rather than taken as consent to something.
+func TestAnswerCommandRefusesWhatNobodyIsWaitingFor(t *testing.T) {
+	s := chat.NewService(nil, nil, chat.NewTools(&fakeView{}))
+
+	err := s.AnswerCommand("no-such-command", chat.AllowOnce)
+
+	if err == nil {
+		t.Fatal("AnswerCommand for a command nobody asked about = nil, want it refused")
+	}
+	var invalid *chat.InvalidError
+	if !errors.As(err, &invalid) {
+		t.Errorf("AnswerCommand = %T, want the caller's mistake", err)
+	}
+}
+
+// And it is one of the three answers. Anything else is not consent, and a
+// daemon that read it as any of them would be inventing one.
+func TestAnswerCommandRefusesAnAnswerThatIsNotOne(t *testing.T) {
+	s := chat.NewService(nil, nil, chat.NewTools(&fakeView{}))
+
+	err := s.AnswerCommand("whatever", chat.Decision("allow-everything-for-ever"))
+
+	if err == nil {
+		t.Fatal("AnswerCommand with an answer that is not one = nil, want it refused")
+	}
+	if !strings.Contains(err.Error(), "allow-everything-for-ever") {
+		t.Errorf("the refusal %q does not say what was answered", err)
 	}
 }

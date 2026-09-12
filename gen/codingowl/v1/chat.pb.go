@@ -22,6 +22,65 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// CommandDecision is what a person answered about a command.
+type CommandDecision int32
+
+const (
+	// COMMAND_DECISION_UNSPECIFIED is no answer, which runs nothing.
+	CommandDecision_COMMAND_DECISION_UNSPECIFIED CommandDecision = 0
+	// COMMAND_DECISION_ALLOW_ONCE runs this command and asks again about the
+	// next.
+	CommandDecision_COMMAND_DECISION_ALLOW_ONCE CommandDecision = 1
+	// COMMAND_DECISION_ALLOW_CONVERSATION runs this one and stops asking for the
+	// rest of the conversation.
+	CommandDecision_COMMAND_DECISION_ALLOW_CONVERSATION CommandDecision = 2
+	// COMMAND_DECISION_REFUSE runs nothing.
+	CommandDecision_COMMAND_DECISION_REFUSE CommandDecision = 3
+)
+
+// Enum value maps for CommandDecision.
+var (
+	CommandDecision_name = map[int32]string{
+		0: "COMMAND_DECISION_UNSPECIFIED",
+		1: "COMMAND_DECISION_ALLOW_ONCE",
+		2: "COMMAND_DECISION_ALLOW_CONVERSATION",
+		3: "COMMAND_DECISION_REFUSE",
+	}
+	CommandDecision_value = map[string]int32{
+		"COMMAND_DECISION_UNSPECIFIED":        0,
+		"COMMAND_DECISION_ALLOW_ONCE":         1,
+		"COMMAND_DECISION_ALLOW_CONVERSATION": 2,
+		"COMMAND_DECISION_REFUSE":             3,
+	}
+)
+
+func (x CommandDecision) Enum() *CommandDecision {
+	p := new(CommandDecision)
+	*p = x
+	return p
+}
+
+func (x CommandDecision) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CommandDecision) Descriptor() protoreflect.EnumDescriptor {
+	return file_codingowl_v1_chat_proto_enumTypes[0].Descriptor()
+}
+
+func (CommandDecision) Type() protoreflect.EnumType {
+	return &file_codingowl_v1_chat_proto_enumTypes[0]
+}
+
+func (x CommandDecision) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CommandDecision.Descriptor instead.
+func (CommandDecision) EnumDescriptor() ([]byte, []int) {
+	return file_codingowl_v1_chat_proto_rawDescGZIP(), []int{0}
+}
+
 // ChatProvider is a configured way to reach models. Its key is never here.
 type ChatProvider struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -903,7 +962,11 @@ type SendMessageResponse struct {
 	// message carries so a caller that started one knows it.
 	ConversationId int64 `protobuf:"varint,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	// Delta is a piece of the answer as it arrived.
-	Delta         string `protobuf:"bytes,2,opt,name=delta,proto3" json:"delta,omitempty"`
+	Delta string `protobuf:"bytes,2,opt,name=delta,proto3" json:"delta,omitempty"`
+	// Proposal is a command the chat wants to run, waiting to be answered.
+	Proposal *CommandProposal `protobuf:"bytes,3,opt,name=proposal,proto3" json:"proposal,omitempty"`
+	// Ran is a command that has run, and what it printed.
+	Ran           *CommandRun `protobuf:"bytes,4,opt,name=ran,proto3" json:"ran,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -950,6 +1013,267 @@ func (x *SendMessageResponse) GetDelta() string {
 		return x.Delta
 	}
 	return ""
+}
+
+func (x *SendMessageResponse) GetProposal() *CommandProposal {
+	if x != nil {
+		return x.Proposal
+	}
+	return nil
+}
+
+func (x *SendMessageResponse) GetRan() *CommandRun {
+	if x != nil {
+		return x.Ran
+	}
+	return nil
+}
+
+// CommandProposal is a command the chat wants to run. It carries what will
+// run rather than what the model wrote, so that what a person agrees to is
+// what happens (ADR-0022).
+type CommandProposal struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Id is what an answer names.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Argv is the program and its arguments, exactly as they will be passed.
+	Argv []string `protobuf:"bytes,2,rep,name=argv,proto3" json:"argv,omitempty"`
+	// Directory is where it will run: a Project, or one of its worktrees.
+	Directory     string `protobuf:"bytes,3,opt,name=directory,proto3" json:"directory,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommandProposal) Reset() {
+	*x = CommandProposal{}
+	mi := &file_codingowl_v1_chat_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommandProposal) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommandProposal) ProtoMessage() {}
+
+func (x *CommandProposal) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_chat_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommandProposal.ProtoReflect.Descriptor instead.
+func (*CommandProposal) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_chat_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *CommandProposal) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *CommandProposal) GetArgv() []string {
+	if x != nil {
+		return x.Argv
+	}
+	return nil
+}
+
+func (x *CommandProposal) GetDirectory() string {
+	if x != nil {
+		return x.Directory
+	}
+	return ""
+}
+
+// CommandRun is what came of one.
+type CommandRun struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Id is the proposal it answers.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Argv and Directory are what ran, and where.
+	Argv      []string `protobuf:"bytes,2,rep,name=argv,proto3" json:"argv,omitempty"`
+	Directory string   `protobuf:"bytes,3,opt,name=directory,proto3" json:"directory,omitempty"`
+	// Output is what it printed, standard output and standard error together,
+	// bounded.
+	Output string `protobuf:"bytes,4,opt,name=output,proto3" json:"output,omitempty"`
+	// ExitCode is how it ended.
+	ExitCode int32 `protobuf:"varint,5,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	// Cut is whether it printed more than Owl kept.
+	Cut           bool `protobuf:"varint,6,opt,name=cut,proto3" json:"cut,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommandRun) Reset() {
+	*x = CommandRun{}
+	mi := &file_codingowl_v1_chat_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommandRun) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommandRun) ProtoMessage() {}
+
+func (x *CommandRun) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_chat_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommandRun.ProtoReflect.Descriptor instead.
+func (*CommandRun) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_chat_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *CommandRun) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *CommandRun) GetArgv() []string {
+	if x != nil {
+		return x.Argv
+	}
+	return nil
+}
+
+func (x *CommandRun) GetDirectory() string {
+	if x != nil {
+		return x.Directory
+	}
+	return ""
+}
+
+func (x *CommandRun) GetOutput() string {
+	if x != nil {
+		return x.Output
+	}
+	return ""
+}
+
+func (x *CommandRun) GetExitCode() int32 {
+	if x != nil {
+		return x.ExitCode
+	}
+	return 0
+}
+
+func (x *CommandRun) GetCut() bool {
+	if x != nil {
+		return x.Cut
+	}
+	return false
+}
+
+type AnswerCommandRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Id is the proposal being answered.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Decision is the answer.
+	Decision      CommandDecision `protobuf:"varint,2,opt,name=decision,proto3,enum=codingowl.v1.CommandDecision" json:"decision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnswerCommandRequest) Reset() {
+	*x = AnswerCommandRequest{}
+	mi := &file_codingowl_v1_chat_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnswerCommandRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnswerCommandRequest) ProtoMessage() {}
+
+func (x *AnswerCommandRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_chat_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnswerCommandRequest.ProtoReflect.Descriptor instead.
+func (*AnswerCommandRequest) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_chat_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *AnswerCommandRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AnswerCommandRequest) GetDecision() CommandDecision {
+	if x != nil {
+		return x.Decision
+	}
+	return CommandDecision_COMMAND_DECISION_UNSPECIFIED
+}
+
+type AnswerCommandResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnswerCommandResponse) Reset() {
+	*x = AnswerCommandResponse{}
+	mi := &file_codingowl_v1_chat_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnswerCommandResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnswerCommandResponse) ProtoMessage() {}
+
+func (x *AnswerCommandResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_chat_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnswerCommandResponse.ProtoReflect.Descriptor instead.
+func (*AnswerCommandResponse) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_chat_proto_rawDescGZIP(), []int{21}
 }
 
 var File_codingowl_v1_chat_proto protoreflect.FileDescriptor
@@ -1003,10 +1327,33 @@ const file_codingowl_v1_chat_proto_rawDesc = "" +
 	"\x0fconversation_id\x18\x01 \x01(\x03R\x0econversationId\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x12\n" +
 	"\x04text\x18\x03 \x01(\tR\x04text\x12\x1a\n" +
-	"\bprovider\x18\x04 \x01(\tR\bprovider\"T\n" +
+	"\bprovider\x18\x04 \x01(\tR\bprovider\"\xbb\x01\n" +
 	"\x13SendMessageResponse\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\x03R\x0econversationId\x12\x14\n" +
-	"\x05delta\x18\x02 \x01(\tR\x05delta2\x93\x05\n" +
+	"\x05delta\x18\x02 \x01(\tR\x05delta\x129\n" +
+	"\bproposal\x18\x03 \x01(\v2\x1d.codingowl.v1.CommandProposalR\bproposal\x12*\n" +
+	"\x03ran\x18\x04 \x01(\v2\x18.codingowl.v1.CommandRunR\x03ran\"S\n" +
+	"\x0fCommandProposal\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04argv\x18\x02 \x03(\tR\x04argv\x12\x1c\n" +
+	"\tdirectory\x18\x03 \x01(\tR\tdirectory\"\x95\x01\n" +
+	"\n" +
+	"CommandRun\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04argv\x18\x02 \x03(\tR\x04argv\x12\x1c\n" +
+	"\tdirectory\x18\x03 \x01(\tR\tdirectory\x12\x16\n" +
+	"\x06output\x18\x04 \x01(\tR\x06output\x12\x1b\n" +
+	"\texit_code\x18\x05 \x01(\x05R\bexitCode\x12\x10\n" +
+	"\x03cut\x18\x06 \x01(\bR\x03cut\"a\n" +
+	"\x14AnswerCommandRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
+	"\bdecision\x18\x02 \x01(\x0e2\x1d.codingowl.v1.CommandDecisionR\bdecision\"\x17\n" +
+	"\x15AnswerCommandResponse*\x9a\x01\n" +
+	"\x0fCommandDecision\x12 \n" +
+	"\x1cCOMMAND_DECISION_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bCOMMAND_DECISION_ALLOW_ONCE\x10\x01\x12'\n" +
+	"#COMMAND_DECISION_ALLOW_CONVERSATION\x10\x02\x12\x1b\n" +
+	"\x17COMMAND_DECISION_REFUSE\x10\x032\xef\x05\n" +
 	"\vChatService\x12T\n" +
 	"\vAddProvider\x12 .codingowl.v1.AddProviderRequest\x1a!.codingowl.v1.AddProviderResponse\"\x00\x12Z\n" +
 	"\rListProviders\x12\".codingowl.v1.ListProvidersRequest\x1a#.codingowl.v1.ListProvidersResponse\"\x00\x12]\n" +
@@ -1015,7 +1362,8 @@ const file_codingowl_v1_chat_proto_rawDesc = "" +
 	"ListModels\x12\x1f.codingowl.v1.ListModelsRequest\x1a .codingowl.v1.ListModelsResponse\"\x00\x12f\n" +
 	"\x11ListConversations\x12&.codingowl.v1.ListConversationsRequest\x1a'.codingowl.v1.ListConversationsResponse\"\x00\x12`\n" +
 	"\x0fGetConversation\x12$.codingowl.v1.GetConversationRequest\x1a%.codingowl.v1.GetConversationResponse\"\x00\x12V\n" +
-	"\vSendMessage\x12 .codingowl.v1.SendMessageRequest\x1a!.codingowl.v1.SendMessageResponse\"\x000\x01B\xaf\x01\n" +
+	"\vSendMessage\x12 .codingowl.v1.SendMessageRequest\x1a!.codingowl.v1.SendMessageResponse\"\x000\x01\x12Z\n" +
+	"\rAnswerCommand\x12\".codingowl.v1.AnswerCommandRequest\x1a#.codingowl.v1.AnswerCommandResponse\"\x00B\xaf\x01\n" +
 	"\x10com.codingowl.v1B\tChatProtoP\x01Z?github.com/vojtechmares/coding-owl/gen/codingowl/v1;codingowlv1\xa2\x02\x03CXX\xaa\x02\fCodingowl.V1\xca\x02\fCodingowl\\V1\xe2\x02\x18Codingowl\\V1\\GPBMetadata\xea\x02\rCodingowl::V1b\x06proto3"
 
 var (
@@ -1030,58 +1378,69 @@ func file_codingowl_v1_chat_proto_rawDescGZIP() []byte {
 	return file_codingowl_v1_chat_proto_rawDescData
 }
 
-var file_codingowl_v1_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_codingowl_v1_chat_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_codingowl_v1_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_codingowl_v1_chat_proto_goTypes = []any{
-	(*ChatProvider)(nil),              // 0: codingowl.v1.ChatProvider
-	(*ChatModel)(nil),                 // 1: codingowl.v1.ChatModel
-	(*Conversation)(nil),              // 2: codingowl.v1.Conversation
-	(*ChatMessage)(nil),               // 3: codingowl.v1.ChatMessage
-	(*AddProviderRequest)(nil),        // 4: codingowl.v1.AddProviderRequest
-	(*AddProviderResponse)(nil),       // 5: codingowl.v1.AddProviderResponse
-	(*ListProvidersRequest)(nil),      // 6: codingowl.v1.ListProvidersRequest
-	(*ListProvidersResponse)(nil),     // 7: codingowl.v1.ListProvidersResponse
-	(*RemoveProviderRequest)(nil),     // 8: codingowl.v1.RemoveProviderRequest
-	(*RemoveProviderResponse)(nil),    // 9: codingowl.v1.RemoveProviderResponse
-	(*ListModelsRequest)(nil),         // 10: codingowl.v1.ListModelsRequest
-	(*ListModelsResponse)(nil),        // 11: codingowl.v1.ListModelsResponse
-	(*ListConversationsRequest)(nil),  // 12: codingowl.v1.ListConversationsRequest
-	(*ListConversationsResponse)(nil), // 13: codingowl.v1.ListConversationsResponse
-	(*GetConversationRequest)(nil),    // 14: codingowl.v1.GetConversationRequest
-	(*GetConversationResponse)(nil),   // 15: codingowl.v1.GetConversationResponse
-	(*SendMessageRequest)(nil),        // 16: codingowl.v1.SendMessageRequest
-	(*SendMessageResponse)(nil),       // 17: codingowl.v1.SendMessageResponse
-	(*timestamppb.Timestamp)(nil),     // 18: google.protobuf.Timestamp
+	(CommandDecision)(0),              // 0: codingowl.v1.CommandDecision
+	(*ChatProvider)(nil),              // 1: codingowl.v1.ChatProvider
+	(*ChatModel)(nil),                 // 2: codingowl.v1.ChatModel
+	(*Conversation)(nil),              // 3: codingowl.v1.Conversation
+	(*ChatMessage)(nil),               // 4: codingowl.v1.ChatMessage
+	(*AddProviderRequest)(nil),        // 5: codingowl.v1.AddProviderRequest
+	(*AddProviderResponse)(nil),       // 6: codingowl.v1.AddProviderResponse
+	(*ListProvidersRequest)(nil),      // 7: codingowl.v1.ListProvidersRequest
+	(*ListProvidersResponse)(nil),     // 8: codingowl.v1.ListProvidersResponse
+	(*RemoveProviderRequest)(nil),     // 9: codingowl.v1.RemoveProviderRequest
+	(*RemoveProviderResponse)(nil),    // 10: codingowl.v1.RemoveProviderResponse
+	(*ListModelsRequest)(nil),         // 11: codingowl.v1.ListModelsRequest
+	(*ListModelsResponse)(nil),        // 12: codingowl.v1.ListModelsResponse
+	(*ListConversationsRequest)(nil),  // 13: codingowl.v1.ListConversationsRequest
+	(*ListConversationsResponse)(nil), // 14: codingowl.v1.ListConversationsResponse
+	(*GetConversationRequest)(nil),    // 15: codingowl.v1.GetConversationRequest
+	(*GetConversationResponse)(nil),   // 16: codingowl.v1.GetConversationResponse
+	(*SendMessageRequest)(nil),        // 17: codingowl.v1.SendMessageRequest
+	(*SendMessageResponse)(nil),       // 18: codingowl.v1.SendMessageResponse
+	(*CommandProposal)(nil),           // 19: codingowl.v1.CommandProposal
+	(*CommandRun)(nil),                // 20: codingowl.v1.CommandRun
+	(*AnswerCommandRequest)(nil),      // 21: codingowl.v1.AnswerCommandRequest
+	(*AnswerCommandResponse)(nil),     // 22: codingowl.v1.AnswerCommandResponse
+	(*timestamppb.Timestamp)(nil),     // 23: google.protobuf.Timestamp
 }
 var file_codingowl_v1_chat_proto_depIdxs = []int32{
-	18, // 0: codingowl.v1.ChatProvider.created:type_name -> google.protobuf.Timestamp
-	18, // 1: codingowl.v1.Conversation.created:type_name -> google.protobuf.Timestamp
-	18, // 2: codingowl.v1.Conversation.updated:type_name -> google.protobuf.Timestamp
-	18, // 3: codingowl.v1.ChatMessage.created:type_name -> google.protobuf.Timestamp
-	0,  // 4: codingowl.v1.AddProviderResponse.provider:type_name -> codingowl.v1.ChatProvider
-	0,  // 5: codingowl.v1.ListProvidersResponse.providers:type_name -> codingowl.v1.ChatProvider
-	1,  // 6: codingowl.v1.ListModelsResponse.models:type_name -> codingowl.v1.ChatModel
-	2,  // 7: codingowl.v1.ListConversationsResponse.conversations:type_name -> codingowl.v1.Conversation
-	2,  // 8: codingowl.v1.GetConversationResponse.conversation:type_name -> codingowl.v1.Conversation
-	3,  // 9: codingowl.v1.GetConversationResponse.messages:type_name -> codingowl.v1.ChatMessage
-	4,  // 10: codingowl.v1.ChatService.AddProvider:input_type -> codingowl.v1.AddProviderRequest
-	6,  // 11: codingowl.v1.ChatService.ListProviders:input_type -> codingowl.v1.ListProvidersRequest
-	8,  // 12: codingowl.v1.ChatService.RemoveProvider:input_type -> codingowl.v1.RemoveProviderRequest
-	10, // 13: codingowl.v1.ChatService.ListModels:input_type -> codingowl.v1.ListModelsRequest
-	12, // 14: codingowl.v1.ChatService.ListConversations:input_type -> codingowl.v1.ListConversationsRequest
-	14, // 15: codingowl.v1.ChatService.GetConversation:input_type -> codingowl.v1.GetConversationRequest
-	16, // 16: codingowl.v1.ChatService.SendMessage:input_type -> codingowl.v1.SendMessageRequest
-	5,  // 17: codingowl.v1.ChatService.AddProvider:output_type -> codingowl.v1.AddProviderResponse
-	7,  // 18: codingowl.v1.ChatService.ListProviders:output_type -> codingowl.v1.ListProvidersResponse
-	9,  // 19: codingowl.v1.ChatService.RemoveProvider:output_type -> codingowl.v1.RemoveProviderResponse
-	11, // 20: codingowl.v1.ChatService.ListModels:output_type -> codingowl.v1.ListModelsResponse
-	13, // 21: codingowl.v1.ChatService.ListConversations:output_type -> codingowl.v1.ListConversationsResponse
-	15, // 22: codingowl.v1.ChatService.GetConversation:output_type -> codingowl.v1.GetConversationResponse
-	17, // 23: codingowl.v1.ChatService.SendMessage:output_type -> codingowl.v1.SendMessageResponse
-	17, // [17:24] is the sub-list for method output_type
-	10, // [10:17] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	23, // 0: codingowl.v1.ChatProvider.created:type_name -> google.protobuf.Timestamp
+	23, // 1: codingowl.v1.Conversation.created:type_name -> google.protobuf.Timestamp
+	23, // 2: codingowl.v1.Conversation.updated:type_name -> google.protobuf.Timestamp
+	23, // 3: codingowl.v1.ChatMessage.created:type_name -> google.protobuf.Timestamp
+	1,  // 4: codingowl.v1.AddProviderResponse.provider:type_name -> codingowl.v1.ChatProvider
+	1,  // 5: codingowl.v1.ListProvidersResponse.providers:type_name -> codingowl.v1.ChatProvider
+	2,  // 6: codingowl.v1.ListModelsResponse.models:type_name -> codingowl.v1.ChatModel
+	3,  // 7: codingowl.v1.ListConversationsResponse.conversations:type_name -> codingowl.v1.Conversation
+	3,  // 8: codingowl.v1.GetConversationResponse.conversation:type_name -> codingowl.v1.Conversation
+	4,  // 9: codingowl.v1.GetConversationResponse.messages:type_name -> codingowl.v1.ChatMessage
+	19, // 10: codingowl.v1.SendMessageResponse.proposal:type_name -> codingowl.v1.CommandProposal
+	20, // 11: codingowl.v1.SendMessageResponse.ran:type_name -> codingowl.v1.CommandRun
+	0,  // 12: codingowl.v1.AnswerCommandRequest.decision:type_name -> codingowl.v1.CommandDecision
+	5,  // 13: codingowl.v1.ChatService.AddProvider:input_type -> codingowl.v1.AddProviderRequest
+	7,  // 14: codingowl.v1.ChatService.ListProviders:input_type -> codingowl.v1.ListProvidersRequest
+	9,  // 15: codingowl.v1.ChatService.RemoveProvider:input_type -> codingowl.v1.RemoveProviderRequest
+	11, // 16: codingowl.v1.ChatService.ListModels:input_type -> codingowl.v1.ListModelsRequest
+	13, // 17: codingowl.v1.ChatService.ListConversations:input_type -> codingowl.v1.ListConversationsRequest
+	15, // 18: codingowl.v1.ChatService.GetConversation:input_type -> codingowl.v1.GetConversationRequest
+	17, // 19: codingowl.v1.ChatService.SendMessage:input_type -> codingowl.v1.SendMessageRequest
+	21, // 20: codingowl.v1.ChatService.AnswerCommand:input_type -> codingowl.v1.AnswerCommandRequest
+	6,  // 21: codingowl.v1.ChatService.AddProvider:output_type -> codingowl.v1.AddProviderResponse
+	8,  // 22: codingowl.v1.ChatService.ListProviders:output_type -> codingowl.v1.ListProvidersResponse
+	10, // 23: codingowl.v1.ChatService.RemoveProvider:output_type -> codingowl.v1.RemoveProviderResponse
+	12, // 24: codingowl.v1.ChatService.ListModels:output_type -> codingowl.v1.ListModelsResponse
+	14, // 25: codingowl.v1.ChatService.ListConversations:output_type -> codingowl.v1.ListConversationsResponse
+	16, // 26: codingowl.v1.ChatService.GetConversation:output_type -> codingowl.v1.GetConversationResponse
+	18, // 27: codingowl.v1.ChatService.SendMessage:output_type -> codingowl.v1.SendMessageResponse
+	22, // 28: codingowl.v1.ChatService.AnswerCommand:output_type -> codingowl.v1.AnswerCommandResponse
+	21, // [21:29] is the sub-list for method output_type
+	13, // [13:21] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_codingowl_v1_chat_proto_init() }
@@ -1094,13 +1453,14 @@ func file_codingowl_v1_chat_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codingowl_v1_chat_proto_rawDesc), len(file_codingowl_v1_chat_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   18,
+			NumEnums:      1,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_codingowl_v1_chat_proto_goTypes,
 		DependencyIndexes: file_codingowl_v1_chat_proto_depIdxs,
+		EnumInfos:         file_codingowl_v1_chat_proto_enumTypes,
 		MessageInfos:      file_codingowl_v1_chat_proto_msgTypes,
 	}.Build()
 	File_codingowl_v1_chat_proto = out.File

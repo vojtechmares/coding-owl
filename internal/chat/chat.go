@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/credential"
@@ -118,12 +119,26 @@ type Service struct {
 	tools  *Tools
 	client func(p store.ChatProvider, key string) (Client, error)
 	now    func() time.Time
+
+	// askingMu guards what is waiting to be answered about a command, and
+	// which conversations have stopped being asked (ADR-0022).
+	askingMu sync.Mutex
+	// asking is the commands waiting for an answer, by the id the answer
+	// names.
+	asking map[string]chan Decision
+	// granted is the conversations whose user said to stop asking. It lives as
+	// long as this daemon does: a grant that outlived a restart would be a
+	// permission nobody remembers giving.
+	granted map[int64]bool
 }
 
 // NewService returns a chat over that store, credential store and view of what
 // Owl knows.
 func NewService(st Store, creds credential.Store, tools *Tools) *Service {
-	return &Service{store: st, creds: creds, tools: tools, client: NewClient, now: time.Now}
+	return &Service{
+		store: st, creds: creds, tools: tools, client: NewClient, now: time.Now,
+		asking: map[string]chan Decision{}, granted: map[int64]bool{},
+	}
 }
 
 // AddProvider configures a way to reach models, putting the key in the

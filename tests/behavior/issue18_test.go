@@ -443,10 +443,16 @@ func TestS9ChatTheToolsOfferedOnlyRead(t *testing.T) {
 			t.Errorf("the model was not offered %s: %v", want, names)
 		}
 	}
-	// Exactly those five: a tool that acts is one more, whatever it is called,
-	// and a blocklist of words would not catch `accept_job`.
-	if len(names) != 5 {
-		t.Errorf("the model was offered %v, want only the five that read", names)
+	// And the one tool that is not a read: a command in a Project, which runs
+	// nothing until the user has allowed it (issue #21, ADR-0022).
+	if !names["run_command"] {
+		t.Errorf("the model was not offered run_command: %v", names)
+	}
+	// Exactly those six: a tool that changes what Owl holds is one more,
+	// whatever it is called, and a blocklist of words would not catch
+	// `accept_job`.
+	if len(names) != 6 {
+		t.Errorf("the model was offered %v, want only the five that read and the one that asks first", names)
 	}
 }
 
@@ -591,8 +597,10 @@ func TestS12ChatWhatAJobChangedIsAnsweredWithTheDiff(t *testing.T) {
 }
 
 func TestS13ChatAToolTheDaemonDoesNotHaveIsRefused(t *testing.T) {
+	// A name nobody offers. It used to be run_command, which the daemon now
+	// does offer: a command in a Project, asked about first (issue #21).
 	l, p := chatLayout(t,
-		anthropicToolUse("call-1", "run_command", map[string]any{"argv": []string{"rm", "-rf", "/"}}),
+		anthropicToolUse("call-1", "delete_everything", map[string]any{"argv": []string{"rm", "-rf", "/"}}),
 		anthropicText("I cannot do that."))
 	r := newRepo(t, l, "api")
 	addProject(t, l, r)
@@ -603,7 +611,7 @@ func TestS13ChatAToolTheDaemonDoesNotHaveIsRefused(t *testing.T) {
 	_, got := chatting(t, app, ev, 0, anthropicModel(t, app), "delete everything")
 
 	second := fmt.Sprint(p.asked(t, 1)["messages"])
-	if !strings.Contains(second, "run_command") || !strings.Contains(second, "not a tool") {
+	if !strings.Contains(second, "delete_everything") || !strings.Contains(second, "not a tool") {
 		t.Errorf("the model was not told the tool is not one Owl has:\n%s", second)
 	}
 	if got.err != "" {

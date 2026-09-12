@@ -30,14 +30,15 @@ const maxHistory = 128 << 10
 const keepTimeout = 5 * time.Second
 
 // systemPrompt is what the model is told it is. It says what the tools are for
-// and, plainly, that it cannot act: every tool this chat is given only reads.
-// ADR-0022 keeps a shell out of the chat; what it may one day be allowed to
-// propose is not this work.
+// and, plainly, what it cannot do: read what Owl holds, and run one command at
+// a time in a Project with the user's consent, and nothing else (ADR-0022).
 const systemPrompt = `You are the assistant inside Coding Owl, a tool that runs coding agents unattended.
 
 The user is asking about work Owl has done: Projects it knows, Jobs it queued, Runs it carried out, what Verification said, and what a Job's branch changed. Answer from what the tools tell you rather than from what you assume, and say plainly when the tools do not say.
 
-The tools only read. You cannot start, stop, accept or change anything, and you must not claim to have done so or offer to. If the user asks for an action, say what they would run themselves.
+Every tool but one only reads what Owl holds. The one that does not is run_command, which runs a single read-only command - git status, log, diff, show or branch, or cat, grep, ls, head, tail or wc - in a Project or one of its worktrees. The user is asked before anything runs and may refuse, so ask for the command you actually need and say why you want it. There is no shell: your command is split into words, so a semicolon, an ampersand, a pipe, a redirection, a backtick or a glob is refused - nothing here would read it as anything but part of an argument.
+
+You cannot start, stop, accept or change anything Owl holds, and you must not claim to have done so or offer to. If the user asks for an action, say what they would run themselves.
 
 Be brief. Name Jobs and Runs by their ids, and quote what a check printed rather than summarising it away.`
 
@@ -55,13 +56,19 @@ type SendRequest struct {
 	Text string
 }
 
-// Delta is a piece of an answer as it arrives.
+// Delta is a piece of an answer as it arrives, or something the chat wants to
+// say about a command: what it would like to run, and what came of it.
 type Delta struct {
 	// Conversation is the conversation the answer belongs to, which a caller
 	// that started one needs before the first piece arrives.
 	Conversation int64
 	// Text is the piece.
 	Text string
+	// Proposal is a command waiting to be answered. Nothing runs until
+	// AnswerCommand says so (ADR-0022).
+	Proposal *Proposal
+	// Ran is a command that has run, and what it printed.
+	Ran *CommandRun
 }
 
 // Send says something in a conversation and streams the answer back through
@@ -279,7 +286,7 @@ func (s *Service) converse(ctx context.Context, client Client, provider store.Ch
 			Model:    model,
 			System:   systemPrompt,
 			Messages: history,
-			Tools:    s.tools.Definitions(),
+			Tools:    append(s.tools.Definitions(), commandDefinition()),
 		}, func(piece string) error {
 			if answer.Len() >= maxAnswer {
 				// The model has said more than Owl will keep. What it says
@@ -312,6 +319,17 @@ func (s *Service) converse(ctx context.Context, client Client, provider store.Ch
 		history = append(history, Turn{Role: RoleAssistant, ToolCalls: reply.ToolCalls, Text: reply.Text})
 		results := make([]ToolResult, 0, len(reply.ToolCalls))
 		for _, call := range reply.ToolCalls {
+			// The command tool is the one that is not a read, so it is the one
+			// the Service carries out itself: it needs the conversation it is
+			// in, to know who to ask, and a way to ask them (ADR-0022).
+			if call.Name == toolRunCommand {
+				result, err := s.runCommand(ctx, conversation, call, emit)
+				if err != nil {
+					return answer.String(), err
+				}
+				results = append(results, result)
+				continue
+			}
 			results = append(results, s.tools.Call(ctx, call))
 		}
 		history = append(history, Turn{Role: RoleUser, ToolResults: results})

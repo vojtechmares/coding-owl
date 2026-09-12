@@ -9,13 +9,26 @@ import {
   usePoll,
   useEvent,
   when,
+  EVENT_CHAT_COMMAND,
+  EVENT_CHAT_COMMAND_DONE,
   EVENT_CHAT_DELTA,
   EVENT_CHAT_END,
+  type ChatCommand,
+  type ChatCommandDone,
   type ChatDelta,
   type ChatEnd,
   type ChatMessage,
+  type CommandDecision,
 } from "../lib/api";
 import { Banner, Button, Empty, Panel } from "../components/ui";
+
+// What a person may answer about a command the chat wants to run. Nothing runs
+// until one of these is chosen, and refusing runs nothing at all (ADR-0022).
+const DECISIONS: { decision: CommandDecision; label: string }[] = [
+  { decision: "once", label: "Allow once" },
+  { decision: "conversation", label: "Allow for this conversation" },
+  { decision: "refuse", label: "Refuse" },
+];
 
 export function Chat() {
   const models = usePoll(() => api.models(), 10000);
@@ -29,6 +42,10 @@ export function Chat() {
   const [waiting, setWaiting] = useState(false);
   const [note, setNote] = useState<string | undefined>(undefined);
   const [text, setText] = useState("");
+  // The commands waiting to be answered, and the ones that have run. Neither
+  // is in the conversation the daemon keeps: what the model makes of them is.
+  const [asking, setAsking] = useState<ChatCommand[]>([]);
+  const [ran, setRan] = useState<ChatCommandDone[]>([]);
   const bottom = useRef<HTMLDivElement | null>(null);
 
   const offered = models.data ?? [];
@@ -66,18 +83,40 @@ export function Chat() {
     setAnswer("");
     setOpen((current) => current ?? (end.conversationId || undefined));
     if (end.error) setNote(end.error);
+    // An exchange that ended leaves nothing to answer: a command nobody
+    // answered in time is one the daemon has already refused for itself.
+    setAsking([]);
     void conversations.refresh();
   });
+  useEvent<ChatCommand>(EVENT_CHAT_COMMAND, (c) => {
+    setOpen((current) => current ?? (c.conversationId || undefined));
+    setAsking((current) => [...current, c]);
+  });
+  useEvent<ChatCommandDone>(EVENT_CHAT_COMMAND_DONE, (done) => {
+    setRan((current) => [...current, done]);
+  });
+
+  // A command is answered once: it leaves the list whatever the answer was,
+  // and the daemon runs it or does not.
+  const answerCommand = async (c: ChatCommand, decision: CommandDecision) => {
+    setAsking((current) => current.filter((waiting) => waiting.requestId !== c.requestId));
+    try {
+      await api.answerCommand(c.requestId, decision);
+    } catch (err) {
+      setNote(errorText(err));
+    }
+  };
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
-  }, [said, answer]);
+  }, [said, answer, asking, ran]);
 
   const send = async () => {
     const asked = text.trim();
     if (!asked || !chosen) return;
     setText("");
     setNote(undefined);
+    setRan([]);
     setWaiting(true);
     setSaid((current) => [...current, { Role: "user", Text: asked, Created: new Date().toISOString() } as ChatMessage]);
     try {
@@ -147,6 +186,35 @@ export function Chat() {
               {said.map((m, at) => (
                 <div key={at} className={`message ${m.Role}`}>
                   <pre className="code">{m.Text}</pre>
+                </div>
+              ))}
+              {ran.map((done) => (
+                <div key={done.requestId} className="message command">
+                  <div className="dim">
+                    {done.argv.join(" ")} in {done.directory} - exit {done.exitCode}
+                  </div>
+                  <pre className="code">
+                    {done.output || "(it printed nothing)"}
+                    {done.cut ? "\n(this is the beginning of what it printed; there was more)" : ""}
+                  </pre>
+                </div>
+              ))}
+              {asking.map((c) => (
+                <div key={c.requestId} className="message command asking">
+                  <div>
+                    The chat would like to run <code>{c.argv.join(" ")}</code> in <code>{c.directory}</code>.
+                  </div>
+                  <div className="actions">
+                    {DECISIONS.map(({ decision, label }) => (
+                      <Button
+                        key={decision}
+                        kind={decision === "refuse" ? undefined : "primary"}
+                        onClick={() => void answerCommand(c, decision)}
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               ))}
               {answer ? (

@@ -237,7 +237,45 @@ const (
 	EventChatDelta = "chat:delta"
 	// EventChatEnd carries a ChatEnd, when an answer has ended.
 	EventChatEnd = "chat:end"
+	// EventChatCommand carries a ChatCommand: a command the chat wants to run,
+	// which runs nothing until AnswerCommand says so (ADR-0022).
+	EventChatCommand = "chat:command"
+	// EventChatCommandDone carries a ChatCommandDone: a command that has run,
+	// and what it printed.
+	EventChatCommandDone = "chat:command-done"
 )
+
+// Answers a person may give about a command, which AnswerCommand takes.
+const (
+	// AllowOnce runs this command and asks again about the next.
+	AllowOnce = string(client.CommandAllowOnce)
+	// AllowConversation runs this one and stops asking for the rest of the
+	// conversation.
+	AllowConversation = string(client.CommandAllowConversation)
+	// Refuse runs nothing.
+	Refuse = string(client.CommandRefuse)
+)
+
+// ChatCommand is a command the chat wants to run, waiting to be answered. It
+// carries what will run rather than what the model wrote, so what a person
+// agrees to is what happens.
+type ChatCommand struct {
+	ConversationID int64    `json:"conversationId"`
+	RequestID      string   `json:"requestId"`
+	Argv           []string `json:"argv"`
+	Directory      string   `json:"directory"`
+}
+
+// ChatCommandDone is a command that has run, and what came of it.
+type ChatCommandDone struct {
+	ConversationID int64    `json:"conversationId"`
+	RequestID      string   `json:"requestId"`
+	Argv           []string `json:"argv"`
+	Directory      string   `json:"directory"`
+	Output         string   `json:"output"`
+	ExitCode       int      `json:"exitCode"`
+	Cut            bool     `json:"cut"`
+}
 
 // ChatDelta is one piece of an answer as it arrives.
 type ChatDelta struct {
@@ -251,6 +289,15 @@ type ChatDelta struct {
 type ChatEnd struct {
 	ConversationID int64  `json:"conversationId"`
 	Error          string `json:"error"`
+}
+
+// AnswerCommand answers a command the chat asked about, which is how consent
+// is given: once, for the rest of the conversation, or not at all (ADR-0022).
+// Nothing runs until this is called, and nothing runs at all if it refuses.
+func (a *App) AnswerCommand(requestID, decision string) error {
+	ctx, cancel := a.call()
+	defer cancel()
+	return a.client.AnswerCommand(ctx, requestID, client.CommandDecision(decision))
 }
 
 // Models is every model the configured providers offer. A key is never among
@@ -302,17 +349,28 @@ func (a *App) SendTo(conversation int64, provider, model, text string) (int64, e
 		at := conversation
 		_, err := a.client.SendMessage(ctx, client.SendMessageRequest{
 			Conversation: conversation, Model: model, Provider: provider, Text: text,
-		}, func(id int64, delta string) error {
+		}, func(e client.SendMessageEvent) error {
 			// The daemon says which conversation this is before any of the
 			// answer arrives, whether the caller named one or not.
-			if id != 0 {
-				at = id
-				announced.Do(func() { opened <- id })
+			if e.Conversation != 0 {
+				at = e.Conversation
+				announced.Do(func() { opened <- e.Conversation })
 			}
-			if delta == "" {
+			if p := e.Proposal; p != nil {
+				a.emit.Emit(EventChatCommand, ChatCommand{
+					ConversationID: at, RequestID: p.ID, Argv: p.Argv, Directory: p.Directory,
+				})
+			}
+			if r := e.Ran; r != nil {
+				a.emit.Emit(EventChatCommandDone, ChatCommandDone{
+					ConversationID: at, RequestID: r.ID, Argv: r.Argv, Directory: r.Directory,
+					Output: r.Output, ExitCode: r.ExitCode, Cut: r.Cut,
+				})
+			}
+			if e.Delta == "" {
 				return nil
 			}
-			a.emit.Emit(EventChatDelta, ChatDelta{ConversationID: at, Text: delta})
+			a.emit.Emit(EventChatDelta, ChatDelta{ConversationID: at, Text: e.Delta})
 			return nil
 		})
 		if err != nil {
