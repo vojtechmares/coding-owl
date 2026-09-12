@@ -310,7 +310,8 @@ type Machine struct {
 
 // Empty reports whether there is nothing at all to say.
 func (o Overview) Empty() bool {
-	return len(o.Running) == 0 && len(o.Counts) == 0 && len(o.Unfinished) == 0
+	return len(o.Running) == 0 && len(o.Counts) == 0 && len(o.Unfinished) == 0 &&
+		len(o.Accounts) == 0
 }
 
 // GetOverview reports where the work stands.

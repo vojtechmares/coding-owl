@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -527,10 +528,17 @@ func parseAccounts(source string, f file) (map[string]Limits, error) {
 				l.WeeklyMax = pct
 			}
 		}
+		unknown := make([]string, 0, len(block.Limits))
 		for what := range block.Limits {
 			if what != fiveHourMax && what != weeklyMax {
+				unknown = append(unknown, what)
+			}
+		}
+		sort.Strings(unknown)
+		for _, what := range unknown {
+			{
 				return nil, fmt.Errorf(
-					"%s: accounts.%s.limits: %q is not a ceiling Owl keeps; it keeps %s and %s",
+					"%s: accounts.%q.limits: %q is not a ceiling Owl keeps; it keeps %s and %s",
 					source, name, what, fiveHourMax, weeklyMax)
 			}
 		}
@@ -558,12 +566,12 @@ func parsePercent(source, account, what, value string) (float64, error) {
 	}
 	pct, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		return 0, fmt.Errorf("%s: accounts.%s.limits.%s: %q is not a percentage like 60",
+		return 0, fmt.Errorf("%s: accounts.%q.limits.%s: %q is not a percentage like 60",
 			source, account, what, value)
 	}
 	if pct <= 0 || pct > 100 {
 		return 0, fmt.Errorf(
-			"%s: accounts.%s.limits.%s: %q is not a share of a window; it is between 1 and 100",
+			"%s: accounts.%q.limits.%s: %q is not a share of a window; it is between 1 and 100",
 			source, account, what, value)
 	}
 	return pct, nil

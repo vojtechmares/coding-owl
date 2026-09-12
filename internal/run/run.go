@@ -1187,6 +1187,13 @@ func (s *Service) verify(ctx context.Context, j store.Job, runID int64, details 
 			}}
 		}
 		results = append(results, got...)
+		// What that Session spent is the Account's too, and the only place it
+		// says so is in what it printed (ADR-0020). Nothing is ended for it:
+		// the Session is already over, and the figure is what the next Run is
+		// held to.
+		for _, r := range got {
+			s.readUsage(ctx, j.Account, r.Output)
+		}
 	}
 	if len(results) == 0 {
 		return ""
