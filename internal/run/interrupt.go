@@ -45,9 +45,11 @@ type live struct {
 	by Freezer
 	// window ends a Run that stays frozen. It runs only while paused.
 	window *time.Timer
-	// expired is set when the grace window ended the Run, which is what makes
-	// the Agent's death an interruption rather than a failure.
-	expired bool
+	// endedWhy is why this daemon is ending the Run on purpose - the grace
+	// window passing, its Account crossing a ceiling - which is what makes
+	// the Agent's death an interruption rather than a failure. Empty for a Run
+	// nothing is ending.
+	endedWhy string
 }
 
 // track records a Run as reachable, and returns the function that forgets it.
@@ -66,12 +68,15 @@ func (s *Service) track(runID, jobID int64, proc agent.Process) func() {
 	}
 }
 
-// interrupted reports whether the grace window is what ended this Run.
-func (s *Service) interrupted(runID int64) bool {
+// interrupted is why this daemon ended the Run, and whether it did.
+func (s *Service) interrupted(runID int64) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	l, ok := s.live[runID]
-	return ok && l.expired
+	if !ok || l.endedWhy == "" {
+		return "", false
+	}
+	return l.endedWhy, true
 }
 
 // Pause freezes the Run in progress and everything its Agent started, and
@@ -107,7 +112,7 @@ func (s *Service) Pause(ctx context.Context, by Freezer) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
-	if l.expired {
+	if l.endedWhy != "" {
 		return Run{}, ending(runID)
 	}
 	if l.paused {
@@ -146,7 +151,7 @@ func (s *Service) Resume(ctx context.Context, by Freezer) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
-	if l.expired {
+	if l.endedWhy != "" {
 		return Run{}, ending(runID)
 	}
 	if !l.paused {
@@ -279,24 +284,42 @@ func (s *Service) paused(r Run) Run {
 func (s *Service) expire(runID int64) {
 	s.mu.Lock()
 	l, ok := s.live[runID]
-	if !ok || !l.paused {
+	frozen := ok && l.paused
+	s.mu.Unlock()
+	if !frozen {
+		return
+	}
+	s.opts.Logger.Info("the grace window ended a paused run", "run", runID)
+	s.end(runID, expiredReason)
+}
+
+// end stops the Agent of a Run this daemon is ending on purpose, and records
+// why: what it says is what the Run ends with, and the Job goes back in the
+// queue rather than being blamed for it.
+func (s *Service) end(runID int64, why string) {
+	s.mu.Lock()
+	l, ok := s.live[runID]
+	if !ok || l.endedWhy != "" {
 		s.mu.Unlock()
 		return
 	}
-	l.expired = true
+	l.endedWhy = why
+	frozen := l.paused
 	l.release()
 	proc := l.proc
 	jobID := l.jobID
 	s.mu.Unlock()
 
-	s.opts.Logger.Info("the grace window ended a paused run", "run", runID, "job", jobID)
-	// Continued first: a stopped process cannot act on being asked to stop,
-	// and the signal would sit pending until something released it.
-	if err := proc.SignalGroup(syscall.SIGCONT); err != nil {
-		s.opts.Logger.Error("continuing a run before ending it", "run", runID, "error", err)
+	s.opts.Logger.Debug("a run is being ended", "run", runID, "job", jobID, "reason", why)
+	if frozen {
+		// Continued first: a stopped process cannot act on being asked to
+		// stop, and the signal would sit pending until something released it.
+		if err := proc.SignalGroup(syscall.SIGCONT); err != nil {
+			s.opts.Logger.Error("continuing a run before ending it", "run", runID, "error", err)
+		}
 	}
 	if err := proc.SignalGroup(syscall.SIGTERM); err != nil {
-		s.opts.Logger.Error("ending a run the grace window expired on", "run", runID, "error", err)
+		s.opts.Logger.Error("ending a run", "run", runID, "error", err)
 	}
 	// An Agent that has not gone by now is not going to: the Run would
 	// otherwise stay in progress with its Job held and nothing able to release

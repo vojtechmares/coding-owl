@@ -340,6 +340,9 @@ td.faint,
 .pill.pinned { color: var(--color-state-done); }
 .pill.tracking { color: var(--color-state-active); border-color: var(--color-state-active); }
 .pill.paused { color: var(--color-state-paused); border-color: var(--color-state-paused); border-style: dashed; }
+/* A window an Account has spent past what Owl will work into (ADR-0020). */
+td.over { color: var(--color-state-blocked); }
+
 /* Whether Owl may work at all: the machine is idle, in use, or unread. */
 .pill.idle { color: var(--color-state-active); border-color: var(--color-state-active); }
 .pill.busy { color: var(--color-state-paused); border-color: var(--color-state-paused); }

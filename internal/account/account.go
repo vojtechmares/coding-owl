@@ -270,6 +270,11 @@ func (s *Service) Remove(ctx context.Context, name string) (Account, error) {
 	if err := s.store.DeleteAccount(ctx, row.Name); err != nil {
 		return Account{}, err
 	}
+	// What was read about its windows goes with it: a figure about an Account
+	// nobody has is about nothing (ADR-0020).
+	if err := s.store.ForgetAccountUsage(ctx, row.Name); err != nil {
+		return Account{}, err
+	}
 	// The row is gone, so the secret has nothing left referring to it. The
 	// Account is removed either way, which the message has to say: leaving a
 	// caller to think it is still there would be worse than the secret that is

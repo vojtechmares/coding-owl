@@ -257,6 +257,36 @@ type Overview struct {
 	// Holding is what refused to start work on a machine Owl may work on,
 	// empty when nothing has refused.
 	Holding string
+	// Accounts is what each Account has used against what it is held to
+	// (ADR-0020).
+	Accounts []AccountCeiling
+}
+
+// AccountCeiling is one Account against what it is held to (ADR-0020).
+type AccountCeiling struct {
+	// Name is the Account.
+	Name string
+	// Windows is what is known about each of its windows.
+	Windows []UsageWindow
+	// Waiting is why work on this Account is held back, empty when nothing
+	// holds it back, and Until is when the window that holds it back starts
+	// again.
+	Waiting string
+	Until   time.Time
+}
+
+// UsageWindow is how much of one window is spent, and how much of it Owl will
+// work into.
+type UsageWindow struct {
+	// Name is the window in Owl's words: `five-hour` or `weekly`.
+	Name string
+	// Utilization is how much of it is spent, as a percentage, counting what
+	// the user spent themselves.
+	Utilization float64
+	// Ceiling is how much of it Owl will work into, zero when nobody set one.
+	Ceiling float64
+	// Resets is when the window starts again.
+	Resets time.Time
 }
 
 // Machine is the machine Owl runs on, as the daemon last read it (ADR-0011).
@@ -319,5 +349,18 @@ func (c *Client) GetOverview(ctx context.Context) (Overview, error) {
 		}
 	}
 	o.Holding = res.Msg.GetHolding()
+	for _, a := range res.Msg.GetAccounts() {
+		ceiling := AccountCeiling{Name: a.GetName(), Waiting: a.GetWaiting()}
+		if a.GetUntil() != nil {
+			ceiling.Until = a.GetUntil().AsTime()
+		}
+		for _, w := range a.GetWindows() {
+			ceiling.Windows = append(ceiling.Windows, UsageWindow{
+				Name: w.GetName(), Utilization: w.GetUtilization(),
+				Ceiling: w.GetCeiling(), Resets: w.GetResets().AsTime(),
+			})
+		}
+		o.Accounts = append(o.Accounts, ceiling)
+	}
 	return o, nil
 }

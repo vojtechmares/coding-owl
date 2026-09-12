@@ -136,6 +136,27 @@ type Global struct {
 	// Idle is when Owl may work: what counts as a machine nobody is at, and
 	// how often it is looked at (ADR-0011).
 	Idle Idle
+	// Accounts is what each named Account is held to, keyed by its name in
+	// lower case: Account names are case-insensitive (ADR-0019).
+	Accounts map[string]Limits
+}
+
+// Limits is the ceiling an Account's utilization is held to, per window
+// (ADR-0020). Utilization is account-wide, so a ceiling is what Owl leaves the
+// user rather than what Owl may spend. A zero field is one nobody set.
+type Limits struct {
+	// FiveHourMax is the most of the five-hour window Owl will work into, as
+	// a percentage.
+	FiveHourMax float64
+	// WeeklyMax is the same for the seven-day window, compared against the
+	// most utilized of them (ADR-0020).
+	WeeklyMax float64
+}
+
+// Ceiling is the ceiling for that Account, and whether one was set at all.
+func (g Global) Ceiling(account string) (Limits, bool) {
+	l, ok := g.Accounts[strings.ToLower(strings.TrimSpace(account))]
+	return l, ok
 }
 
 // Idle is what the daemon's configuration says about when Owl may work
@@ -187,6 +208,16 @@ type file struct {
 	GarbageCollection *garbage         `yaml:"garbageCollection"`
 	GraceWindow       string           `yaml:"graceWindow"`
 	Idle              *idlePolicy      `yaml:"idle"`
+	Accounts          map[string]struct {
+		Limits *limits `yaml:"limits"`
+	} `yaml:"accounts"`
+}
+
+// limits is the on-disk shape of an Account's `limits` block. A ceiling is
+// read as written - `60` or `60%` - because both are what a person means.
+type limits struct {
+	FiveHourMax string `yaml:"fiveHourMax"`
+	WeeklyMax   string `yaml:"weeklyMax"`
 }
 
 // idlePolicy is the on-disk shape of the `idle` block.
@@ -447,13 +478,74 @@ func ParseGlobal(source string, data []byte) (Global, error) {
 	if err != nil {
 		return Global{}, err
 	}
+	accounts, err := parseAccounts(source, f)
+	if err != nil {
+		return Global{}, err
+	}
 	return Global{
 		Phases:            phases,
 		CredentialStore:   strings.TrimSpace(f.CredentialStore),
 		GarbageCollection: collection,
 		GraceWindow:       grace,
 		Idle:              when,
+		Accounts:          accounts,
 	}, nil
+}
+
+// parseAccounts reads the `accounts` block: what each Account is held to. A
+// ceiling that cannot be read is refused rather than left out, because a
+// ceiling nobody is keeping is the one thing this setting exists to prevent.
+func parseAccounts(source string, f file) (map[string]Limits, error) {
+	if len(f.Accounts) == 0 {
+		return nil, nil
+	}
+	out := map[string]Limits{}
+	for name, block := range f.Accounts {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			return nil, fmt.Errorf("%s: accounts: an account with no name is held to nothing", source)
+		}
+		if block.Limits == nil {
+			continue
+		}
+		var l Limits
+		for what, field := range map[string]struct {
+			value string
+			into  *float64
+		}{
+			"fiveHourMax": {block.Limits.FiveHourMax, &l.FiveHourMax},
+			"weeklyMax":   {block.Limits.WeeklyMax, &l.WeeklyMax},
+		} {
+			pct, err := parsePercent(source, name, what, field.value)
+			if err != nil {
+				return nil, err
+			}
+			*field.into = pct
+		}
+		out[name] = l
+	}
+	return out, nil
+}
+
+// parsePercent reads a ceiling: a number of percent, written with or without
+// the sign. Zero is nothing set rather than a ceiling of nothing, which would
+// be a way of saying never run at all.
+func parsePercent(source, account, what, value string) (float64, error) {
+	value = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(value), "%"))
+	if value == "" {
+		return 0, nil
+	}
+	pct, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s: accounts.%s.limits.%s: %q is not a percentage like 60",
+			source, account, what, value)
+	}
+	if pct <= 0 || pct > 100 {
+		return 0, fmt.Errorf(
+			"%s: accounts.%s.limits.%s: %q is not a share of a window; it is between 1 and 100",
+			source, account, what, value)
+	}
+	return pct, nil
 }
 
 // minInterval is as often as Owl will look at the machine. Every look runs the

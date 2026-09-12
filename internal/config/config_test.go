@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -465,5 +466,58 @@ func TestParseGlobalRefusesAnIdlePolicyThatIsNotOne(t *testing.T) {
 				t.Errorf("the error for %q does not name %q: %v", body, want, err)
 			}
 		}
+	}
+}
+
+func TestParseGlobalReadsAnAccountsCeilings(t *testing.T) {
+	cfg, err := config.ParseGlobal("config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\naccounts:\n  Work:\n    limits:\n"+
+			"      fiveHourMax: 60\n      weeklyMax: 50%\n"))
+
+	if err != nil {
+		t.Fatalf("ParseGlobal: %v", err)
+	}
+	// An Account is named case-insensitively, as it is everywhere else.
+	got, ok := cfg.Ceiling("work")
+	if !ok {
+		t.Fatalf("no ceiling for work: %+v", cfg.Accounts)
+	}
+	if got.FiveHourMax != 60 || got.WeeklyMax != 50 {
+		t.Errorf("ceiling = %+v, want 60 and 50", got)
+	}
+	// An Account nobody wrote down is held to nothing, which is not the same
+	// as a ceiling of nothing.
+	if _, ok := cfg.Ceiling("other"); ok {
+		t.Error("an account nobody configured has a ceiling")
+	}
+}
+
+func TestParseGlobalRefusesACeilingThatIsNotAShareOfAWindow(t *testing.T) {
+	for _, value := range []string{"soon", "200", "-5", "0", "60%%"} {
+		_, err := config.ParseGlobal("/somewhere/config.yaml", []byte(
+			"apiVersion: codingowl.dev/v1\naccounts:\n  work:\n    limits:\n      fiveHourMax: "+
+				strconv.Quote(value)+"\n"))
+
+		if err == nil {
+			t.Errorf("ParseGlobal accepted a ceiling of %q", value)
+			continue
+		}
+		for _, want := range []string{"/somewhere/config.yaml", "fiveHourMax"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the error for %q does not name %q: %v", value, want, err)
+			}
+		}
+	}
+}
+
+func TestParseGlobalTakesAnAccountWithNoLimitsBlock(t *testing.T) {
+	cfg, err := config.ParseGlobal("config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\naccounts:\n  work: {}\n"))
+
+	if err != nil {
+		t.Fatalf("ParseGlobal: %v", err)
+	}
+	if _, ok := cfg.Ceiling("work"); ok {
+		t.Error("an account with no limits block has a ceiling")
 	}
 }

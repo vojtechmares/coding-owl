@@ -187,6 +187,19 @@ func (s *jobService) GetOverview(ctx context.Context, _ *connect.Request[codingo
 		Detail:  o.Machine.Detail,
 	}
 	res.Holding = o.Holding
+	for _, a := range o.Accounts {
+		ceiling := &codingowlv1.AccountCeiling{Name: a.Name, Waiting: a.Waiting}
+		if !a.Until.IsZero() {
+			ceiling.Until = timestamppb.New(a.Until)
+		}
+		for _, w := range a.Windows {
+			ceiling.Windows = append(ceiling.Windows, &codingowlv1.UsageWindow{
+				Name: w.Name, Utilization: w.Utilization, Ceiling: w.Ceiling,
+				Resets: timestamppb.New(w.Resets),
+			})
+		}
+		res.Accounts = append(res.Accounts, ceiling)
+	}
 	return connect.NewResponse(res), nil
 }
 

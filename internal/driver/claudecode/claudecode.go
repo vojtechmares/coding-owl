@@ -8,9 +8,11 @@ package claudecode
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -56,15 +58,70 @@ func New() *Driver { return &Driver{} }
 // Name identifies the Driver.
 func (*Driver) Name() string { return "claude-code" }
 
-// Capabilities is what Claude Code can do. Usage reporting is false until Owl
-// reads utilization out of the stream (ADR-0020).
+// Capabilities is what Claude Code can do.
 func (*Driver) Capabilities() driver.Capabilities {
 	return driver.Capabilities{
 		StreamingOutput: true,
 		BudgetCap:       true,
 		PermissionModes: true,
-		UsageReporting:  false,
+		UsageReporting:  true,
 	}
+}
+
+// usageSubtype is the system event that carries the account's limits.
+const usageSubtype = "usage_limits"
+
+// maxUtilization is the largest figure that is a percentage of a window. One
+// above it is a tool saying something Owl does not understand, and a ceiling
+// kept against a number nobody can read is no ceiling at all.
+const maxUtilization = 100
+
+// usageEvent is the shape of that line: a window each, with how much of it is
+// spent and when it starts again.
+type usageEvent struct {
+	Type    string `json:"type"`
+	Subtype string `json:"subtype"`
+	Limits  map[string]struct {
+		Utilization *float64 `json:"utilization"`
+		ResetsAt    string   `json:"resets_at"`
+	} `json:"limits"`
+}
+
+// Usage reads what a line of Claude Code's stream says about the account's
+// utilization (ADR-0020). A line that is not that event, or that carries
+// nothing readable, says nothing: one odd line is not a reason to end a Run,
+// and a window Owl cannot read is one it does not pretend to know.
+func (*Driver) Usage(line string) (driver.Usage, bool) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "{") || !strings.Contains(line, usageSubtype) {
+		return driver.Usage{}, false
+	}
+	var ev usageEvent
+	if err := json.Unmarshal([]byte(line), &ev); err != nil {
+		return driver.Usage{}, false
+	}
+	if ev.Type != "system" || ev.Subtype != usageSubtype {
+		return driver.Usage{}, false
+	}
+	var out driver.Usage
+	for name, limit := range ev.Limits {
+		if limit.Utilization == nil || *limit.Utilization < 0 || *limit.Utilization > maxUtilization {
+			continue
+		}
+		resets, err := time.Parse(time.RFC3339, limit.ResetsAt)
+		if err != nil {
+			continue
+		}
+		out.Windows = append(out.Windows, driver.UsageWindow{
+			Name: name, Utilization: *limit.Utilization, Resets: resets.UTC(),
+		})
+	}
+	if len(out.Windows) == 0 {
+		return driver.Usage{}, false
+	}
+	// In the order the tool wrote them down, whatever a map does with them.
+	sort.Slice(out.Windows, func(i, j int) bool { return out.Windows[i].Name < out.Windows[j].Name })
+	return out, true
 }
 
 // SkillsDir is where Claude Code reads Skills from inside a worktree.

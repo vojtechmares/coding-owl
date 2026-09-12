@@ -52,6 +52,8 @@ func (*fakeDriver) SetupToken(string) (agentpkg.Invocation, error) {
 
 func (*fakeDriver) SkillsDir() string { return ".fake/skills" }
 
+func (*fakeDriver) Usage(string) (driver.Usage, bool) { return driver.Usage{}, false }
+
 func (d *fakeDriver) given() driver.Request {
 	d.mu.Lock()
 	defer d.mu.Unlock()

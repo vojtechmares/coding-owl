@@ -8,6 +8,7 @@ import {
   errorText,
   runOutcome,
   runPill,
+  when,
   type Job,
   type Machine,
   type Overview as OverviewData,
@@ -100,6 +101,56 @@ export function Overview({
           <Tile label="Power" value={powerLabel(data?.Machine)} />
         </div>
         {machineDetail(data?.Machine) ? <div className="dim">{machineDetail(data?.Machine)}</div> : null}
+      </Panel>
+
+      <Panel title="Accounts">
+        {(data?.Accounts ?? []).length === 0 ? (
+          <Empty>No Account yet. Add one with owl account add.</Empty>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Window</th>
+                <th>Used</th>
+                <th>Ceiling</th>
+                <th>Resets</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.Accounts ?? []).flatMap((a) =>
+                a.Windows.length === 0
+                  ? [
+                      <tr key={a.Name}>
+                        <td>{a.Name}</td>
+                        <td className="dim">-</td>
+                        <td className="dim">-</td>
+                        <td className="dim">-</td>
+                        <td className="dim">-</td>
+                      </tr>,
+                    ]
+                  : a.Windows.map((w) => (
+                      <tr key={`${a.Name}/${w.Name}`}>
+                        <td>{a.Name}</td>
+                        <td>{w.Name}</td>
+                        <td className={w.Ceiling > 0 && w.Utilization >= w.Ceiling ? "over" : ""}>
+                          {share(w.Utilization)}
+                        </td>
+                        <td>{w.Ceiling > 0 ? share(w.Ceiling) : "-"}</td>
+                        <td className="dim">{when(w.Resets)}</td>
+                      </tr>
+                    )),
+              )}
+            </tbody>
+          </table>
+        )}
+        {(data?.Accounts ?? [])
+          .filter((a) => a.Waiting)
+          .map((a) => (
+            <div key={a.Name} className="dim">
+              {a.Waiting}
+            </div>
+          ))}
       </Panel>
 
       <Panel title="Running">
@@ -238,4 +289,10 @@ function sinceInput(ns: number): string {
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+// share is how much of a window is spent, as a person reads it. Utilization is
+// account-wide: it counts what the user spent themselves (ADR-0020).
+function share(pct: number): string {
+  return `${Number.isInteger(pct) ? pct : pct.toFixed(1)}%`;
 }

@@ -69,6 +69,7 @@ func printOverview(env Env, o client.Overview) {
 		_ = w.Flush()
 		_, _ = fmt.Fprintln(env.Stdout)
 	}
+	printAccounts(env, o.Accounts)
 	if len(o.Counts) > 0 {
 		_, _ = fmt.Fprintln(env.Stdout, "jobs:")
 		w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
@@ -175,4 +176,53 @@ func orUnsaid(detail string) string {
 		return "the machine could not be read"
 	}
 	return detail
+}
+
+// printAccounts says what each Account has used against what it is held to,
+// and which of them is waiting for a window to start again (ADR-0020).
+func printAccounts(env Env, accounts []client.AccountCeiling) {
+	if len(accounts) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(env.Stdout, "\naccounts:")
+	w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "ACCOUNT\tWINDOW\tUSED\tCEILING\tRESETS")
+	for _, a := range accounts {
+		if len(a.Windows) == 0 {
+			// An Account nothing has been read about yet is still one somebody
+			// may be waiting on, so it is named rather than left out.
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				a.Name, noneYet, noneYet, noneYet, noneYet)
+			continue
+		}
+		for _, u := range a.Windows {
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				a.Name, u.Name, share(u.Utilization), orNoCeiling(u.Ceiling),
+				u.Resets.UTC().Format(time.RFC3339))
+		}
+	}
+	_ = w.Flush()
+	// Which Account is waiting, and until when, below the table it is in: a
+	// person reading why nothing ran wants the sentence, not the row.
+	for _, a := range accounts {
+		if a.Waiting == "" {
+			continue
+		}
+		_, _ = fmt.Fprintf(env.Stdout, "\nwaiting: %s\n", terminalSafe(a.Waiting))
+	}
+	_, _ = fmt.Fprintln(env.Stdout)
+}
+
+// noneYet is what a column says about a window nobody has read yet.
+const noneYet = "(none)"
+
+// share is how much of a window is spent, as a person reads it.
+func share(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) + "%" }
+
+// orNoCeiling is a ceiling, or that there is none.
+func orNoCeiling(v float64) string {
+	if v <= 0 {
+		return noneYet
+	}
+	return share(v)
 }

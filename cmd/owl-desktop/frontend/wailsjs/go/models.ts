@@ -1,5 +1,79 @@
 export namespace client {
 	
+	export class UsageWindow {
+	    Name: string;
+	    Utilization: number;
+	    Ceiling: number;
+	    // Go type: time
+	    Resets: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new UsageWindow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Name = source["Name"];
+	        this.Utilization = source["Utilization"];
+	        this.Ceiling = source["Ceiling"];
+	        this.Resets = this.convertValues(source["Resets"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class AccountCeiling {
+	    Name: string;
+	    Windows: UsageWindow[];
+	    Waiting: string;
+	    // Go type: time
+	    Until: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new AccountCeiling(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Name = source["Name"];
+	        this.Windows = this.convertValues(source["Windows"], UsageWindow);
+	        this.Waiting = source["Waiting"];
+	        this.Until = this.convertValues(source["Until"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ChatMessage {
 	    Role: string;
 	    Text: string;
@@ -491,6 +565,7 @@ export namespace client {
 	    Unfinished: Unfinished[];
 	    Machine: Machine;
 	    Holding: string;
+	    Accounts: AccountCeiling[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Overview(source);
@@ -506,6 +581,7 @@ export namespace client {
 	        this.Unfinished = this.convertValues(source["Unfinished"], Unfinished);
 	        this.Machine = this.convertValues(source["Machine"], Machine);
 	        this.Holding = source["Holding"];
+	        this.Accounts = this.convertValues(source["Accounts"], AccountCeiling);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -583,6 +659,7 @@ export namespace client {
 	        this.InRepo = source["InRepo"];
 	    }
 	}
+	
 	
 
 }
