@@ -248,9 +248,9 @@ func record(path string) error {
 	return err
 }
 
-// claudeEnv is every CLAUDE_ variable the stub was given. Only that prefix is
-// recorded: the record is a file in a temporary directory, and the rest of the
-// environment is nobody's business.
+// claudeEnv is every CLAUDE_ and ANTHROPIC_ variable the stub was given. Only
+// those prefixes are recorded: the record is a file in a temporary directory,
+// and the rest of the environment is nobody's business.
 func claudeEnv() map[string]string {
 	out := map[string]string{}
 	for _, kv := range os.Environ() {

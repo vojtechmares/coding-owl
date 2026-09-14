@@ -165,7 +165,9 @@ func accountToken(cmd *cobra.Command, env Env, setup setupCommand, dataDir, name
 	// its output is theirs to read and its questions theirs to answer.
 	run := exec.CommandContext(cmd.Context(), inv.Path, inv.Args...)
 	run.Dir = inv.Dir
-	run.Env = append(os.Environ(), inv.Env...)
+	// Less what the Driver keeps from every Agent: the user's own credentials
+	// in this shell would otherwise stand in for the Account's (ADR-0019).
+	run.Env = inv.Environ(os.Environ())
 	run.Stdin, run.Stdout, run.Stderr = env.stdin(), env.Stdout, env.Stderr
 	if err := run.Run(); err != nil {
 		return "", fmt.Errorf("running %s %s: %w", inv.Path, strings.Join(inv.Args, " "), err)
