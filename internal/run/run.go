@@ -494,8 +494,14 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 		if err := mkdirPrivate(s.opts.WorktreeDir); err != nil {
 			return queue.Job{}, Run{}, false, err
 		}
+		// A worktree that cannot be made - the branch already there, a
+		// directory left behind by an earlier attempt - is not something the
+		// next look at the queue will do better, and a Job left pending at
+		// the head of the queue would be picked again and again while
+		// nothing behind it ever ran. It is blocked with git's own words, as
+		// a rebase that fails is, and retried when the cause is cleared.
 		if err := git.AddWorktree(details.Path, worktree, branch, details.BaseBranch); err != nil {
-			return queue.Job{}, Run{}, false, err
+			return queue.Job{}, Run{}, false, s.blocked(j, err.Error())
 		}
 		if err := s.opts.Store.SetJobWorkspace(ctx, j.ID, branch, worktree); err != nil {
 			return queue.Job{}, Run{}, false, err
