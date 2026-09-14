@@ -4,8 +4,10 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"sort"
@@ -214,7 +216,11 @@ func Default() Config {
 }
 
 // file is the on-disk shape of a configuration file.
-type file struct {
+// projectFile is the on-disk shape of a Project's `.coding-owl.yaml`. Each
+// file kind has a shape of its own and is decoded strictly against it, so
+// that a key the shape does not have - a misspelling, or a key that belongs
+// to the daemon's file - is refused by name rather than ignored.
+type projectFile struct {
 	APIVersion        string           `yaml:"apiVersion"`
 	BranchPrefix      string           `yaml:"branchPrefix"`
 	UnattendedClauses []string         `yaml:"unattendedClauses"`
@@ -225,24 +231,35 @@ type file struct {
 	Verification      *verification    `yaml:"verification"`
 	Skills            []skillEntry     `yaml:"skills"`
 	Account           string           `yaml:"account"`
-	CredentialStore   string           `yaml:"credentialStore"`
-	GarbageCollection *garbage         `yaml:"garbageCollection"`
-	GraceWindow       string           `yaml:"graceWindow"`
-	Idle              *idlePolicy      `yaml:"idle"`
 	// MaxParallelRuns is read as what was written rather than into an int, so
 	// that a value nobody can read is refused by name: a decoder's own message
 	// says the line number and not the setting (ADR-0021).
 	MaxParallelRuns any `yaml:"maxParallelRuns"`
-	Accounts        map[string]struct {
-		// MaxParallel is how many Runs may draw on this Account at once. Unset
-		// is unlimited, because the ceiling already governs burn rate.
-		MaxParallel any `yaml:"maxParallel"`
-		// Limits is read as what was written rather than into fields, so that
-		// a setting Owl does not have is refused rather than ignored: a
-		// ceiling nobody is keeping is the one thing this block exists to
-		// prevent, and a misspelling is indistinguishable from not setting one.
-		Limits map[string]any `yaml:"limits"`
-	} `yaml:"accounts"`
+}
+
+// globalFile is the on-disk shape of the daemon's own `config.yaml`, decoded
+// strictly for the same reason projectFile is.
+type globalFile struct {
+	APIVersion        string                  `yaml:"apiVersion"`
+	Phases            map[string]phase        `yaml:"phases"`
+	CredentialStore   string                  `yaml:"credentialStore"`
+	GarbageCollection *garbage                `yaml:"garbageCollection"`
+	GraceWindow       string                  `yaml:"graceWindow"`
+	Idle              *idlePolicy             `yaml:"idle"`
+	MaxParallelRuns   any                     `yaml:"maxParallelRuns"`
+	Accounts          map[string]accountEntry `yaml:"accounts"`
+}
+
+// accountEntry is the on-disk shape of one entry under `accounts`.
+type accountEntry struct {
+	// MaxParallel is how many Runs may draw on this Account at once. Unset
+	// is unlimited, because the ceiling already governs burn rate.
+	MaxParallel any `yaml:"maxParallel"`
+	// Limits is read as what was written rather than into fields, so that a
+	// ceiling Owl does not keep is refused with the two it does keep named:
+	// a ceiling nobody is keeping is the one thing this block exists to
+	// prevent, and the decoder's own refusal would not say which two.
+	Limits map[string]any `yaml:"limits"`
 }
 
 // The ceilings an Account may be held to, which are also the only keys its
@@ -293,12 +310,53 @@ type phase struct {
 	Effort string `yaml:"effort"`
 }
 
+// decodeStrict reads a file into its on-disk shape, refusing any key the shape
+// does not have: a misspelled setting silently meaning the default, or a key
+// that belongs to the other file kind silently doing nothing, is exactly what
+// a user cannot see. whose says which file kind, for the refusal. An empty
+// file decodes to nothing, which the apiVersion check then refuses by name.
+func decodeStrict(source, whose string, data []byte, into any) error {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	err := dec.Decode(into)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	var typeErr *yaml.TypeError
+	if errors.As(err, &typeErr) {
+		// The decoder's own wording names a Go type; the user wrote a key in a
+		// file, so that is what they are told about.
+		return fmt.Errorf("%s: %s", source, unknownKeys(whose, typeErr))
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", source, err)
+	}
+	return nil
+}
+
+// unknownKeys rewords what the decoder said about keys it did not know, and
+// leaves anything else it said as it was.
+func unknownKeys(whose string, typeErr *yaml.TypeError) string {
+	const notFound = " not found in type "
+	out := make([]string, 0, len(typeErr.Errors))
+	for _, msg := range typeErr.Errors {
+		// "line 3: field maxParalellRuns not found in type config.projectFile"
+		at, rest, found := strings.Cut(msg, ": field ")
+		if key, _, ok := strings.Cut(rest, notFound); found && ok {
+			out = append(out, fmt.Sprintf("%s: %s is not a setting in %s file", at, key, whose))
+			continue
+		}
+		out = append(out, msg)
+	}
+	return strings.Join(out, "; ")
+}
+
 // Parse reads a configuration file. source names the file in error messages -
 // `main:.coding-owl.yaml` for an in-repo form, an absolute path otherwise.
 func Parse(source string, data []byte) (Config, error) {
-	var f file
-	if err := yaml.Unmarshal(data, &f); err != nil {
-		return Config{}, fmt.Errorf("%s: %w", source, err)
+	var f projectFile
+	if err := decodeStrict(source, "a project's", data, &f); err != nil {
+		return Config{}, err
 	}
 	if err := checkAPIVersion(source, f.APIVersion); err != nil {
 		return Config{}, err
@@ -492,9 +550,9 @@ func parseChecks(source string, checks []check) ([]Check, error) {
 // ParseGlobal reads the daemon's own configuration file, which sets what the
 // phases of every Job run at unless a Project or a Job says otherwise.
 func ParseGlobal(source string, data []byte) (Global, error) {
-	var f file
-	if err := yaml.Unmarshal(data, &f); err != nil {
-		return Global{}, fmt.Errorf("%s: %w", source, err)
+	var f globalFile
+	if err := decodeStrict(source, "the daemon's", data, &f); err != nil {
+		return Global{}, err
 	}
 	if err := checkAPIVersion(source, f.APIVersion); err != nil {
 		return Global{}, err
@@ -515,7 +573,7 @@ func ParseGlobal(source string, data []byte) (Global, error) {
 	if err != nil {
 		return Global{}, err
 	}
-	accounts, err := parseAccounts(source, f)
+	accounts, err := parseAccounts(source, f.Accounts)
 	if err != nil {
 		return Global{}, err
 	}
@@ -563,13 +621,13 @@ func parseParallel(source, what string, v any, missing int) (int, error) {
 // parseAccounts reads the `accounts` block: what each Account is held to. A
 // ceiling that cannot be read is refused rather than left out, because a
 // ceiling nobody is keeping is the one thing this setting exists to prevent.
-func parseAccounts(source string, f file) (map[string]Limits, error) {
-	if len(f.Accounts) == 0 {
+func parseAccounts(source string, accounts map[string]accountEntry) (map[string]Limits, error) {
+	if len(accounts) == 0 {
 		return nil, nil
 	}
 	out := map[string]Limits{}
 	named := map[string]string{}
-	for name, block := range f.Accounts {
+	for name, block := range accounts {
 		as := strings.ToLower(strings.TrimSpace(name))
 		if as == "" {
 			return nil, fmt.Errorf("%s: accounts: an account with no name is held to nothing", source)
