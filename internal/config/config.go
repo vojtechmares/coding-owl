@@ -417,6 +417,12 @@ func Parse(source string, data []byte) (Config, error) {
 		if err := CheckText("allowed tool", rule); err != nil {
 			return Config{}, fmt.Errorf("%s: allowedTools: %w", source, err)
 		}
+		// The list reaches the tool as one comma-separated value, so a rule
+		// cannot hold a comma; it is refused where it was written rather
+		// than at the start of every Run.
+		if strings.Contains(rule, ",") {
+			return Config{}, fmt.Errorf("%s: allowedTools: entry %d, %q, may not hold a comma", source, i+1, rule)
+		}
 		cfg.AllowedTools = append(cfg.AllowedTools, strings.TrimSpace(rule))
 	}
 	skills, err := parseSkills(source, f.Skills)

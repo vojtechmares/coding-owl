@@ -17,9 +17,22 @@ import (
 )
 
 // workAccount is the configuration directory of the Account these tests run
-// on. It is under the temporary directory rather than a made-up path, because
-// building an Agent seeds the Account's settings file there (ADR-0035).
-var workAccount = filepath.Join(os.TempDir(), "coding-owl-driver-tests", "accounts", "work")
+// on. It is a real directory of this process's own rather than a made-up
+// path, because building an Agent seeds the Account's settings file there
+// (ADR-0035), and it is removed when the tests are done.
+var workAccount string
+
+func TestMain(m *testing.M) {
+	root, err := os.MkdirTemp("", "coding-owl-driver-tests")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	workAccount = filepath.Join(root, "accounts", "work")
+	code := m.Run()
+	_ = os.RemoveAll(root)
+	os.Exit(code)
+}
 
 // stubClaude writes a program named claude that prints version for --version,
 // and puts it on PATH for the test.
