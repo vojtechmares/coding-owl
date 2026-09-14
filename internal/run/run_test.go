@@ -1252,6 +1252,74 @@ func TestS6AHandoffCommitSlowerThanTheBookkeepingBudgetStillRecordsThePlan(t *te
 	}
 }
 
+// blockedWithoutARun checks a Job was blocked with a reason naming what was
+// in the way, and that no Run was made for it (issue #58).
+func blockedWithoutARun(t *testing.T, st *store.Store, id int64, naming string) {
+	t.Helper()
+	ctx := context.Background()
+	after, err := st.GetJob(ctx, id)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if queue.State(after.State) != queue.StateBlocked {
+		t.Errorf("state = %q, want blocked", after.State)
+	}
+	if !strings.Contains(after.Reason, naming) {
+		t.Errorf("reason = %q, does not name %q", after.Reason, naming)
+	}
+	runs, err := st.ListRuns(ctx, id)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Errorf("runs = %+v, want none: nothing was carried out", runs)
+	}
+}
+
+func TestS1AJobWhoseBranchAlreadyExistsIsBlockedAndTheJobBehindItRuns(t *testing.T) {
+	ctx := context.Background()
+	svc, st, repo := newFixture(t, &fakeDriver{}, &fakeExecutor{})
+	first := queueJob(t, st, "first")
+	second := queueJob(t, st, "second")
+	// The branch the first Job would be cut on is already there.
+	gitIn(t, repo, "branch", "owl/job-"+strconv.FormatInt(first.ID, 10))
+
+	_, _, started, err := svc.Start(ctx)
+
+	if started || err == nil {
+		t.Fatalf("Start = %v, %v, want the first job refused with a reason", started, err)
+	}
+	blockedWithoutARun(t, st, first.ID, "owl/job-"+strconv.FormatInt(first.ID, 10))
+
+	job, _, started, err := svc.Start(ctx)
+
+	if err != nil || !started || job.ID != second.ID {
+		t.Fatalf("second Start = job %d, %v, %v, want the second job started", job.ID, started, err)
+	}
+	awaitState(t, st, second.ID, queue.StateReview)
+}
+
+func TestS2AJobWhoseWorktreeDirectoryIsAlreadyThereIsBlockedByName(t *testing.T) {
+	ctx := context.Background()
+	svc, st, _, root := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{})
+	j := queueJob(t, st, "work")
+	// Something already at the path the Job's worktree would take.
+	leftover := filepath.Join(root, "worktrees", strconv.FormatInt(j.ID, 10))
+	if err := os.MkdirAll(leftover, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(leftover, "left.txt"), []byte("behind\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, started, err := svc.Start(ctx)
+
+	if started || err == nil {
+		t.Fatalf("Start = %v, %v, want the job refused with a reason", started, err)
+	}
+	blockedWithoutARun(t, st, j.ID, leftover)
+}
+
 // gitOutput runs git in a directory and returns what it printed, trimmed.
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
