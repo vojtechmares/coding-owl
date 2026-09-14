@@ -474,7 +474,7 @@ func TestDeleteBranchRemovesEvenUnmergedWork(t *testing.T) {
 	}
 }
 
-func TestPruneWorktreesForgetsAWorktreeWhoseDirectoryIsGone(t *testing.T) {
+func TestForgetWorktreeKeepsTheBranchAndIsDoneWithAPathGitDoesNotKnow(t *testing.T) {
 	dir := newRepo(t)
 	worktree := filepath.Join(t.TempDir(), "job-1")
 	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
@@ -484,15 +484,18 @@ func TestPruneWorktreesForgetsAWorktreeWhoseDirectoryIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := git.PruneWorktrees(dir); err != nil {
-		t.Fatalf("PruneWorktrees: %v", err)
+	if err := git.ForgetWorktree(dir, worktree); err != nil {
+		t.Fatalf("ForgetWorktree: %v", err)
 	}
 
 	if list := run(t, dir, "worktree", "list"); strings.Contains(list, worktree) {
 		t.Errorf("git still reports a worktree that is not there:\n%s", list)
 	}
 	if ok, err := git.HasBranch(dir, "owl/job-1"); err != nil || !ok {
-		t.Errorf("HasBranch = %v, %v; pruning keeps the branch", ok, err)
+		t.Errorf("HasBranch = %v, %v; forgetting the worktree keeps the branch", ok, err)
+	}
+	if err := git.ForgetWorktree(dir, worktree); err != nil {
+		t.Errorf("ForgetWorktree of a worktree already forgotten: %v; there is nothing left to do", err)
 	}
 }
 
