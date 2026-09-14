@@ -463,7 +463,10 @@ func (s *Service) requeueLeftOver(ctx context.Context) error {
 		if queue.State(j.State) != queue.StateActive {
 			continue
 		}
-		s.requeue(ctx, j.ID, "returning a job an earlier daemon was carrying out to the queue")
+		if err := s.requeue(ctx, j.ID); err != nil {
+			s.opts.Logger.Error("returning a job an earlier daemon was carrying out to the queue", "job", j.ID, "error", err)
+			continue
+		}
 		s.opts.Logger.Info("a job an earlier daemon was carrying out is queued again", "job", j.ID)
 	}
 	return nil

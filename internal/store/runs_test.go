@@ -268,6 +268,45 @@ func jobWithAttempts(t *testing.T, s *store.Store, ref string, n int) store.Job 
 	return out
 }
 
+func TestFailRunRewritesHowAnEndedRunEndedAndRefusesOneStillGoing(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := jobWithAttempts(t, s, "a", 3)
+	now := time.Now().UTC()
+	r, err := s.StartRun(ctx, store.Run{JobID: j.ID, Started: now})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	if err := s.FailRun(ctx, r.ID, "too soon"); !errors.Is(err, store.ErrRunNotFound) {
+		t.Errorf("FailRun of a run still going = %v, want ErrRunNotFound: only an ended run has an end to rewrite", err)
+	}
+	if err := s.FinishRun(ctx, r.ID, now, "succeeded", "", 0); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+	if err := s.FailRun(ctx, r.ID, "the job could not be moved on"); err != nil {
+		t.Fatalf("FailRun: %v", err)
+	}
+
+	got, err := s.GetRun(ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if got.Outcome != "failed" || got.Error != "the job could not be moved on" {
+		t.Errorf("run = %+v, want it failed for the reason given", got)
+	}
+	if !got.Ended.Equal(now) {
+		t.Errorf("ended = %v, want %v: rewriting the outcome keeps when the run ended", got.Ended, now)
+	}
+	after, err := s.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if after.TTL != 2 {
+		t.Errorf("attempts left = %d, want 2: the attempt the run spent stays spent, once", after.TTL)
+	}
+}
+
 func TestFinishRunSpendsOneOfTheJobsAttempts(t *testing.T) {
 	ctx := context.Background()
 	s := jobStore(t)

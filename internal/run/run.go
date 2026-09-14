@@ -701,14 +701,19 @@ func (s *Service) recordPlan(j store.Job) error {
 func (s *Service) abandon(runID, jobID int64, cause error) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
 	defer cancel()
+	reason := cause.Error()
 	if err := s.opts.Store.FinishRun(ctx, runID, s.now().UTC(),
-		string(OutcomeFailed), cause.Error(), store.NoExitCode); err != nil {
+		string(OutcomeFailed), reason, store.NoExitCode); err != nil {
 		s.opts.Logger.Error("ending a run that never started", "run", runID, "error", err)
 	}
-	// The Run carries the reason, so the Job needs no note of its own.
+	// The Run carries the reason, so the Job needs no note of its own. A Job
+	// that could not be blocked - somebody decided about it in the meantime -
+	// is left as they left it, and the Run says so.
 	if err := s.opts.Store.DequeueJob(ctx, jobID, string(queue.StateActive), string(queue.StateBlocked), ""); err != nil {
-		s.opts.Logger.Error("blocking a job whose run never started", "job", jobID, "error", err)
+		reason = s.couldNotMove(ctx, runID, reason, err)
 	}
+	s.opts.Logger.Info("run finished",
+		"run", runID, "job", jobID, "outcome", OutcomeFailed, "reason", reason)
 }
 
 // release gives a claimed Job back to the queue when its Run did not start:
@@ -968,36 +973,55 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
 	defer cancel()
 
+	// The Run's end is written before the Job is moved on: where the Job goes
+	// depends on the attempt this Run spent.
 	if err := s.opts.Store.FinishRun(ctx, r.ID, s.now().UTC(), string(outcome), reason, code); err != nil {
 		s.opts.Logger.Error("recording the end of a run", "run", r.ID, "error", err)
 	}
+	// A Job that could not be moved on - because somebody decided about it
+	// while the Run was going - is left as they left it, and the Run says so:
+	// a Run whose work went nowhere has failed, whatever its Agent did.
+	if err := s.moveOn(ctx, r.JobID, phase, outcome, refused); err != nil {
+		outcome, reason = OutcomeFailed, s.couldNotMove(ctx, r.ID, reason, err)
+	}
 	s.opts.Logger.Info("run finished",
-		"run", r.ID, "job", r.JobID, "phase", phase, "outcome", outcome)
+		"run", r.ID, "job", r.JobID, "phase", phase, "outcome", outcome, "reason", reason)
+}
 
+// moveOn takes a Job to where its Run's end leaves it: back into the queue,
+// waiting for a decision, or blocked with what is wrong attached.
+func (s *Service) moveOn(ctx context.Context, jobID int64, phase Phase, outcome Outcome, refused string) error {
 	switch {
 	case outcome == OutcomeInterrupted:
 		// The Run did not finish, so the Job goes back into the queue at the
 		// place it kept while it ran (ADR-0011, ADR-0025).
-		s.requeue(ctx, r.JobID, "returning an interrupted job to the queue")
+		return s.requeue(ctx, jobID)
 	case outcome == OutcomeFailed:
-		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateActive), string(queue.StateBlocked), ""); err != nil {
-			s.opts.Logger.Error("blocking a job", "job", r.JobID, "error", err)
-		}
+		return s.opts.Store.DequeueJob(ctx, jobID, string(queue.StateActive), string(queue.StateBlocked), "")
 	case phase == PhasePlan:
 		// The Job is planned, not finished: it waits its turn to be carried
 		// out, in the place it already holds.
-		s.requeue(ctx, r.JobID, "returning a planned job to the queue")
+		return s.requeue(ctx, jobID)
 	case refused != "":
 		// Verification refused the work. There is no retry: the Job waits for
 		// the user with everything that is wrong attached (ADR-0013).
-		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateActive), string(queue.StateBlocked), refused); err != nil {
-			s.opts.Logger.Error("blocking a job verification refused", "job", r.JobID, "error", err)
-		}
+		return s.opts.Store.DequeueJob(ctx, jobID, string(queue.StateActive), string(queue.StateBlocked), refused)
 	default:
-		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateActive), string(queue.StateReview), ""); err != nil {
-			s.opts.Logger.Error("recording where a job got to", "job", r.JobID, "error", err)
-		}
+		return s.opts.Store.DequeueJob(ctx, jobID, string(queue.StateActive), string(queue.StateReview), "")
 	}
+}
+
+// couldNotMove records on a Run that its Job could not be moved on, after
+// whatever reason the Run already had, and returns the reason as recorded.
+func (s *Service) couldNotMove(ctx context.Context, runID int64, reason string, cause error) string {
+	why := "the job could not be moved on: " + cause.Error()
+	if reason != "" {
+		why = reason + "; " + why
+	}
+	if err := s.opts.Store.FailRun(ctx, runID, why); err != nil {
+		s.opts.Logger.Error("recording that a run could not move its job on", "run", runID, "error", err)
+	}
+	return why
 }
 
 // forgetWorktreeConfig takes away what Owl kept beside a worktree that has
@@ -1147,18 +1171,18 @@ func (s *Service) Carrying(jobID int64) bool {
 // requeue puts a Job back in the queue after a Run that did not finish with
 // it. A Job that has spent its last attempt is exhausted instead: it is not
 // stuck on anything, it has simply had its Runs, and it wants a decision or
-// owl jobs extend rather than another night (ADR-0025). what names the step
-// for the log when it cannot be done.
-func (s *Service) requeue(ctx context.Context, jobID int64, what string) {
+// owl jobs extend rather than another night (ADR-0025). A Job that cannot be
+// put back is the caller's to say something about.
+func (s *Service) requeue(ctx context.Context, jobID int64) error {
 	state, err := s.opts.Store.ReturnJobToQueue(ctx, jobID,
 		string(queue.StatePending), string(queue.StateExhausted))
 	if err != nil {
-		s.opts.Logger.Error(what, "job", jobID, "error", err)
-		return
+		return err
 	}
 	if queue.State(state) == queue.StateExhausted {
 		s.opts.Logger.Info("job out of attempts", "job", jobID)
 	}
+	return nil
 }
 
 // blocked records why a Job cannot be carried out and returns that as the

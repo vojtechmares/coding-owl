@@ -82,6 +82,27 @@ func (s *Store) FinishRun(ctx context.Context, id int64, ended time.Time, outcom
 	})
 }
 
+// FailRun rewrites how an ended Run ended: failed, for the reason given. It is
+// for what goes wrong after the Run's end has been written down - a Job that
+// could not be moved on - and is the one way an outcome changes once written.
+// The attempt the Run spent stays spent.
+func (s *Store) FailRun(ctx context.Context, id int64, reason string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE runs SET outcome = ?, error = ? WHERE id = ? AND outcome <> ''`,
+		"failed", reason, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: %d", ErrRunNotFound, id)
+	}
+	return nil
+}
+
 // alreadyEnded says why a Run could not be ended: either there is no such Run,
 // or it has ended already and its attempt is already spent.
 func alreadyEnded(ctx context.Context, tx *sql.Tx, id int64) error {
