@@ -264,6 +264,8 @@ func toRunProto(r run.Run) *codingowlv1.Run {
 		Skills:   toRunSkillsProto(r.Skills),
 		Paused:   r.Paused,
 		Stage:    string(r.Stage),
+		// What the Agent was allowed to do, as recorded (ADR-0035).
+		Permissions: r.Permissions,
 	}
 	if !r.Ended.IsZero() {
 		out.Ended = timestamppb.New(r.Ended)

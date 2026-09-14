@@ -93,6 +93,9 @@ type Config struct {
 	// Skills are the Skills every Job in this Project gets, by source and ref
 	// (ADR-0024). The manifest carries intent; the lockfile carries identity.
 	Skills []Skill
+	// AllowedTools are the tool rules this Project grants its Agents on top
+	// of the Account's own allowlist, in the tool's own syntax (ADR-0035).
+	AllowedTools []string
 	// MaxParallelRuns is how many Runs of this Project may go at once. One
 	// unless the file says otherwise: two worktrees of one repository will
 	// each happily bind the same port and write the same test database, so
@@ -231,6 +234,7 @@ type projectFile struct {
 	Verification      *verification    `yaml:"verification"`
 	Skills            []skillEntry     `yaml:"skills"`
 	Account           string           `yaml:"account"`
+	AllowedTools      []string         `yaml:"allowedTools"`
 	// MaxParallelRuns is read as what was written rather than into an int, so
 	// that a value nobody can read is refused by name: a decoder's own message
 	// says the line number and not the setting (ADR-0021).
@@ -403,6 +407,18 @@ func Parse(source string, data []byte) (Config, error) {
 	// so it is named rather than chosen (ADR-0023). Whether that Account
 	// exists is the scheduler's question, not this file's.
 	cfg.Account = strings.TrimSpace(f.Account)
+	// What a Project grants its Agents beyond the Account's own allowlist,
+	// in the tool's own syntax, which Owl carries rather than reads
+	// (ADR-0035). An entry that names nothing was meant to name something.
+	for i, rule := range f.AllowedTools {
+		if strings.TrimSpace(rule) == "" {
+			return Config{}, fmt.Errorf("%s: allowedTools: entry %d is empty", source, i+1)
+		}
+		if err := CheckText("allowed tool", rule); err != nil {
+			return Config{}, fmt.Errorf("%s: allowedTools: %w", source, err)
+		}
+		cfg.AllowedTools = append(cfg.AllowedTools, strings.TrimSpace(rule))
+	}
 	skills, err := parseSkills(source, f.Skills)
 	if err != nil {
 		return Config{}, err

@@ -11,7 +11,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -177,6 +181,18 @@ func (d *Driver) Command(req driver.Request) (agent.Invocation, error) {
 	if err != nil {
 		return agent.Invocation{}, err
 	}
+	// What the Agent may do is granted in the tool's own settings, seeded
+	// once per Account and the user's from then on, plus whatever the
+	// Project adds for its own Agents (ADR-0006, ADR-0035). Denying every
+	// prompt only makes sense once something has been granted.
+	granted, err := ensureSettings(req.ConfigDir)
+	if err != nil {
+		return agent.Invocation{}, err
+	}
+	extra, err := allowedTools(req.AllowedTools)
+	if err != nil {
+		return agent.Invocation{}, err
+	}
 	args := []string{
 		"--print",
 		// stream-json emits nothing useful without --verbose.
@@ -184,6 +200,9 @@ func (d *Driver) Command(req driver.Request) (agent.Invocation, error) {
 		"--output-format", "stream-json",
 		// none: anything that would prompt is denied rather than approved.
 		"--permission-prompts", "none",
+	}
+	if len(extra) > 0 {
+		args = append(args, "--allowedTools", strings.Join(extra, ","))
 	}
 	if req.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", req.SystemPrompt)
@@ -213,7 +232,10 @@ func (d *Driver) Command(req driver.Request) (agent.Invocation, error) {
 	if err != nil {
 		return agent.Invocation{}, err
 	}
-	return agent.Invocation{Path: path, Args: args, Dir: req.WorkingDir, Env: env, Unset: daemonCredentials}, nil
+	return agent.Invocation{
+		Path: path, Args: args, Dir: req.WorkingDir, Env: env, Unset: daemonCredentials,
+		Permissions: append(granted, extra...),
+	}, nil
 }
 
 // SetupToken builds `claude setup-token`, which walks the user through
@@ -233,6 +255,110 @@ func (d *Driver) SetupToken(configDir string) (agent.Invocation, error) {
 	// the user happened to type the command in: it is the tool's own flow, and
 	// an Agent belongs where its work is (ADR-0006, ADR-0019).
 	return agent.Invocation{Path: path, Args: []string{"setup-token"}, Dir: configDir, Env: env, Unset: daemonCredentials}, nil
+}
+
+// settingsName is the tool's own settings file inside a configuration
+// directory, which is where it reads what it is allowed to do.
+const settingsName = "settings.json"
+
+// DefaultAllowedTools is what an Account's Agents are granted when nothing
+// has been decided for that Account yet: the edits an Agent exists to make,
+// reading what is there, and the commands a Job's work turns on - version
+// control and the build and test runners a Project is likely to have. It is
+// written once into a fresh Account's settings file, which is the user's from
+// then on (ADR-0035). Anything wider is the Project's to add.
+var DefaultAllowedTools = []string{
+	"Edit", "Write", "MultiEdit", "NotebookEdit",
+	"Read", "Glob", "Grep", "LS",
+	"Bash(git:*)", "Bash(make:*)", "Bash(go:*)",
+	"Bash(npm:*)", "Bash(pnpm:*)", "Bash(yarn:*)", "Bash(npx:*)",
+	"Bash(cargo:*)", "Bash(pytest:*)",
+}
+
+// settings is the part of the tool's settings file Owl writes and reads.
+type settings struct {
+	Permissions struct {
+		Allow []string `json:"allow"`
+	} `json:"permissions"`
+}
+
+// ensureSettings makes sure an Account's configuration directory holds a
+// settings file, seeding the default allowlist into one that is not there,
+// and returns what the file allows. A file that exists is the user's, whoever
+// wrote it, and is read rather than written: a default is a starting point,
+// not a setting Owl keeps re-imposing (ADR-0035).
+func ensureSettings(configDir string) ([]string, error) {
+	if configDir == "" {
+		return nil, errors.New("a run needs an account's configuration directory")
+	}
+	path := filepath.Join(configDir, settingsName)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return seedSettings(configDir, path)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading the account's %s: %w", settingsName, err)
+	}
+	var have settings
+	if err := json.Unmarshal(data, &have); err != nil {
+		return nil, fmt.Errorf("the account's %s is not what the tool reads: %w", path, err)
+	}
+	return have.Permissions.Allow, nil
+}
+
+// seedSettings writes the default allowlist into a fresh Account's settings
+// file. The file is created rather than written over, so two Runs starting at
+// once cannot both seed it, and one the user made in between is left alone.
+func seedSettings(configDir, path string) ([]string, error) {
+	// The directory is the Account's alone, as everything in it is
+	// (ADR-0019).
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return nil, err
+	}
+	var seed settings
+	seed.Permissions.Allow = DefaultAllowedTools
+	data, err := json.MarshalIndent(seed, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		// Somebody got there first, and what they wrote is what counts.
+		return ensureSettings(configDir)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("seeding the account's %s: %w", settingsName, err)
+	}
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("seeding the account's %s: %w", settingsName, err)
+	}
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("seeding the account's %s: %w", settingsName, err)
+	}
+	return slices.Clone(DefaultAllowedTools), nil
+}
+
+// allowedTools is what a Project adds to its Agents' allowlist, checked the
+// way the tool will read it: each rule is one argument's worth of text, and
+// the list is passed as one comma-separated value, so a rule may hold neither
+// a comma nor anything that would not print as itself.
+func allowedTools(rules []string) ([]string, error) {
+	out := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		rule = strings.TrimSpace(rule)
+		if rule == "" {
+			continue
+		}
+		if strings.ContainsAny(rule, ",\x00\n\r") {
+			return nil, fmt.Errorf("allowed tool %q may not hold a comma or a line break", rule)
+		}
+		if strings.HasPrefix(rule, "-") {
+			return nil, fmt.Errorf("allowed tool %q may not start with a dash", rule)
+		}
+		out = append(out, rule)
+	}
+	return out, nil
 }
 
 // daemonCredentials are the variables the tool takes a credential from, which

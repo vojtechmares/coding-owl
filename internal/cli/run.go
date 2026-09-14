@@ -343,6 +343,7 @@ func printJob(env Env, d client.JobDetails) {
 		_ = w.Flush()
 	}
 	printRunSkills(env, d.Runs)
+	printRunPermissions(env, d.Runs)
 	printChecks(env, d.Checks)
 	printPhases(env, d.Phases)
 	if plan := strings.TrimRight(d.Job.Plan, "\n"); plan != "" {
@@ -384,6 +385,24 @@ func printRunSkills(env Env, runs []client.Run) {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, s.Source, orNone(s.Ref), short(s.Commit))
 		}
 		_ = w.Flush()
+	}
+}
+
+// printRunPermissions reports what each Run's Agent was allowed to do, so that
+// what it did is attributable to what it was granted (ADR-0035). The most
+// recent Run comes first, as for what it read.
+func printRunPermissions(env Env, runs []client.Run) {
+	var reported bool
+	for i := len(runs) - 1; i >= 0; i-- {
+		r := runs[i]
+		if len(r.Permissions) == 0 {
+			continue
+		}
+		if !reported {
+			_, _ = fmt.Fprintln(env.Stdout, "\npermissions:")
+			reported = true
+		}
+		_, _ = fmt.Fprintf(env.Stdout, "RUN %d: %s\n", r.ID, strings.Join(r.Permissions, ", "))
 	}
 }
 

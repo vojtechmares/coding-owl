@@ -600,7 +600,10 @@ type Run struct {
 	ExitCode int32 `protobuf:"varint,9,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
 	// Skills is what this Run read, so that what an Agent did is attributable to
 	// the instructions it had (ADR-0024).
-	Skills        []*Skill `protobuf:"bytes,11,rep,name=skills,proto3" json:"skills,omitempty"`
+	Skills []*Skill `protobuf:"bytes,11,rep,name=skills,proto3" json:"skills,omitempty"`
+	// Permissions is what this Run's Agent was allowed to do, in the tool's own
+	// rule syntax and in the order it read them (ADR-0035).
+	Permissions   []string `protobuf:"bytes,14,rep,name=permissions,proto3" json:"permissions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -722,6 +725,13 @@ func (x *Run) GetExitCode() int32 {
 func (x *Run) GetSkills() []*Skill {
 	if x != nil {
 		return x.Skills
+	}
+	return nil
+}
+
+func (x *Run) GetPermissions() []string {
+	if x != nil {
+		return x.Permissions
 	}
 	return nil
 }
@@ -2729,7 +2739,7 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"model_from\x18\x03 \x01(\tR\tmodelFrom\x12\x16\n" +
 	"\x06effort\x18\x04 \x01(\tR\x06effort\x12\x1f\n" +
 	"\veffort_from\x18\x05 \x01(\tR\n" +
-	"effortFrom\"\xa1\x03\n" +
+	"effortFrom\"\xc3\x03\n" +
 	"\x03Run\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\x03R\x05jobId\x12\x18\n" +
@@ -2744,7 +2754,8 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\x06paused\x18\f \x01(\bR\x06paused\x12\x14\n" +
 	"\x05stage\x18\r \x01(\tR\x05stage\x12\x1b\n" +
 	"\texit_code\x18\t \x01(\x05R\bexitCode\x12+\n" +
-	"\x06skills\x18\v \x03(\v2\x13.codingowl.v1.SkillR\x06skills\"\x11\n" +
+	"\x06skills\x18\v \x03(\v2\x13.codingowl.v1.SkillR\x06skills\x12 \n" +
+	"\vpermissions\x18\x0e \x03(\tR\vpermissions\"\x11\n" +
 	"\x0fPauseRunRequest\"|\n" +
 	"\x10PauseRunResponse\x12#\n" +
 	"\x03run\x18\x01 \x01(\v2\x11.codingowl.v1.RunR\x03run\x12%\n" +
