@@ -7,10 +7,12 @@ package agent
 import (
 	"io"
 	"os"
+	"strings"
 )
 
 // Invocation is one Agent, ready to be started: the program, its arguments,
-// where it runs and what it adds to the environment it inherits.
+// where it runs, and what it takes out of and adds to the environment it
+// inherits.
 type Invocation struct {
 	// Path is the program to run, already resolved.
 	Path string
@@ -24,6 +26,25 @@ type Invocation struct {
 	// starts from, before Env is added: what the daemon itself was started
 	// with is not always what an Agent may see (ADR-0019).
 	Unset []string
+}
+
+// Environ is the environment the Agent runs in, given the one it would
+// inherit: less what the invocation unsets, plus what it adds. Every place an
+// invocation is started builds its environment here, so that what one Driver
+// keeps from an Agent is kept from it wherever it runs.
+func (inv Invocation) Environ(inherited []string) []string {
+	drop := make(map[string]bool, len(inv.Unset))
+	for _, name := range inv.Unset {
+		drop[name] = true
+	}
+	env := make([]string, 0, len(inherited)+len(inv.Env))
+	for _, kv := range inherited {
+		name, _, _ := strings.Cut(kv, "=")
+		if !drop[name] {
+			env = append(env, kv)
+		}
+	}
+	return append(env, inv.Env...)
 }
 
 // Process is a running Agent.

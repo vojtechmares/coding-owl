@@ -49,3 +49,9 @@ Given the same variables set
 When the Driver builds the invocation that sets up an Account's token
 Then the invocation names all three variables as unset
 And it adds only the Account's `CLAUDE_CONFIG_DIR`
+
+### S6 - `owl account add` runs the token setup without the user's own credentials
+Given `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` in the environment `owl account add` is run from
+When `owl account add <name>` walks through the tool's token setup
+Then the tool's token setup was given none of the three
+And it was given the Account's own `CLAUDE_CONFIG_DIR`
