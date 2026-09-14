@@ -69,11 +69,17 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # pnpm comes before Node so that Node's cache can be keyed on pnpm's
+      # store; the version is the one package.json pins.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: cmd/owl-desktop/frontend/package.json
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: cmd/owl-desktop/frontend/package-lock.json
+          cache: pnpm
+          cache-dependency-path: cmd/owl-desktop/frontend/pnpm-lock.yaml
 
       - name: Install the Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0

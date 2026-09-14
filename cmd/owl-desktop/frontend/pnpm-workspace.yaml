@@ -1,0 +1,14 @@
+# pnpm runs no dependency's install script unless it is named here. esbuild's
+# fetches the binary for this platform; without it Vite still runs, through
+# the slower fallback, so allowing it is what keeps the build the same as it
+# was under npm.
+allowBuilds:
+  esbuild: true
+
+# Under a trust policy that refuses a downgrade, semver 6.3.1 - which Babel
+# pulls in through @vitejs/plugin-react - is refused: it was published after
+# semver 7 started carrying provenance, and pnpm judges trust by publish date
+# rather than by major version. It is the same semver every Babel user has,
+# and the one exception the frontend's dependencies need.
+trustPolicyExclude:
+  - semver@6.3.1

@@ -160,7 +160,7 @@ apiVersion: codingowl.dev/v1
 account: work            # the Account this Project's Jobs run on
 branchPrefix: owl/       # the default; Job branches are named under it
 setup:                   # prepares each fresh worktree before an Agent starts
-  - npm ci
+  - pnpm install --frozen-lockfile
 checks:                  # shell commands; all run, every failure is reported
   - name: build
     run: go build ./...
@@ -281,7 +281,7 @@ make build      # bin/owl
 make test       # go test ./...
 make lint       # go vet, gofmt, buf lint
 make generate   # regenerate the ConnectRPC code from proto/
-make desktop    # the Wails app; needs the Wails CLI, Node and npm
+make desktop    # the Wails app; needs the Wails CLI, Node and pnpm
 ```
 
 Behaviour tests in `tests/behavior` drive the built binary against a fake

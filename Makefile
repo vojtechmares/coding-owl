@@ -7,7 +7,7 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o bin/owl ./cmd/owl
 
 # The desktop app is a build target of its own (ADR-0009). It needs the Wails
-# CLI, Node and npm; wails doctor says what is missing. The frontend build
+# CLI, Node and pnpm; wails doctor says what is missing. The frontend build
 # empties dist, so the placeholder that keeps go:embed satisfied on a fresh
 # checkout is put back afterwards.
 desktop:
