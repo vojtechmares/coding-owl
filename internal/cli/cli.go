@@ -131,13 +131,16 @@ func newDaemonCmd(env Env) *cobra.Command {
 }
 
 func newDaemonRunCmd(env Env) *cobra.Command {
-	return &cobra.Command{
+	var verbose bool
+	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run the daemon in the foreground",
 		Long: `Run the daemon in the foreground, logging to standard error.
 
 It never forks, never detaches and never writes a PID file; supervision
-belongs to launchd via brew services (ADR-0002).`,
+belongs to launchd via brew services (ADR-0002). Debugging is just running
+it: --verbose turns the log up to debug, which shows what the daemon is
+looking at and why it does nothing when it does nothing.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
@@ -149,13 +152,19 @@ belongs to launchd via brew services (ADR-0002).`,
 				<-ctx.Done()
 				stop()
 			}()
+			level := slog.LevelInfo
+			if verbose {
+				level = slog.LevelDebug
+			}
 			return daemon.Run(ctx, daemon.Options{
 				Paths:   env.Paths,
 				Version: version.Version,
-				Logger:  slog.New(slog.NewTextHandler(env.Stderr, nil)),
+				Logger:  slog.New(slog.NewTextHandler(env.Stderr, &slog.HandlerOptions{Level: level})),
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "turn the log up to debug")
+	return cmd
 }
 
 func newDaemonStatusCmd(env Env) *cobra.Command {

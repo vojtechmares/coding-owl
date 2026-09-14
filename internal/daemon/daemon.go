@@ -120,10 +120,13 @@ func Run(ctx context.Context, opts Options) error {
 	// that cannot read a credential is not the moment to discover that the
 	// daemon's configuration changed under it (ADR-0019).
 	configPath := filepath.Join(opts.Paths.ConfigDir, config.GlobalFileName)
-	global, _, err := config.LoadGlobal(configPath)
+	global, found, err := config.LoadGlobal(configPath)
 	if err != nil {
 		return err
 	}
+	// What the daemon is running on is said at debug level, where somebody
+	// running it in a terminal to see what it does can read it (ADR-0002).
+	log.Debug("configuration", "path", configPath, "found", found)
 	kind, err := credential.ParseKind(global.CredentialStore)
 	if err != nil {
 		return err
