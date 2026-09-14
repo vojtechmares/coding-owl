@@ -16,10 +16,22 @@ presented for review is against a base nobody is on any more.
 At the start of **every** Run, Owl fetches and rebases the Job's branch onto the
 Project's base branch.
 
+The fetch updates the remote-tracking ref of the base branch,
+`refs/remotes/<remote>/<base>`, and nothing else. The rebase then targets:
+
+- `refs/remotes/<remote>/<base>` when the fetch succeeded, so that the branch
+  is replayed onto what the remote knows rather than onto what the user last
+  pulled;
+- `refs/heads/<base>`, the local base branch, when the Project has no remote
+  or the fetch failed.
+
+The local base branch is never moved by Owl: it is the user's, and a fetch
+that reaches the remote makes the rebase independent of it.
+
 - Clean rebase - the Run proceeds, and Verification runs against the rebased
   state.
 - Conflict - `git rebase --abort`, and the Job moves to `blocked` naming the
-  conflicting paths.
+  conflicting paths and the ref the rebase was onto.
 
 The first Run of a Job has nothing to rebase; its branch is cut fresh from the
 base.
