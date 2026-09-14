@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 
 	"connectrpc.com/connect"
@@ -32,6 +33,13 @@ func rpcError(err error) error {
 	// Owl failing, the same as any other refusal (ADR-0021, ADR-0020).
 	var capped *run.CappedError
 	switch {
+	// A request the daemon ended - because it is stopping, or because the
+	// caller's deadline passed - is neither the caller's mistake nor Owl
+	// breaking, and a client that is told which can say so.
+	case errors.Is(err, context.Canceled):
+		return connect.NewError(connect.CodeCanceled, err)
+	case errors.Is(err, context.DeadlineExceeded):
+		return connect.NewError(connect.CodeDeadlineExceeded, err)
 	case errors.As(err, &refused), errors.As(err, &inUse), errors.As(err, &capped):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrJobNotFound),

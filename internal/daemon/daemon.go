@@ -191,7 +191,7 @@ func Run(ctx context.Context, opts Options) error {
 	chats := chat.NewService(db, creds, chat.NewTools(&chatView{
 		projects: projects, jobs: queue.NewService(db, queue.Local{}), runs: runs,
 	}))
-	mux.Handle(codingowlv1connect.NewChatServiceHandler(&chatService{chat: chats}))
+	mux.Handle(codingowlv1connect.NewChatServiceHandler(&chatService{chat: chats, daemon: ctx}))
 	mux.Handle(codingowlv1connect.NewJobServiceHandler(&jobService{
 		jobs: queue.NewService(db, queue.Local{}),
 		runs: runs,
@@ -199,6 +199,13 @@ func Run(ctx context.Context, opts Options) error {
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		// Every request lives within the daemon's own lifetime, so that
+		// stopping the daemon ends what is parked - a chat exchange waiting
+		// minutes for consent, or for a provider - rather than waiting on it
+		// past the shutdown deadline and reporting a failure that was nothing
+		// of the kind. What a request must finish writing after it is ended,
+		// it does under a context of its own.
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
 	log.Info("daemon listening",
