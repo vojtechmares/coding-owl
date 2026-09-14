@@ -84,8 +84,9 @@ type invocation struct {
 	// Entries are the names in the working directory when the stub started,
 	// which is how a scenario sees what a setup command left there.
 	Entries []string `json:"entries"`
-	// Env holds the CLAUDE_ variables the stub was given, which is how a
-	// scenario sees the Account a Run was made on.
+	// Env holds the CLAUDE_ and ANTHROPIC_ variables the stub was given, which
+	// is how a scenario sees the Account a Run was made on - and that nothing
+	// but the Account's own credential reached it.
 	Env map[string]string `json:"env"`
 }
 
@@ -254,7 +255,10 @@ func claudeEnv() map[string]string {
 	out := map[string]string{}
 	for _, kv := range os.Environ() {
 		name, value, ok := strings.Cut(kv, "=")
-		if ok && strings.HasPrefix(name, "CLAUDE_") {
+		// The ANTHROPIC_ variables are recorded as well: they are what the
+		// real tool would take a credential from, so a scenario can see that
+		// the daemon's own never reached the Agent (ADR-0019).
+		if ok && (strings.HasPrefix(name, "CLAUDE_") || strings.HasPrefix(name, "ANTHROPIC_")) {
 			out[name] = value
 		}
 	}
