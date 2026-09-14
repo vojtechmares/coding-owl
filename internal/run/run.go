@@ -660,7 +660,7 @@ func readHandoff(worktree string) (string, error) {
 // commits it if the Agent did not, and keeps it on the Job. A planning Run
 // that wrote nothing produced no plan, which is a failure however cleanly its
 // Agent exited.
-func (s *Service) recordPlan(ctx context.Context, j store.Job) error {
+func (s *Service) recordPlan(j store.Job) error {
 	plan, err := readHandoff(j.Worktree)
 	if err != nil {
 		return err
@@ -673,12 +673,16 @@ func (s *Service) recordPlan(ctx context.Context, j store.Job) error {
 	// of its own, as the rebase does. The daemon stopping still cuts it
 	// short: a commit held up by something in the repository is not
 	// something a daemon on its way out waits on.
-	committing, done := s.untilClosedFrom(ctx)
+	committing, done := s.untilClosed(context.Background())
 	defer done()
 	if _, err := git.CommitPath(committing, j.Worktree, HandoffPath, "plan job "+strconv.FormatInt(j.ID, 10)); err != nil {
 		return err
 	}
-	return s.opts.Store.SetJobPlan(ctx, j.ID, plan)
+	// Writing the plan down is bookkeeping, with the deadline bookkeeping
+	// gets, taken now that the commit is over.
+	book, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
+	defer cancel()
+	return s.opts.Store.SetJobPlan(book, j.ID, plan)
 }
 
 // abandon ends a Run that never got as far as an Agent, and blocks its Job
@@ -926,16 +930,12 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 		}
 	}
 
-	// The daemon may be stopping, so the bookkeeping does not run under the
-	// Service's own context - and it gets its deadline here, after the work
-	// that takes time.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
-	defer cancel()
-
 	// A planning Run has one more thing to do: what it decided is in the
 	// handoff, and a planning Run that decided nothing has not succeeded.
+	// This is work that takes time - a commit can wait on a hook - so it
+	// comes before the bookkeeping deadline below is taken.
 	if outcome == OutcomeSucceeded && phase == PhasePlan {
-		if err := s.recordPlan(ctx, j); err != nil {
+		if err := s.recordPlan(j); err != nil {
 			outcome, reason = OutcomeFailed, err.Error()
 			// The daemon stopping cuts the commit short, and that is the
 			// daemon stopping rather than the Run failing: the Job waits its
@@ -946,6 +946,12 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 			}
 		}
 	}
+
+	// The daemon may be stopping, so the bookkeeping does not run under the
+	// Service's own context - and it gets its deadline here, after the work
+	// that takes time.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
+	defer cancel()
 
 	if err := s.opts.Store.FinishRun(ctx, r.ID, s.now().UTC(), string(outcome), reason, code); err != nil {
 		s.opts.Logger.Error("recording the end of a run", "run", r.ID, "error", err)

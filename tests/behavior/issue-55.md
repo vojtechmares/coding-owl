@@ -49,3 +49,9 @@ Given a planned Job whose Agent left the handoff uncommitted, in a repository wh
 When the daemon stops while Owl is committing the handoff
 Then the Run is recorded `interrupted`, not `failed`
 And the Job is `pending` again rather than `blocked`
+
+### S6 - a handoff commit slower than the bookkeeping budget still records the plan
+Given a planned Job whose Agent left the handoff uncommitted, in a repository whose post-commit hook takes longer than the daemon's bookkeeping deadline
+When the planning Run ends
+Then the Run is recorded `succeeded`
+And the Job is `pending` again with its plan recorded
