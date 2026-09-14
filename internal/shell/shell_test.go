@@ -159,6 +159,12 @@ func TestS3TimedOutChecksChildThatIgnoresSIGTERMIsKilledWithinTheGracePeriod(t *
 	if !res.TimedOut {
 		t.Error("a command that was stopped is not reported as timed out")
 	}
+	// A killed child is gone a moment after the kill, once whatever it was
+	// left to has reaped it.
+	deadline := started.Add(timeout + grace + margin)
+	for alive(child) && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
 	if alive(child) {
 		t.Errorf("the child that ignores SIGTERM is still alive %s after the command started", time.Since(started))
 	}
