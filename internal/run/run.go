@@ -1332,6 +1332,11 @@ func (s *Service) execute(r store.Run, account string, req driver.Request, b *br
 		s.watchUsage(r, account, line)
 	}
 	readErr := sc.Err()
+	// Whatever is left is read and dropped whatever stopped the scan, so the
+	// Agent is never waiting on a reader that stopped listening: one that
+	// still has more than a pipe holds to say would otherwise block in its
+	// write for good, and the Run would hold its Job until the daemon stopped.
+	_, _ = io.Copy(io.Discard, proc.Stdout())
 	code, waitErr := proc.Wait()
 
 	why, ended := s.interrupted(r.ID)

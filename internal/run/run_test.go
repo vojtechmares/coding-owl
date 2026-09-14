@@ -390,6 +390,38 @@ func TestStartBlocksTheJobWhenTheAgentFails(t *testing.T) {
 	}
 }
 
+// An Agent that says one line more than Owl reads, and then more than a pipe
+// holds, is blocked on a pipe nobody reads unless Owl drains what it stopped
+// reading. The Run must still end when the Agent does, with the over-long line
+// as its reason (issue #49).
+func TestStartEndsTheRunAfterAnOverLongLine(t *testing.T) {
+	ctx := context.Background()
+	lines := []string{
+		`{"type":"system"}`,
+		strings.Repeat("x", 8<<20+1),
+		strings.Repeat("y", 64<<10+1),
+		`{"type":"result"}`,
+	}
+	svc, st, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{lines: lines})
+	j := queueJob(t, st, "work")
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	awaitState(t, st, j.ID, queue.StateBlocked)
+	runs, err := st.ListRuns(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Outcome != string(run.OutcomeFailed) {
+		t.Fatalf("runs = %+v, want one failed run", runs)
+	}
+	if !strings.Contains(runs[0].Error, "reading the agent's output") || !strings.Contains(runs[0].Error, "too long") {
+		t.Errorf("reason = %q, does not name the over-long line", runs[0].Error)
+	}
+}
+
 // One Run at a time is the default rather than the rule now: a cap says so,
 // and a cap is what a second start is refused by (ADR-0021, superseding the
 // one-Run clause of ADR-0011). Both Jobs are in one Project here, so the
