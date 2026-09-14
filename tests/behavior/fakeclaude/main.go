@@ -25,7 +25,9 @@
 //	OWL_FAKE_CLAUDE_GIT      JSON array of git argument arrays, run in the
 //	                         working directory after the files are written
 //	OWL_FAKE_CLAUDE_IGNORE_TERM  when set, ignores SIGTERM, standing in for an
-//	                         agent that will not stop when it is asked
+//	                         agent that will not stop when it is asked; the
+//	                         child of OWL_FAKE_CLAUDE_CHILD then ignores it
+//	                         too
 //	OWL_FAKE_CLAUDE_CHILD    file a child process appends to every few
 //	                         milliseconds, so a scenario can see whether what
 //	                         the Agent started is running. Its pid is written
@@ -191,6 +193,12 @@ func startChild() error {
 	// anything.
 	script := fmt.Sprintf(
 		"for i in $(seq 1 %d); do echo beat >> %q; sleep 0.05; done", childBeats, path)
+	// An Agent that will not stop when it is asked is rarely alone in that:
+	// the test runner it started ignores the same signal. So does this child,
+	// when the stub does, and only SIGKILL on the group takes it (ADR-0034).
+	if os.Getenv("OWL_FAKE_CLAUDE_IGNORE_TERM") != "" {
+		script = "trap '' TERM; " + script
+	}
 	cmd := exec.Command("/bin/sh", "-c", script)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("OWL_FAKE_CLAUDE_CHILD: %w", err)

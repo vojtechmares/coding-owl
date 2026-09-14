@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -308,4 +309,95 @@ func lines(path string) int {
 		return 0
 	}
 	return strings.Count(string(data), "\n")
+}
+
+// grace is the five seconds a cancelled Agent has to act on SIGTERM before it
+// is killed (ADR-0034), and margin is what a scenario allows on top of it for
+// the kill to land and be seen.
+const (
+	grace  = 5 * time.Second
+	margin = 3 * time.Second
+)
+
+// pidIn reads a pid a script wrote to a file, or zero while there is none.
+func pidIn(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0
+	}
+	return pid
+}
+
+// alive reports whether a process with that pid can still be signalled.
+func alive(pid int) bool { return syscall.Kill(pid, syscall.Signal(0)) == nil }
+
+func TestS1CancelledAgentsChildThatIgnoresSIGTERMIsKilledWithinTheGracePeriod(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "child.pid")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// The Agent starts a child that will not stop when asked, writes the
+	// child's pid down, and waits.
+	p, err := host.New().Start(ctx, shell(t,
+		"(trap '' TERM; while :; do sleep 0.05; done) >/dev/null 2>&1 &\necho $! > "+pidFile+"\necho started\nsleep 60\n"))
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	go func() { _, _ = io.Copy(io.Discard, p.Stdout()) }()
+	waitFor(t, "the child to start", func() bool { return pidIn(pidFile) != 0 && alive(pidIn(pidFile)) })
+	child := pidIn(pidFile)
+	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
+
+	cancelledAt := time.Now()
+	cancel()
+
+	done := make(chan struct{})
+	go func() { _, _ = p.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(grace + margin):
+		t.Fatal("Wait did not return within the grace period plus a margin")
+	}
+	deadline := cancelledAt.Add(grace + margin)
+	for alive(child) && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if alive(child) {
+		t.Errorf("the child that ignores SIGTERM is still alive %s after the cancel", time.Since(cancelledAt))
+	}
+}
+
+func TestS2CancelledAgentThatStopsWhenAskedIsNotMadeToWaitForTheKill(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p, err := host.New().Start(ctx, agent.Invocation{Path: script(t, "echo started\nsleep 60\n"), Dir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	buf := make([]byte, len("started\n"))
+	if _, err := io.ReadFull(p.Stdout(), buf); err != nil {
+		t.Fatalf("reading the first line: %v", err)
+	}
+
+	cancelledAt := time.Now()
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.ReadAll(p.Stdout())
+		_, _ = p.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		if elapsed := time.Since(cancelledAt); elapsed >= grace {
+			t.Errorf("Wait took %s for an agent that stops on SIGTERM, want well under the %s grace period", elapsed, grace)
+		}
+	case <-time.After(grace + margin):
+		t.Fatal("Wait did not return")
+	}
 }
