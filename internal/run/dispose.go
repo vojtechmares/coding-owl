@@ -152,9 +152,11 @@ func (s *Service) reclaim(worktree, project string, force bool) error {
 	if !live {
 		// The directory is gone, or is no longer a worktree git can work in.
 		// Either way there is nothing to remove and nothing to lose; what is
-		// left is the administrative entry, which pruning takes with it.
+		// left is the administrative entry, which is forgotten on its own -
+		// whatever else the user has going in the repository is not Owl's to
+		// prune (ADR-0015).
 		s.opts.Logger.Warn("the worktree was not there to reclaim", "worktree", worktree)
-		return git.PruneWorktrees(project)
+		return git.ForgetWorktree(project, worktree)
 	}
 	if !force {
 		clean, err := git.WorktreeIsClean(worktree)

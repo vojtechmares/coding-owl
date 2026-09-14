@@ -488,14 +488,20 @@ func sameDir(a, b string) bool {
 	return resolve(a) == resolve(b)
 }
 
-// resolve cleans a path and follows symlinks, falling back to the path itself
-// when it cannot be resolved - a directory that is gone is still worth
-// comparing by name.
+// resolve cleans a path and follows symlinks. A directory that is gone is
+// still worth comparing by name, so what cannot be resolved is resolved as far
+// as it goes: through the nearest ancestor that is there, with the rest of the
+// name kept as it is.
 func resolve(path string) string {
+	path = filepath.Clean(path)
 	if r, err := filepath.EvalSymlinks(path); err == nil {
 		return filepath.Clean(r)
 	}
-	return filepath.Clean(path)
+	parent := filepath.Dir(path)
+	if parent == path {
+		return path
+	}
+	return filepath.Join(resolve(parent), filepath.Base(path))
 }
 
 // EnableWorktreeConfig lets a repository carry configuration per worktree,
@@ -652,16 +658,55 @@ func defaultExcludes() string {
 	return path
 }
 
-// PruneWorktrees forgets the administrative files of worktrees whose
-// directories are no longer there, so that git stops reporting a worktree
-// nobody can use.
-func PruneWorktrees(dir string) error {
-	_, stderr, code, err := run(dir, "worktree", "prune")
+// ForgetWorktree forgets the administrative entry of one worktree - what
+// `git worktree prune` would do for it, without touching any other worktree of
+// the repository. It is for a worktree git can no longer work in: one whose
+// directory is gone, or one left without the file linking it to its
+// repository, as an interrupted removal leaves it. A worktree git can still
+// work in is refused, so that no checkout is stranded; a path git holds no
+// entry for is already forgotten.
+func ForgetWorktree(dir, path string) error {
+	live, err := IsWorktree(path)
 	if err != nil {
 		return err
 	}
-	if code != 0 {
-		return fmt.Errorf("pruning the worktrees of %s: %s", dir, message(stderr))
+	if live {
+		return fmt.Errorf("forgetting the worktree at %s: it is still a worktree git can work in", path)
+	}
+	common, err := commonDir(dir)
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(filepath.Join(common, "worktrees"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading the worktree entries of %s: %w", dir, err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		entry := filepath.Join(common, "worktrees", e.Name())
+		// The entry's gitdir file names the .git file of the worktree it is
+		// for, which is how git itself ties the two together.
+		raw, err := os.ReadFile(filepath.Join(entry, "gitdir"))
+		if err != nil {
+			continue
+		}
+		gitdir := strings.TrimSpace(string(raw))
+		if !filepath.IsAbs(gitdir) {
+			// A repository told to keep its worktrees by relative paths names
+			// the .git file relative to the entry.
+			gitdir = filepath.Join(entry, gitdir)
+		}
+		if !sameDir(filepath.Dir(gitdir), path) {
+			continue
+		}
+		if err := os.RemoveAll(entry); err != nil {
+			return fmt.Errorf("forgetting the worktree at %s: %w", path, err)
+		}
 	}
 	return nil
 }

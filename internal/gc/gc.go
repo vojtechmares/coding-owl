@@ -435,8 +435,11 @@ func (s *Service) remove(path string, byName map[string]store.Project, j store.J
 	return os.RemoveAll(path)
 }
 
-// prune clears the administrative entries of worktrees whose directories are
-// gone, per Project, so git stops reporting a worktree nobody can use.
+// prune clears the administrative entries of Owl's worktrees whose directories
+// are gone, per Project, so git stops reporting a worktree nobody can use. Only
+// entries under the Project's Owl worktree directory are Owl's to forget: a
+// worktree the user made elsewhere is left as it is even when its directory is
+// missing - it may be on a volume that is not mounted right now (ADR-0015).
 func (s *Service) prune(projects []store.Project, report *Report) {
 	for _, p := range projects {
 		stale, err := s.stale(p)
@@ -444,21 +447,25 @@ func (s *Service) prune(projects []store.Project, report *Report) {
 			s.opts.Logger.Warn("looking for stale worktree entries", "project", p.Name, "error", err)
 			continue
 		}
-		if len(stale) == 0 {
+		pruned := 0
+		for _, path := range stale {
+			if err := git.ForgetWorktree(p.Path, path); err != nil {
+				s.opts.Logger.Warn("pruning a stale worktree entry", "project", p.Name, "path", path, "error", err)
+				continue
+			}
+			pruned++
+		}
+		if pruned == 0 {
 			continue
 		}
-		if err := git.PruneWorktrees(p.Path); err != nil {
-			s.opts.Logger.Warn("pruning the worktrees of a project", "project", p.Name, "error", err)
-			continue
-		}
-		s.opts.Logger.Info("stale worktree entries pruned", "project", p.Name, "entries", len(stale))
+		s.opts.Logger.Info("stale worktree entries pruned", "project", p.Name, "entries", pruned)
 		report.Pruned = append(report.Pruned, p.Name)
 	}
 }
 
-// stale is the worktrees a Project is still counting whose directories are not
-// there. Pruning is only reported when there was something to prune, so that a
-// collection with nothing to do says so.
+// stale is the worktrees of Owl's a Project is still counting whose
+// directories are not there. Pruning is only reported when there was something
+// to prune, so that a collection with nothing to do says so.
 func (s *Service) stale(p store.Project) ([]string, error) {
 	paths, err := git.WorktreePaths(p.Path)
 	if err != nil {
@@ -466,6 +473,9 @@ func (s *Service) stale(p store.Project) ([]string, error) {
 	}
 	var stale []string
 	for _, path := range paths {
+		if !s.owns(path) {
+			continue
+		}
 		live, err := git.IsWorktree(path)
 		if err != nil {
 			return nil, err
@@ -475,6 +485,14 @@ func (s *Service) stale(p store.Project) ([]string, error) {
 		}
 	}
 	return stale, nil
+}
+
+// owns reports whether a worktree is one Owl made: one directly under the
+// worktree directory, where every Job's worktree goes (ADR-0014). Both sides
+// are compared by their resolved names, since git reports a worktree by the
+// name it resolved when the worktree was made.
+func (s *Service) owns(path string) bool {
+	return resolve(filepath.Dir(path)) == resolve(s.opts.WorktreeDir)
 }
 
 // report adds the Jobs nothing is going to resolve on its own: one that has

@@ -39,7 +39,12 @@ involved - on start and on an interval, also invokable as `owl gc`. It:
 
 - reconciles worktrees on disk against Jobs in the database, removing those
   whose Job is gone, `cancelled`, or already `done`
-- runs `git worktree prune` per Project to clear stale admin entries
+- clears the stale admin entries of Owl's own worktrees per Project - those
+  under the Project's worktree directory (ADR-0014) whose directory is gone -
+  and only those. A worktree the user made elsewhere is never pruned, even
+  when its directory is missing: it may be on a volume that is not mounted
+  right now, and is not Owl's to forget. Disposing of a Job whose worktree is
+  already gone clears that Job's entry the same way, and no other.
 - surfaces, rather than deletes, anything that looks like **unfinished work**:
   a worktree with uncommitted changes, a Job stuck in `review` beyond a
   threshold, a Job left `active` by a daemon that died
