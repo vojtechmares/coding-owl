@@ -86,6 +86,12 @@ func Run(ctx context.Context, opts Options) error {
 			return fmt.Errorf("creating %s: %w", dir, err)
 		}
 	}
+	// The socket's directory is tightened on every start, whether it was just
+	// made or found in place: a runtime directory somebody else made too open
+	// would otherwise let anybody reach the socket's name.
+	if err := os.Chmod(filepath.Dir(sock), 0o700); err != nil {
+		return fmt.Errorf("restricting %s: %w", filepath.Dir(sock), err)
+	}
 	if err := removeStaleSocket(sock); err != nil {
 		return err
 	}
@@ -164,9 +170,9 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("closing the runs of an earlier daemon: %w", err)
 	}
 
-	ln, err := net.Listen("unix", sock)
+	ln, err := listenPrivate(sock)
 	if err != nil {
-		return fmt.Errorf("listening on %s: %w", sock, err)
+		return err
 	}
 	// Until serving takes the listener over, a failure on the way out closes
 	// it and removes the socket, so that nothing is left for the next start
@@ -179,7 +185,9 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}()
 	// Only the owning user may connect; there is no authentication on the
-	// handler (ADR-0004 defers auth to a later TCP transport).
+	// handler (ADR-0004 defers auth to a later TCP transport). The socket was
+	// made under a umask that allows nobody else, so this is what it already
+	// is; it is said once more in case the platform ignored the umask.
 	if err := os.Chmod(sock, 0o600); err != nil {
 		return fmt.Errorf("restricting %s: %w", sock, err)
 	}
@@ -334,6 +342,20 @@ func collect(ctx context.Context, collector *gc.Service, interval time.Duration,
 		}
 	}()
 	return done
+}
+
+// listenPrivate listens on a unix socket that is never more permissive than
+// 0600: the process umask is set to allow nobody but the owner for as long as
+// it takes to create the socket, and restored once it exists. The umask is
+// process-wide, which is why the window is kept to the one call.
+func listenPrivate(sock string) (net.Listener, error) {
+	old := syscall.Umask(0o077)
+	ln, err := net.Listen("unix", sock)
+	syscall.Umask(old)
+	if err != nil {
+		return nil, fmt.Errorf("listening on %s: %w", sock, err)
+	}
+	return ln, nil
 }
 
 // removeStaleSocket unlinks a socket that nothing is listening on, which is
