@@ -71,3 +71,10 @@ Given the decision record for Agent permissions
 When it is read
 Then it names every rule of the default allowlist
 And it says the settings file is the user's once it exists
+
+### S9 - a settings file that cannot be read is refused, not seeded over and not waited on
+Given an Account whose settings file is a link to a target that is not there
+When the Driver builds an Agent for it
+Then it refuses with an error naming the settings file
+And it returns promptly rather than trying again and again
+And nothing is written into the Account's directory

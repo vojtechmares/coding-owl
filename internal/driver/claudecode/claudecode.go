@@ -293,12 +293,22 @@ func ensureSettings(configDir string) ([]string, error) {
 		return nil, errors.New("a run needs an account's configuration directory")
 	}
 	path := filepath.Join(configDir, settingsName)
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
+	// Looked at without following a link: a name that is taken is the
+	// user's whatever it points at, and a link to nowhere is theirs to fix
+	// rather than Owl's to seed over or to keep trying.
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return seedSettings(configDir, path)
+	} else if err != nil {
+		return nil, fmt.Errorf("looking for the account's %s: %w", settingsName, err)
 	}
+	return readSettings(path)
+}
+
+// readSettings is what an Account's settings file allows.
+func readSettings(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading the account's %s: %w", settingsName, err)
+		return nil, fmt.Errorf("reading the account's %s: %w", path, err)
 	}
 	var have settings
 	if err := json.Unmarshal(data, &have); err != nil {
@@ -337,6 +347,8 @@ func seedSettings(configDir, path string) ([]string, error) {
 		return nil, fmt.Errorf("seeding the account's %s: %w", settingsName, err)
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
+	// CreateTemp makes the file the owner's alone already; this is the
+	// mode the settings file must have said out loud.
 	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
 		return nil, fmt.Errorf("seeding the account's %s: %w", settingsName, err)
@@ -349,8 +361,10 @@ func seedSettings(configDir, path string) ([]string, error) {
 		return nil, fmt.Errorf("seeding the account's %s: %w", settingsName, err)
 	}
 	if err := os.Link(tmp.Name(), path); errors.Is(err, fs.ErrExist) {
-		// Somebody got there first, and what they wrote is what counts.
-		return ensureSettings(configDir)
+		// Somebody got there first, and what they wrote is what counts. It
+		// is read once: a name that is taken and still cannot be read is
+		// theirs to look at, not Owl's to try again.
+		return readSettings(path)
 	} else if err != nil {
 		return nil, fmt.Errorf("seeding the account's %s: %w", settingsName, err)
 	}
