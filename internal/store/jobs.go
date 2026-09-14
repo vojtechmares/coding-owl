@@ -237,15 +237,19 @@ func scanJob(sc scanner) (Job, error) {
 	return j, nil
 }
 
-// DequeueJob takes a Job out of the queue, giving it state and no position,
-// and closes the gap behind it so the queue keeps counting from one. reason
-// says why, for the states no Run explains; pass an empty one otherwise. It
-// returns ErrNotQueued for a Job that has already left.
-func (s *Store) DequeueJob(ctx context.Context, id int64, state, reason string) error {
+// DequeueJob takes a Job out of the queue, giving it state to and no position,
+// and closes the gap behind it so the queue keeps counting from one. from is
+// the state the caller saw it in, and the departure applies only while the Job
+// is still in it: a Job somebody else has decided about since is left exactly
+// as they left it. reason says why, for the states no Run explains; pass an
+// empty one otherwise. It returns ErrNotQueued for a Job that has already
+// left, or that is not in the state it was seen in.
+func (s *Store) DequeueJob(ctx context.Context, id int64, from, to, reason string) error {
 	return s.inTx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`UPDATE jobs SET state = ?, reason = ?, position = NULL WHERE id = ? AND position IS NOT NULL`,
-			state, reason, id)
+			`UPDATE jobs SET state = ?, reason = ?, position = NULL
+			 WHERE id = ? AND position IS NOT NULL AND state = ?`,
+			to, reason, id, from)
 		if err != nil {
 			return err
 		}
@@ -261,9 +265,21 @@ func (s *Store) DequeueJob(ctx context.Context, id int64, state, reason string) 
 }
 
 // MoveJob puts a queued Job at position, counting from one, shifting the Jobs
-// it passes. A position past the end of the queue puts it last.
-func (s *Store) MoveJob(ctx context.Context, id int64, position int) error {
+// it passes. A position past the end of the queue puts it last. from is the
+// state the caller saw the Job in, and the move applies only while it is
+// still in it: a Job that has since been claimed for a Run keeps the place it
+// held (ADR-0025) rather than being shuffled by a decision taken before the
+// claim. It returns ErrNotQueued otherwise.
+func (s *Store) MoveJob(ctx context.Context, id int64, position int, from string) error {
 	return s.inTx(ctx, func(tx *sql.Tx) error {
+		var state string
+		err := tx.QueryRowContext(ctx, `SELECT state FROM jobs WHERE id = ? AND position IS NOT NULL`, id).Scan(&state)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && state != from) {
+			return notQueued(ctx, tx, id)
+		}
+		if err != nil {
+			return err
+		}
 		order, err := queuedIDs(ctx, tx)
 		if err != nil {
 			return err

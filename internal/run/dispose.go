@@ -125,8 +125,15 @@ func (s *Service) dispose(ctx context.Context, id int64, force bool, to queue.St
 		return queue.Job{}, err
 	}
 	j.Branch, j.Worktree = branch, ""
-	if err := s.opts.Store.SetJobState(book, j.ID, string(to)); err != nil {
+	// Still in review is a condition of the write, not only of the read
+	// above: what the worktree was reclaimed from is not undone, but a Job
+	// somebody else has decided about since is not moved on their behalf.
+	moved, err := s.opts.Store.MoveJobState(book, j.ID, string(queue.StateReview), string(to))
+	if err != nil {
 		return queue.Job{}, err
+	}
+	if !moved {
+		return queue.Job{}, refused("job %d is no longer waiting for a decision; somebody else decided about it first", id)
 	}
 	j.State = string(to)
 	s.opts.Logger.Info("job disposed of", "job", j.ID, "state", to)

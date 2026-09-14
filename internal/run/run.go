@@ -455,6 +455,33 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 		return queue.Job{}, Run{}, false, &CappedError{Err: errors.New(waiting)}
 	}
 
+	// The Job is claimed before any of the slow work below - the worktree,
+	// the rebase, the Skills, the setup commands - and on the condition that
+	// it is still pending: the queue was read under no lock that a cancel or
+	// reorder shares, and a decision that landed since is theirs to keep
+	// rather than this Run's to overwrite. A claim that finds the Job decided
+	// about gives it up, with no Run and no worktree to its name.
+	claimed, err := s.opts.Store.MoveJobState(ctx, j.ID, string(queue.StatePending), string(queue.StateActive))
+	if err != nil {
+		return queue.Job{}, Run{}, false, err
+	}
+	if !claimed {
+		s.opts.Logger.Info("a job was decided about while its run was being started; nothing started", "job", j.ID)
+		return queue.Job{}, Run{}, false, nil
+	}
+	// It is carried from here, so that nothing reading an active Job with no
+	// Run yet concludes that an earlier daemon abandoned it (ADR-0015) - and
+	// given back if the start does not get as far as a Run: a refusal leaves
+	// the Job waiting where it was, and a failure has blocked it already,
+	// which the conditional move leaves alone.
+	s.carry(j.ID, true)
+	defer func() {
+		if !started {
+			s.carry(j.ID, false)
+			s.release(j.ID)
+		}
+	}()
+
 	if j.Branch == "" {
 		// The worktree and the branch belong to the Job, so a Job that takes
 		// several nights accumulates its work in one place (ADR-0007).
@@ -527,9 +554,6 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 	if err = s.opts.Store.SetRunSkills(ctx, r.ID, used); err != nil {
 		return queue.Job{}, Run{}, false, err
 	}
-	if err = s.opts.Store.SetJobState(ctx, j.ID, string(queue.StateActive)); err != nil {
-		return queue.Job{}, Run{}, false, err
-	}
 	if len(placed.Skills) > 0 {
 		s.opts.Logger.Info("skills placed",
 			"job", j.ID, "run", r.ID, "into", placed.Dir, "skills", len(placed.Skills))
@@ -562,8 +586,9 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 		// and went while this returned is not recorded as going.
 		s.mine(r.ID)
 	}
+	// The Job has been carried since it was claimed; the goroutine takes it
+	// on from here.
 	s.wg.Add(1)
-	s.carry(j.ID, true)
 	go s.carryOut(j, r, phase, req, b, details)
 
 	return queue.FromStore(j), toRun(r), true, nil
@@ -660,8 +685,20 @@ func (s *Service) abandon(runID, jobID int64, cause error) {
 		s.opts.Logger.Error("ending a run that never started", "run", runID, "error", err)
 	}
 	// The Run carries the reason, so the Job needs no note of its own.
-	if err := s.opts.Store.DequeueJob(ctx, jobID, string(queue.StateBlocked), ""); err != nil {
+	if err := s.opts.Store.DequeueJob(ctx, jobID, string(queue.StateActive), string(queue.StateBlocked), ""); err != nil {
 		s.opts.Logger.Error("blocking a job whose run never started", "job", jobID, "error", err)
+	}
+}
+
+// release gives a claimed Job back to the queue when its Run did not start:
+// pending again, in the place it kept all along (ADR-0025). A Job that was
+// blocked, or otherwise decided about, in between is left exactly as it is.
+func (s *Service) release(jobID int64) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
+	defer cancel()
+	if _, err := s.opts.Store.MoveJobState(ctx, jobID,
+		string(queue.StateActive), string(queue.StatePending)); err != nil {
+		s.opts.Logger.Error("returning a job whose run did not start to the queue", "job", jobID, "error", err)
 	}
 }
 
@@ -908,7 +945,7 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 		// place it kept while it ran (ADR-0011, ADR-0025).
 		s.requeue(ctx, r.JobID, "returning an interrupted job to the queue")
 	case outcome == OutcomeFailed:
-		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateBlocked), ""); err != nil {
+		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateActive), string(queue.StateBlocked), ""); err != nil {
 			s.opts.Logger.Error("blocking a job", "job", r.JobID, "error", err)
 		}
 	case phase == PhasePlan:
@@ -918,11 +955,11 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 	case refused != "":
 		// Verification refused the work. There is no retry: the Job waits for
 		// the user with everything that is wrong attached (ADR-0013).
-		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateBlocked), refused); err != nil {
+		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateActive), string(queue.StateBlocked), refused); err != nil {
 			s.opts.Logger.Error("blocking a job verification refused", "job", r.JobID, "error", err)
 		}
 	default:
-		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateReview), ""); err != nil {
+		if err := s.opts.Store.DequeueJob(ctx, r.JobID, string(queue.StateActive), string(queue.StateReview), ""); err != nil {
 			s.opts.Logger.Error("recording where a job got to", "job", r.JobID, "error", err)
 		}
 	}
@@ -1095,7 +1132,7 @@ func (s *Service) requeue(ctx context.Context, jobID int64, what string) {
 func (s *Service) blocked(j store.Job, reason string) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
 	defer cancel()
-	if err := s.opts.Store.DequeueJob(ctx, j.ID, string(queue.StateBlocked), reason); err != nil {
+	if err := s.opts.Store.DequeueJob(ctx, j.ID, string(queue.StateActive), string(queue.StateBlocked), reason); err != nil {
 		s.opts.Logger.Error("blocking a job", "job", j.ID, "error", err)
 	}
 	return errors.New(reason)
