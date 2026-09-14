@@ -186,8 +186,8 @@ func Run(ctx context.Context, opts Options) error {
 	}()
 	// Only the owning user may connect; there is no authentication on the
 	// handler (ADR-0004 defers auth to a later TCP transport). The socket was
-	// made under a umask that allows nobody else, so this is what it already
-	// is; it is said once more in case the platform ignored the umask.
+	// made under a umask that allows nobody else; the exact mode is settled
+	// here, since what the umask leaves the owner is the platform's business.
 	if err := os.Chmod(sock, 0o600); err != nil {
 		return fmt.Errorf("restricting %s: %w", sock, err)
 	}
@@ -344,10 +344,10 @@ func collect(ctx context.Context, collector *gc.Service, interval time.Duration,
 	return done
 }
 
-// listenPrivate listens on a unix socket that is never more permissive than
-// 0600: the process umask is set to allow nobody but the owner for as long as
-// it takes to create the socket, and restored once it exists. The umask is
-// process-wide, which is why the window is kept to the one call.
+// listenPrivate listens on a unix socket that nobody but the owner can reach
+// from the moment it exists: the process umask is set to allow nobody else
+// for as long as it takes to create the socket, and restored once it exists.
+// The umask is process-wide, which is why the window is kept to the one call.
 func listenPrivate(sock string) (net.Listener, error) {
 	old := syscall.Umask(0o077)
 	ln, err := net.Listen("unix", sock)
