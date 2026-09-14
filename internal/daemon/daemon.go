@@ -105,18 +105,11 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		return fmt.Errorf("listening on %s: %w", sock, err)
-	}
-	// Only the owning user may connect; there is no authentication on the
-	// handler (ADR-0004 defers auth to a later TCP transport).
-	if err := os.Chmod(sock, 0o600); err != nil {
-		_ = ln.Close()
-		return fmt.Errorf("restricting %s: %w", sock, err)
-	}
-	started := time.Now()
-
+	// Everything that can fail without a listener - the daemon's own
+	// configuration, the credential store, the recovery of an earlier
+	// daemon's Runs - is settled before the socket exists, so that a daemon
+	// which cannot start never owns one and leaves nothing behind.
+	//
 	// Where an Account's secret is kept is settled once, at startup: a Run
 	// that cannot read a credential is not the moment to discover that the
 	// daemon's configuration changed under it (ADR-0019).
@@ -170,6 +163,27 @@ func Run(ctx context.Context, opts Options) error {
 	if err := runs.Recover(ctx); err != nil {
 		return fmt.Errorf("closing the runs of an earlier daemon: %w", err)
 	}
+
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		return fmt.Errorf("listening on %s: %w", sock, err)
+	}
+	// Until serving takes the listener over, a failure on the way out closes
+	// it and removes the socket, so that nothing is left for the next start
+	// to find stale.
+	listening := ln
+	defer func() {
+		if listening != nil {
+			_ = listening.Close()
+			_ = os.Remove(sock)
+		}
+	}()
+	// Only the owning user may connect; there is no authentication on the
+	// handler (ADR-0004 defers auth to a later TCP transport).
+	if err := os.Chmod(sock, 0o600); err != nil {
+		return fmt.Errorf("restricting %s: %w", sock, err)
+	}
+	started := time.Now()
 
 	mux := http.NewServeMux()
 	mux.Handle(codingowlv1connect.NewDaemonServiceHandler(&daemonService{
@@ -254,6 +268,7 @@ func Run(ctx context.Context, opts Options) error {
 	}()
 
 	serveErr := make(chan error, 1)
+	listening = nil // the server owns the listener from here on
 	go func() { serveErr <- srv.Serve(ln) }()
 
 	select {
