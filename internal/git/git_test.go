@@ -1141,8 +1141,36 @@ func TestFetchBaseUpdatesWhatIsKnownWithoutMovingAnything(t *testing.T) {
 func TestFetchBaseWithNoRemoteIsNothingToDo(t *testing.T) {
 	dir := newRepo(t)
 
-	if err := git.FetchBase(context.Background(), dir, "main"); err != nil {
+	if _, err := git.FetchBase(context.Background(), dir, "main"); err != nil {
 		t.Errorf("FetchBase on a repository with no remote: %v", err)
+	}
+}
+
+// S1 of tests/behavior/issue-53.md: the fetch says which ref it updated, so
+// that a rebase can target it rather than the local branch nobody moved.
+func TestS1FetchBaseReportsTheRefItUpdated(t *testing.T) {
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	dir := newRepo(t)
+	run(t, dir, "init", "--bare", origin)
+	run(t, dir, "remote", "add", "origin", origin)
+	run(t, dir, "push", "--quiet", "origin", "main")
+
+	ref, err := git.FetchBase(context.Background(), dir, "main")
+
+	if err != nil {
+		t.Fatalf("FetchBase: %v", err)
+	}
+	if ref != "refs/remotes/origin/main" {
+		t.Errorf("FetchBase reported %q, want the remote-tracking ref it updated", ref)
+	}
+	if out := strings.TrimSpace(run(t, dir, "rev-parse", "--verify", "--quiet", ref)); out == "" {
+		t.Errorf("the reported ref %s does not resolve", ref)
+	}
+
+	none, err := git.FetchBase(context.Background(), newRepo(t), "main")
+
+	if err != nil || none != "" {
+		t.Errorf("FetchBase with no remote = %q, %v, want no ref and no error", none, err)
 	}
 }
 
