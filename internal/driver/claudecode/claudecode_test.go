@@ -77,6 +77,75 @@ func TestCheckRefusesAVersionOutsideTheRange(t *testing.T) {
 	}
 }
 
+// claudeAt writes a program named claude at dir/claude that answers --version
+// and otherwise exits 0, without putting it on PATH.
+func claudeAt(t *testing.T, dir string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '2.1.267 (Claude Code)'; exit 0; fi\nexit 0\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// nowhere gives the test a PATH with no claude on it and a home with nothing
+// under .local/bin, so a lookup finds only what the scenario put there.
+func nowhere(t *testing.T) (home string) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+	home = t.TempDir()
+	t.Setenv("HOME", home)
+	return home
+}
+
+// usesTool checks the Driver's check and command both use the tool at path.
+func usesTool(t *testing.T, d *claudecode.Driver, path string) {
+	t.Helper()
+	if err := d.Check(context.Background()); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	inv, err := d.Command(forAccount(filepath.Join(t.TempDir(), "work")))
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	if inv.Path != path {
+		t.Errorf("the agent is %q, want %q", inv.Path, path)
+	}
+}
+
+func TestS1AConfiguredPathIsUsedWithoutConsultingPATH(t *testing.T) {
+	nowhere(t)
+	configured := claudeAt(t, filepath.Join(t.TempDir(), "tools"))
+
+	usesTool(t, claudecode.NewWithPath(configured), configured)
+}
+
+func TestS2WithNothingConfiguredTheToolIsFoundUnderTheHomeDirectorysLocalBin(t *testing.T) {
+	home := nowhere(t)
+	local := claudeAt(t, filepath.Join(home, ".local", "bin"))
+
+	usesTool(t, claudecode.New(), local)
+}
+
+func TestS3AToolThatIsNowhereIsRefusedNamingBothPlacesToPutIt(t *testing.T) {
+	nowhere(t)
+
+	err := claudecode.New().Check(context.Background())
+
+	if err == nil {
+		t.Fatal("Check with claude nowhere = nil, want an error")
+	}
+	for _, want := range []string{"claude", "PATH", "claudePath"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error %q does not name %s", err, want)
+		}
+	}
+}
+
 func TestCheckReportsAToolThatIsNotInstalled(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
