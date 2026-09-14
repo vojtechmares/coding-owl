@@ -23,4 +23,6 @@ claudePath: /path/to/claude
 ```
 
 When `claudePath` is set the daemon uses it and does not look on `PATH`. When
-it is not, the daemon looks on `PATH` and then under `~/.local/bin`.
+it is not, the daemon looks on `PATH` and then under `~/.local/bin`. The daemon
+reads the setting when it starts, so after changing it run
+`brew services restart coding-owl`.

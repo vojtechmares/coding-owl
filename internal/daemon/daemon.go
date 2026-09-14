@@ -51,10 +51,9 @@ const (
 	worktreesDir    = "worktrees"
 	// skillsDir holds the fetched Skills, each under its content digest, and
 	// ownedDir the exclude file Owl owns for each Job's worktree (ADR-0033).
-	skillsDir  = "skills"
-	ownedDir   = "worktree-config"
-	logsDir    = "logs"
-	configName = "config.yaml"
+	skillsDir = "skills"
+	ownedDir  = "worktree-config"
+	logsDir   = "logs"
 )
 
 // ErrAlreadyListening is returned by Run when another daemon answers on the
@@ -121,7 +120,7 @@ func Run(ctx context.Context, opts Options) error {
 	// Where an Account's secret is kept is settled once, at startup: a Run
 	// that cannot read a credential is not the moment to discover that the
 	// daemon's configuration changed under it (ADR-0019).
-	configPath := filepath.Join(opts.Paths.ConfigDir, configName)
+	configPath := filepath.Join(opts.Paths.ConfigDir, config.GlobalFileName)
 	global, _, err := config.LoadGlobal(configPath)
 	if err != nil {
 		return err

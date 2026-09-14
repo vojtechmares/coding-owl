@@ -119,6 +119,10 @@ func usesTool(t *testing.T, d *claudecode.Driver, path string) {
 
 func TestS1AConfiguredPathIsUsedWithoutConsultingPATH(t *testing.T) {
 	nowhere(t)
+	// Another claude on PATH, which a lookup that asked PATH first would
+	// find and prefer.
+	onPath := claudeAt(t, t.TempDir())
+	t.Setenv("PATH", filepath.Dir(onPath))
 	configured := claudeAt(t, filepath.Join(t.TempDir(), "tools"))
 
 	usesTool(t, claudecode.NewWithPath(configured), configured)
