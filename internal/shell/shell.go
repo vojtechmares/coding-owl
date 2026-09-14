@@ -70,7 +70,14 @@ func Run(ctx context.Context, dir, command string, timeout time.Duration) (Resul
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, shellPath, "-c", command)
+	// A context that is already done runs nothing, as os/exec would have
+	// refused to; the stopping below is this package's own rather than
+	// os/exec's, so the refusal is too.
+	if err := ctx.Err(); err != nil {
+		return Result{ExitCode: NoExitCode, Cancelled: parent.Err() != nil},
+			fmt.Errorf("running %s: %w", command, err)
+	}
+	cmd := exec.Command(shellPath, "-c", command)
 	cmd.Dir = dir
 	// The shell gets a process group of its own, so that a check which starts
 	// a test runner takes it with it when it is stopped.
@@ -81,7 +88,9 @@ func Run(ctx context.Context, dir, command string, timeout time.Duration) (Resul
 	// Nobody is at a terminal, so a command that reads sees end of file rather
 	// than waiting until morning.
 	cmd.Stdin = nil
-	cmd.Cancel = func() error { return signalGroup(cmd, syscall.SIGTERM) }
+	// A command that exits while something it started still holds its output
+	// open is a command that exited: Wait gives the pipes this long to close
+	// after the exit, and then stops waiting on them.
 	cmd.WaitDelay = killDelay
 
 	both := &interleaved{}
@@ -89,7 +98,19 @@ func Run(ctx context.Context, dir, command string, timeout time.Duration) (Resul
 	cmd.Stdout = stdout
 	cmd.Stderr = &capped{also: both}
 
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return Result{ExitCode: NoExitCode}, fmt.Errorf("running %s: %w", command, err)
+	}
+	done, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		stopWhenDone(ctx, cmd, done)
+	}()
+	err := cmd.Wait()
+	close(done)
+	// A stopped command is not over until what it started is: the stopping
+	// may still be giving the group its grace period, or killing it.
+	<-stopped
 	res := Result{
 		ExitCode: 0,
 		Stdout:   stdout.String(),
@@ -116,6 +137,48 @@ func Run(ctx context.Context, dir, command string, timeout time.Duration) (Resul
 	}
 	res.ExitCode = NoExitCode
 	return res, fmt.Errorf("running %s: %w", command, err)
+}
+
+// pollEvery is how often a stopping command's group is looked at for whether
+// anything in it is still there.
+const pollEvery = 50 * time.Millisecond
+
+// stopWhenDone ends the command when its context is done - its own timeout,
+// or whoever was waiting for it giving up: SIGTERM to the process group, and
+// SIGKILL to the group when anything in it is still there after the grace
+// period (ADR-0034). Both go to the group rather than to the one pid os/exec
+// would kill, and the kill is decided by whether the group is still there
+// rather than by whether the shell is: what the command started - a test
+// runner that ignores SIGTERM - is exactly what would otherwise outlive the
+// check and hold the worktree open, and it outlives the shell just as well.
+// done says the command has finished without its context ending it.
+func stopWhenDone(ctx context.Context, cmd *exec.Cmd, done <-chan struct{}) {
+	select {
+	case <-ctx.Done():
+	case <-done:
+		return
+	}
+	_ = signalGroup(cmd, syscall.SIGTERM)
+	deadline := time.Now().Add(killDelay)
+	for time.Now().Before(deadline) {
+		if !groupAlive(cmd) {
+			return
+		}
+		time.Sleep(pollEvery)
+	}
+	// Looked at once more first: a group with nothing left in it is a name
+	// the system is free to hand out again, and is not signalled.
+	if groupAlive(cmd) {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+}
+
+// groupAlive reports whether anything is left in the command's process group.
+// The group is named by the shell's pid, and the name is pinned for exactly as
+// long as a member is alive, so this is also whether the name still means
+// this group.
+func groupAlive(cmd *exec.Cmd) bool {
+	return cmd.Process != nil && syscall.Kill(-cmd.Process.Pid, 0) == nil
 }
 
 // signalGroup signals the command's whole process group, so that whatever it

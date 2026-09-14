@@ -374,7 +374,13 @@ func TestS1CancelledAgentsChildThatIgnoresSIGTERMIsKilledWithinTheGracePeriod(t 
 func TestS2CancelledAgentThatStopsWhenAskedIsNotMadeToWaitForTheKill(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	p, err := host.New().Start(ctx, agent.Invocation{Path: script(t, "echo started\nsleep 60\n"), Dir: t.TempDir()})
+	// An Agent that acts on being asked to stop: it exits, and takes the short
+	// sleeps it runs with it. A bare `sleep 60` would not do here - a sleep
+	// forked at the very moment the signal lands can miss it and live on, which
+	// is exactly the case the grace period is for.
+	p, err := host.New().Start(ctx, agent.Invocation{
+		Path: script(t, "trap 'exit 0' TERM\necho started\nwhile :; do sleep 0.1; done\n"), Dir: t.TempDir(),
+	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

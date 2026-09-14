@@ -47,7 +47,13 @@ func (*Executor) Start(ctx context.Context, inv agent.Invocation) (agent.Process
 	if inv.Dir == "" {
 		return nil, errors.New("an agent must be given a working directory to run in")
 	}
-	cmd := exec.CommandContext(ctx, inv.Path, inv.Args...)
+	// A context that is already done starts nothing, as os/exec would have
+	// refused to; the stopping below is Owl's own rather than os/exec's, so
+	// the refusal is too.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(inv.Path, inv.Args...)
 	cmd.Dir = inv.Dir
 	// The Agent inherits the user's already-authenticated environment
 	// (ADR-0006); the invocation only adds to it.
@@ -58,21 +64,22 @@ func (*Executor) Start(ctx context.Context, inv agent.Invocation) (agent.Process
 	// The Agent leads a process group of its own, so that stopping it stops
 	// everything it started rather than orphaning a compile (ADR-0011).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// A cancelled Run is asked to stop before it is killed, so an Agent that
-	// commits as it goes (ADR-0017) gets to finish the commit it is making.
-	cmd.Cancel = func() error { return signalGroup(cmd, syscall.SIGTERM) }
+	// An Agent that exits while something it started still holds its output
+	// open is an Agent that exited: Wait gives the pipes this long to close
+	// after the exit, and then stops waiting on them.
 	cmd.WaitDelay = killDelay
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("capturing the agent's output: %w", err)
 	}
-	p := &process{cmd: cmd, stdout: stdout}
+	p := &process{cmd: cmd, stdout: stdout, done: make(chan struct{}), stopped: make(chan struct{})}
 	cmd.Stderr = &p.stderr
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting %s: %w", inv.Path, err)
 	}
+	go p.stopWhenDone(ctx)
 	return p, nil
 }
 
@@ -85,6 +92,60 @@ type process struct {
 	// system's to hand out again, and signalling it would be signalling
 	// somebody else.
 	reaped atomic.Bool
+	// done is closed once the Agent has been waited for, so that the stopping
+	// below knows the Agent itself is gone; stopped is closed once the
+	// stopping is over, so that Wait does not return while it is still going.
+	done    chan struct{}
+	stopped chan struct{}
+}
+
+// pollEvery is how often a stopping Agent's group is looked at for whether
+// anything in it is still there.
+const pollEvery = 50 * time.Millisecond
+
+// stopWhenDone ends the Agent when its context is cancelled: SIGTERM to the
+// process group, so that an Agent which commits as it goes (ADR-0017) gets to
+// finish the commit it is making, and SIGKILL to the group when anything in
+// it is still there after the grace period (ADR-0034). Both go to the group
+// rather than to the one pid os/exec would kill, and the kill is decided by
+// whether the group is still there rather than by whether the Agent is: what
+// the Agent started - a test runner that ignores SIGTERM - is exactly what
+// would otherwise outlive the daemon, and it outlives the Agent just as well.
+func (p *process) stopWhenDone(ctx context.Context) {
+	defer close(p.stopped)
+	select {
+	case <-ctx.Done():
+	case <-p.done:
+		return
+	}
+	_ = p.SignalGroup(syscall.SIGTERM)
+	deadline := time.Now().Add(killDelay)
+	for time.Now().Before(deadline) {
+		if !groupAlive(p.cmd) {
+			return
+		}
+		time.Sleep(pollEvery)
+	}
+	killGroup(p.cmd)
+}
+
+// groupAlive reports whether anything is left in the command's process group.
+// The group is named by the Agent's pid, and the name is pinned for exactly as
+// long as a member is alive, so this is also whether the name still means
+// this group.
+func groupAlive(cmd *exec.Cmd) bool {
+	return cmd.Process != nil && syscall.Kill(-cmd.Process.Pid, 0) == nil
+}
+
+// killGroup sends SIGKILL to whatever is left in the group, which may be
+// nothing but what the Agent started after the Agent itself has been reaped.
+// It looks first: a group with nothing in it is a name the system is free to
+// hand out again, and is not signalled.
+func killGroup(cmd *exec.Cmd) {
+	if !groupAlive(cmd) {
+		return
+	}
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }
 
 // Stdout is the Agent's structured output.
@@ -141,7 +202,11 @@ func (p *process) Wait() (int, error) {
 	// been free to hand out again, with no live group member pinning it.
 	if !p.reaped.Swap(true) {
 		_ = signalGroup(p.cmd, syscall.SIGTERM)
+		close(p.done)
 	}
+	// A cancelled Agent is not over until what it started is: the stopping
+	// may still be giving the group its grace period, or killing it.
+	<-p.stopped
 	if err == nil {
 		return 0, nil
 	}
