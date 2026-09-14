@@ -696,6 +696,24 @@ func TestS4AProjectFileMayExtendTheAllowlist(t *testing.T) {
 	refusedNaming(t, err, "a project file with a comma in an allowed tool", "allowedTools", "comma", "main:.coding-owl.yaml")
 }
 
+// S4 of tests/behavior/issue-57.md: the daemon's file may say where the tool
+// is, as a path that means the same wherever the daemon was started from.
+func TestS4TheDaemonsFileMayNameTheToolsPath(t *testing.T) {
+	cfg, err := config.ParseGlobal("/somewhere/config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\nclaudePath: /opt/tools/claude\n"))
+	if err != nil {
+		t.Fatalf("ParseGlobal: %v", err)
+	}
+	if cfg.ClaudePath != "/opt/tools/claude" {
+		t.Errorf("claudePath = %q, want the path the file named", cfg.ClaudePath)
+	}
+
+	_, err = config.ParseGlobal("/somewhere/config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\nclaudePath: tools/claude\n"))
+
+	refusedNaming(t, err, "a daemon file whose claudePath is relative", "claudePath", "tools/claude", "/somewhere/config.yaml")
+}
+
 // An Account with no cap of its own is held only by the other two: burn rate is
 // already governed by the ceiling (ADR-0021).
 func TestAnAccountWithNoCapOfItsOwnIsUnlimited(t *testing.T) {
