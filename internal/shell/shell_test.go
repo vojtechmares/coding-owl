@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -105,5 +107,76 @@ func TestRunTreatsACommandThatOutlivesItsOutputAsFinished(t *testing.T) {
 	}
 	if res.TimedOut || res.Cancelled {
 		t.Errorf("result = %+v, want neither timed out nor stopped", res)
+	}
+}
+
+// grace is the five seconds a timed-out command has to act on SIGTERM before
+// it is killed (ADR-0034), and margin is what a scenario allows on top of it
+// for the kill to land and be seen.
+const (
+	grace  = 5 * time.Second
+	margin = 3 * time.Second
+)
+
+// pidIn reads a pid a command wrote to a file, or zero while there is none.
+func pidIn(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0
+	}
+	return pid
+}
+
+// alive reports whether a process with that pid can still be signalled.
+func alive(pid int) bool { return syscall.Kill(pid, syscall.Signal(0)) == nil }
+
+func TestS3TimedOutChecksChildThatIgnoresSIGTERMIsKilledWithinTheGracePeriod(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "child.pid")
+	timeout := 200 * time.Millisecond
+	started := time.Now()
+
+	// The check starts a child that will not stop when asked, writes the
+	// child's pid down, and waits past its own timeout.
+	res, err := shell.Run(context.Background(), dir,
+		"(trap '' TERM; while :; do sleep 0.05; done) >/dev/null 2>&1 & echo $! > "+pidFile+"; sleep 60", timeout)
+
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	child := pidIn(pidFile)
+	if child == 0 {
+		t.Fatal("the command recorded no child")
+	}
+	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
+	if elapsed := time.Since(started); elapsed > timeout+grace+margin {
+		t.Errorf("Run took %s, want it back within the grace period plus a margin of its timeout", elapsed)
+	}
+	if !res.TimedOut {
+		t.Error("a command that was stopped is not reported as timed out")
+	}
+	if alive(child) {
+		t.Errorf("the child that ignores SIGTERM is still alive %s after the command started", time.Since(started))
+	}
+}
+
+func TestS4TimedOutCheckThatStopsWhenAskedReturnsAtItsTimeout(t *testing.T) {
+	timeout := 200 * time.Millisecond
+	started := time.Now()
+
+	res, err := shell.Run(context.Background(), t.TempDir(), "sleep 60", timeout)
+
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed >= timeout+grace {
+		t.Errorf("Run took %s for a command that stops on SIGTERM, want well under its timeout plus the %s grace period", elapsed, grace)
+	}
+	if !res.TimedOut {
+		t.Error("a command that was stopped is not reported as timed out")
 	}
 }
