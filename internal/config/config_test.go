@@ -632,6 +632,49 @@ func TestACapThatIsNotOneIsRefusedByName(t *testing.T) {
 
 // An Account with no cap of its own is held only by the other two: burn rate is
 // already governed by the ceiling (ADR-0021).
+// refusedNaming checks a parse was refused with an error that names each of
+// the given things, which for issue #54 is the unknown key and the file.
+func refusedNaming(t *testing.T, err error, what string, names ...string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("%s was accepted, want it refused", what)
+	}
+	for _, name := range names {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("the error for %s does not name %q: %v", what, name, err)
+		}
+	}
+}
+
+func TestS1AProjectFileWithAnUnknownTopLevelKeyIsRefusedByName(t *testing.T) {
+	_, err := config.Parse("main:.coding-owl.yaml", []byte("apiVersion: codingowl.dev/v1\nmaxParalellRuns: 2\n"))
+
+	refusedNaming(t, err, "a project file with a misspelled key", "maxParalellRuns", "main:.coding-owl.yaml")
+}
+
+func TestS2AGlobalFileWithAProjectOnlyBlockIsRefusedByName(t *testing.T) {
+	_, err := config.ParseGlobal("/somewhere/config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\nchecks:\n  - name: tests\n    run: make test\n"))
+
+	refusedNaming(t, err, "a daemon file with a checks block", "checks", "/somewhere/config.yaml")
+}
+
+func TestS3AProjectFileWithAGlobalOnlyKeyIsRefusedByName(t *testing.T) {
+	_, err := config.Parse("main:.coding-owl.yaml", []byte("apiVersion: codingowl.dev/v1\ncredentialStore: file\n"))
+
+	refusedNaming(t, err, "a project file with credentialStore", "credentialStore", "main:.coding-owl.yaml")
+}
+
+func TestS4AnUnknownKeyInsideABlockIsRefusedByName(t *testing.T) {
+	_, err := config.ParseGlobal("/somewhere/config.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\nidle:\n  afterr: 5m\n"))
+	refusedNaming(t, err, "a daemon file with a misspelled idle setting", "afterr", "/somewhere/config.yaml")
+
+	_, err = config.Parse("main:.coding-owl.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\nchecks:\n  - name: tests\n    runn: make test\n"))
+	refusedNaming(t, err, "a project file with a misspelled check setting", "runn", "main:.coding-owl.yaml")
+}
+
 func TestAnAccountWithNoCapOfItsOwnIsUnlimited(t *testing.T) {
 	cfg, err := config.ParseGlobal("owl.yaml", []byte(
 		"apiVersion: codingowl.dev/v1\naccounts:\n  work:\n    maxParallel: 2\n  other:\n    limits:\n      fiveHourMax: 60\n"))
