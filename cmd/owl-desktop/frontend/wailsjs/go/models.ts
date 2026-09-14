@@ -386,6 +386,7 @@ export namespace client {
 	    LogPath: string;
 	    Phase: string;
 	    Skills: Skill[];
+	    Permissions: string[];
 	    Paused: boolean;
 	    Stage: string;
 	
@@ -406,6 +407,7 @@ export namespace client {
 	        this.LogPath = source["LogPath"];
 	        this.Phase = source["Phase"];
 	        this.Skills = this.convertValues(source["Skills"], Skill);
+	        this.Permissions = source["Permissions"];
 	        this.Paused = source["Paused"];
 	        this.Stage = source["Stage"];
 	    }

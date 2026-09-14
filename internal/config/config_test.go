@@ -689,6 +689,11 @@ func TestS4AProjectFileMayExtendTheAllowlist(t *testing.T) {
 		"apiVersion: codingowl.dev/v1\nallowedTools:\n  - WebFetch\n  - \"  \"\n"))
 
 	refusedNaming(t, err, "a project file with an empty allowed tool", "allowedTools", "2", "main:.coding-owl.yaml")
+
+	_, err = config.Parse("main:.coding-owl.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\nallowedTools:\n  - \"Bash(make test:*),WebFetch\"\n"))
+
+	refusedNaming(t, err, "a project file with a comma in an allowed tool", "allowedTools", "comma", "main:.coding-owl.yaml")
 }
 
 // An Account with no cap of its own is held only by the other two: burn rate is

@@ -32,15 +32,19 @@ re-impose the default, extend it, or repair it.
 
 The default allowlist is:
 
-- the edits an Agent exists to make: `Edit`, `Write`, `MultiEdit`,
-  `NotebookEdit`;
-- reading what is there: `Read`, `Glob`, `Grep`, `LS`;
+- the edits an Agent exists to make: `Edit`, `Write`, `NotebookEdit`;
+- reading what is there: `Read`, `Glob`, `Grep`;
 - the commands a Job's work turns on - version control and the build and test
   runners a Project is likely to have: `Bash(git:*)`, `Bash(make:*)`,
   `Bash(go:*)`, `Bash(npm:*)`, `Bash(pnpm:*)`, `Bash(yarn:*)`, `Bash(npx:*)`,
   `Bash(cargo:*)`, `Bash(pytest:*)`.
 
-Nothing that reaches the network, and no shell beyond those prefixes. Anything
+This is a starting point for a coding Agent, not a boundary. Those commands
+fetch dependencies and, for version control, can reach a remote; a build
+runner runs whatever the Project's own files tell it to. That is the position
+ADR-0006 already takes: there is no sandbox, and the worktree bounds accidents
+rather than intent. What the list does not do is grant a shell outright, or
+any tool that fetches from the web on the Agent's own initiative. Anything
 wider is a decision for whoever owns the work, made in one of two places:
 
 - **the Account's file**, for everything that Account's Agents may do, edited
@@ -73,6 +77,11 @@ so the suite can no longer pass while a real Agent would deny everything.
   change to what the Project's Agents may do.
 - A Run's recorded permissions are what the tool was told, not a log of what
   it used. The Run's log holds that.
+- The agent Verifier (ADR-0013) is built by the same Driver and so runs with
+  the Account's allowlist too, which is what lets it write its verdict at all.
+  It is not given the Project's additions, and what it was granted is not
+  recorded against the Run; a narrower, read-only grant for a judge is a
+  decision for its own record.
 
 ## Alternatives considered
 
