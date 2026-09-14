@@ -5,6 +5,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -312,9 +313,12 @@ func (s *Service) Cancel(ctx context.Context, id int64) (Job, error) {
 	if _, err := s.pending(ctx, id); err != nil {
 		return Job{}, err
 	}
-	// A Job the user cancelled needs no note: they know why.
-	if err := s.store.DequeueJob(ctx, id, string(StateCancelled), ""); err != nil {
-		return Job{}, err
+	// A Job the user cancelled needs no note: they know why. Still pending is
+	// a condition of the write, not only of the read above: a Run may have
+	// claimed the Job in between, and then it is being run rather than
+	// waiting, which is what the user is told.
+	if err := s.store.DequeueJob(ctx, id, string(StatePending), string(StateCancelled), ""); err != nil {
+		return Job{}, s.decidedSince(ctx, id, err)
 	}
 	j, err := s.store.GetJob(ctx, id)
 	if err != nil {
@@ -355,8 +359,11 @@ func (s *Service) Reorder(ctx context.Context, id int64, position int) (Job, err
 	if position < 1 || position > n {
 		return Job{}, invalid("position %d is outside the queue; positions are between 1 and %d", position, n)
 	}
-	if err := s.store.MoveJob(ctx, id, position); err != nil {
-		return Job{}, err
+	// Still pending is a condition of the move as well as of the read above,
+	// for the same reason as in Cancel: a Job a Run has claimed since keeps
+	// the place it held (ADR-0025).
+	if err := s.store.MoveJob(ctx, id, position, string(StatePending)); err != nil {
+		return Job{}, s.decidedSince(ctx, id, err)
 	}
 	j, err := s.store.GetJob(ctx, id)
 	if err != nil {
@@ -374,7 +381,26 @@ func (s *Service) pending(ctx context.Context, id int64) (Job, error) {
 		return Job{}, err
 	}
 	if State(j.State) != StatePending {
-		return Job{}, invalid("job %d is not pending, it is %s", id, j.State)
+		return Job{}, notPending(id, j.State)
 	}
 	return FromStore(j), nil
+}
+
+// notPending is the refusal a Job that is not waiting in the queue gets.
+func notPending(id int64, state string) error {
+	return invalid("job %d is not pending, it is %s", id, state)
+}
+
+// decidedSince turns a write the store refused because the Job was no longer
+// pending into the same refusal the read would have given, naming what the
+// Job is now. Any other error is returned as it is.
+func (s *Service) decidedSince(ctx context.Context, id int64, err error) error {
+	if !errors.Is(err, store.ErrNotQueued) {
+		return err
+	}
+	j, getErr := s.store.GetJob(ctx, id)
+	if getErr != nil {
+		return err
+	}
+	return notPending(id, j.State)
 }

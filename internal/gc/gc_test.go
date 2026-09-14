@@ -654,7 +654,7 @@ func TestCollectDoesNotAcceptAJobSomebodyElseDecidedAbout(t *testing.T) {
 	// decides anything, so that the state it read is no longer the state it is
 	// acting on.
 	f.svc.BeforeDeciding(func() {
-		if err := f.store.DequeueJob(context.Background(), j.ID, string(queue.StateCancelled), ""); err != nil {
+		if err := f.store.DequeueJob(context.Background(), j.ID, string(queue.StateReview), string(queue.StateCancelled), ""); err != nil {
 			t.Errorf("DequeueJob: %v", err)
 		}
 	})
