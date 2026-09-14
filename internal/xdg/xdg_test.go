@@ -1,6 +1,7 @@
 package xdg
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -94,5 +95,8 @@ func TestCheckSocketPathLength(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "too long") || !strings.Contains(err.Error(), long) {
 		t.Errorf("error should say too long and print the path: %v", err)
+	}
+	if !errors.Is(err, ErrSocketPathTooLong) {
+		t.Errorf("error %v does not carry ErrSocketPathTooLong, which is what a client tells it apart by", err)
 	}
 }
