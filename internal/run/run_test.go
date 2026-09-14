@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -216,6 +217,7 @@ func newVerifiedFixture(t *testing.T, d driver.Driver, e *fakeExecutor, v verifi
 		// say about grace windows, idleness or what an Account is held to. A
 		// file that is not there is a daemon nobody configured.
 		ConfigPath: filepath.Join(root, "config.yaml"),
+		Logger:     slog.New(slog.NewTextHandler(logOf(t), nil)),
 	})
 	t.Cleanup(func() { _ = svc.Close() })
 	return svc, st, repo, root
@@ -296,6 +298,48 @@ func queueJobWithAttempts(t *testing.T, st *store.Store, prompt string, n int) s
 
 // awaitState waits for a Job to reach a state, so a test does not race the
 // Run's own goroutine.
+// logs holds what each test's Service logged, by test name, so that a
+// scenario about what the daemon says can read it back.
+var logs sync.Map
+
+// logOf is where a test's Service logs.
+func logOf(t *testing.T) *syncWriter {
+	t.Helper()
+	w, _ := logs.LoadOrStore(t.Name(), &syncWriter{})
+	return w.(*syncWriter)
+}
+
+type syncWriter struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (w *syncWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.Write(p)
+}
+
+func (w *syncWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.String()
+}
+
+// awaitEnded waits for the Job's latest Run to have an outcome.
+func awaitEnded(t *testing.T, st *store.Store, job int64) store.Run {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if r := lastRun(t, st, job); r.Outcome != "" {
+			return r
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("the run of job %d never ended", job)
+	return store.Run{}
+}
+
 func awaitState(t *testing.T, st *store.Store, id int64, want queue.State) store.Job {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -986,6 +1030,79 @@ func TestSetupStoppedByTheDaemonLeavesTheJobWhereItWas(t *testing.T) {
 	// Nothing failed at anything: the Job is still waiting its turn.
 	if queue.State(after.State) != queue.StatePending || after.Reason != "" {
 		t.Errorf("job = %+v, want it pending with nothing held against it", after)
+	}
+}
+
+// decidedWhileRunning starts a Run whose Agent waits to be let go, moves the
+// Job out of the queue from under it - as a decision taken while the Run is
+// going does - and then lets the Agent exit. It returns the store and the Job
+// once the Run has ended.
+func decidedWhileRunning(t *testing.T, exitCode int) (*store.Store, store.Job, store.Run) {
+	t.Helper()
+	ctx := context.Background()
+	e := &fakeExecutor{exitCode: exitCode, hold: make(chan struct{}), started: make(chan struct{})}
+	svc, st, _ := newFixture(t, &fakeDriver{}, e)
+	j := queueJob(t, st, "work")
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-e.started
+	// Somebody decided about the Job while its Run was going.
+	if err := st.DequeueJob(ctx, j.ID, string(queue.StateActive), string(queue.StateCancelled), ""); err != nil {
+		t.Fatalf("DequeueJob: %v", err)
+	}
+	close(e.hold)
+	return st, j, awaitEnded(t, st, j.ID)
+}
+
+func TestS1ARunWhoseJobWasDecidedAboutWhileItRanRecordsThatItCouldNotMoveTheJobOn(t *testing.T) {
+	ctx := context.Background()
+
+	st, j, r := decidedWhileRunning(t, 0)
+
+	if r.Outcome != string(run.OutcomeFailed) {
+		t.Errorf("outcome = %q, want failed: the run could not move its job on", r.Outcome)
+	}
+	if !strings.Contains(r.Error, strconv.FormatInt(j.ID, 10)) || !strings.Contains(r.Error, "not in the queue") {
+		t.Errorf("reason = %q, want it to name the job and say it is not in the queue", r.Error)
+	}
+	after, err := st.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queue.State(after.State) != queue.StateCancelled {
+		t.Errorf("job state = %s, want cancelled: the job is left as the decision left it", after.State)
+	}
+}
+
+func TestS2ARunThatHadAlreadyFailedKeepsItsReasonAndAddsThatTheJobCouldNotBeMoved(t *testing.T) {
+	_, _, r := decidedWhileRunning(t, 3)
+
+	if r.Outcome != string(run.OutcomeFailed) {
+		t.Errorf("outcome = %q, want failed", r.Outcome)
+	}
+	if !strings.Contains(r.Error, "status 3") {
+		t.Errorf("reason = %q, want it to keep the agent's exit status", r.Error)
+	}
+	if !strings.Contains(r.Error, "not in the queue") {
+		t.Errorf("reason = %q, want it to also say the job is not in the queue", r.Error)
+	}
+}
+
+func TestS3TheDaemonsLogSaysTheRunCouldNotMoveItsJobOn(t *testing.T) {
+	decidedWhileRunning(t, 0)
+
+	var finished string
+	for _, ln := range strings.Split(logOf(t).String(), "\n") {
+		if strings.Contains(ln, `msg="run finished"`) {
+			finished = ln
+		}
+	}
+	if finished == "" {
+		t.Fatalf("no log line for the run's end:\n%s", logOf(t).String())
+	}
+	if !strings.Contains(finished, "outcome=failed") || !strings.Contains(finished, "not in the queue") {
+		t.Errorf("the run's end is logged without saying the job could not be moved on:\n%s", finished)
 	}
 }
 
