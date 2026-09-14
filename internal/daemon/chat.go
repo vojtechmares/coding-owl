@@ -18,6 +18,10 @@ import (
 type chatService struct {
 	codingowlv1connect.UnimplementedChatServiceHandler
 	chat *chat.Service
+	// daemon is the daemon's own lifetime, which every request's context is
+	// derived from: it is how a stream ended by the daemon stopping is told
+	// apart from one the caller left.
+	daemon context.Context
 }
 
 func (s *chatService) AddProvider(ctx context.Context, req *connect.Request[codingowlv1.AddProviderRequest]) (*connect.Response[codingowlv1.AddProviderResponse], error) {
@@ -108,10 +112,18 @@ func (s *chatService) SendMessage(ctx context.Context, req *connect.Request[codi
 			Proposal: toProposalProto(d.Proposal), Ran: toCommandRunProto(d.Ran),
 		})
 	})
-	// A caller that hangs up ends the stream; that is how a chat is left, not
-	// something to report as a failure.
-	if errors.Is(err, context.Canceled) {
-		return nil
+	// An exchange whose context ended was not the model's or Owl's doing,
+	// whatever the failure it surfaced as - a consent nobody gave, a provider
+	// call cut short. A caller that hangs up ends it; that is how a chat is
+	// left, not something to report as a failure. The daemon stopping ends
+	// it the same way, and that one the caller is still there to be told
+	// about.
+	if err != nil && ctx.Err() != nil {
+		if s.daemon.Err() == nil {
+			return nil
+		}
+		return connect.NewError(connect.CodeCanceled,
+			errors.New("the exchange was cancelled: the daemon is stopping"))
 	}
 	if err != nil {
 		return rpcError(err)
