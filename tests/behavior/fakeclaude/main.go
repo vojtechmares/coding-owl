@@ -45,16 +45,23 @@
 // directory, so a scenario can see what ran before the Agent did, and every
 // CLAUDE_ variable it was given, so a scenario can see which Account it was
 // run as (ADR-0019).
+//
+// A print-mode invocation is refused, with exit status 97, unless it was given
+// what the real tool needs to work unattended: `--permission-prompts none`,
+// and a settings file in its CLAUDE_CONFIG_DIR that allows something
+// (ADR-0035). The real tool would run, deny everything, and change nothing.
 package main
 
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -109,6 +116,14 @@ func main() {
 			fmt.Fprintln(os.Stderr, "fakeclaude:", err)
 			os.Exit(90)
 		}
+	}
+	// An Agent that runs unattended is only useful if it has been granted
+	// something: the real tool denies whatever would have prompted, and a
+	// Run that may edit nothing ends with an empty diff. So the stub insists
+	// on what the real tool would read (issue #56, ADR-0035).
+	if err := checkPermissions(); err != nil {
+		fmt.Fprintln(os.Stderr, "fakeclaude:", err)
+		os.Exit(97)
 	}
 	// Held after recording that it was called and before touching anything:
 	// a scenario can then see that the Agent has started and that the working
@@ -211,6 +226,41 @@ func startChild() error {
 	}
 	// Deliberately not waited for: the child outlives this function and is
 	// stopped by whatever stops the process group.
+	return nil
+}
+
+// checkPermissions refuses a print-mode invocation that the real tool would
+// run with nothing granted: no settings file in its configuration directory,
+// one that allows nothing, or prompts left enabled with nobody to answer them.
+// Anything else the stub is asked to do - a version, a token setup - is not an
+// Agent at work and is not checked.
+func checkPermissions() error {
+	args := os.Args[1:]
+	if !slices.Contains(args, "--print") {
+		return nil
+	}
+	if i := slices.Index(args, "--permission-prompts"); i < 0 || i+1 >= len(args) || args[i+1] != "none" {
+		return fmt.Errorf("an unattended agent was started with permission prompts enabled: %v", args)
+	}
+	dir := os.Getenv("CLAUDE_CONFIG_DIR")
+	if dir == "" {
+		return errors.New("an agent was started with no CLAUDE_CONFIG_DIR to read its settings from")
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		return fmt.Errorf("an unattended agent has nothing granted: %w", err)
+	}
+	var settings struct {
+		Permissions struct {
+			Allow []string `json:"allow"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return fmt.Errorf("the settings file is not what the tool reads: %w", err)
+	}
+	if len(settings.Permissions.Allow) == 0 {
+		return errors.New("an unattended agent has nothing granted: the settings file allows nothing")
+	}
 	return nil
 }
 
