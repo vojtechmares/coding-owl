@@ -1091,6 +1091,69 @@ func TestS8JobWhoseSlowWorkIsRefusedIsPendingAgainNotActive(t *testing.T) {
 	}
 }
 
+// S2 of tests/behavior/issue-53.md: what the fetch brought in is what the Job
+// is rebased onto, so a commit somebody pushed since the clone is under the
+// Job's branch after its Run - and the Project's own base branch stays put.
+func TestS2ACommitPushedSinceTheCloneIsUnderTheJobBranchAfterARun(t *testing.T) {
+	ctx := context.Background()
+	svc, st, repo := newFixture(t, &fakeDriver{}, &fakeExecutor{})
+	// The Project tracks a bare repository, which somebody else has pushed to
+	// since the Project was cloned from it.
+	bare := filepath.Join(t.TempDir(), "origin.git")
+	gitIn(t, repo, "init", "--bare", bare)
+	gitIn(t, repo, "remote", "add", "origin", bare)
+	gitIn(t, repo, "push", "--quiet", "origin", "main")
+	other := filepath.Join(t.TempDir(), "other")
+	gitIn(t, repo, "clone", "--quiet", "--branch", "main", bare, other)
+	gitIn(t, other, "-c", "user.name=Someone", "-c", "user.email=someone@example.com",
+		"commit", "--allow-empty", "-m", "pushed by somebody else")
+	gitIn(t, other, "push", "--quiet", "origin", "HEAD:refs/heads/main")
+	pushed := gitOutput(t, other, "rev-parse", "HEAD")
+	local := gitOutput(t, repo, "rev-parse", "main")
+	j := queueJob(t, st, "work")
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	done := awaitState(t, st, j.ID, queue.StateReview)
+
+	if !isAncestor(t, repo, pushed, done.Branch) {
+		t.Errorf("the commit pushed since the clone, %s, is not under the job's branch %s", pushed, done.Branch)
+	}
+	if got := gitOutput(t, repo, "rev-parse", "main"); got != local {
+		t.Errorf("owl moved the project's own base branch to %s, want it left at %s", got, local)
+	}
+}
+
+// gitOutput runs git in a directory and returns what it printed, trimmed.
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// isAncestor reports whether one commit is an ancestor of another.
+func isAncestor(t *testing.T, dir, ancestor, of string) bool {
+	t.Helper()
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", ancestor, of)
+	cmd.Dir = dir
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false
+	}
+	if err != nil {
+		t.Fatalf("git merge-base --is-ancestor %s %s: %v", ancestor, of, err)
+	}
+	return true
+}
+
 func TestStartPassesOverAJobWithNoAttemptsLeft(t *testing.T) {
 	ctx := context.Background()
 	svc, st, _ := newFixture(t, &fakeDriver{}, &fakeExecutor{})
