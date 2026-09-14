@@ -1,7 +1,8 @@
-# pnpm runs no dependency's install script unless it is named here. esbuild's
-# fetches the binary for this platform; without it Vite still runs, through
-# the slower fallback, so allowing it is what keeps the build the same as it
-# was under npm.
+# pnpm runs no dependency's install script unless it is named here, and under
+# a strict setting refuses to install at all while one is left unnamed.
+# esbuild's script only readies its command-line shim - Vite reaches the
+# platform binary through the JS API either way - and it is the one script
+# the frontend's dependencies carry.
 allowBuilds:
   esbuild: true
 
