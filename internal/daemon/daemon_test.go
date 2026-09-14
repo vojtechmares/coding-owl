@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -228,6 +230,63 @@ func TestS2ADaemonWhoseCredentialStoreIsUnknownLeavesNoSocketBehind(t *testing.T
 		t.Fatalf("err = %v, want an error naming the credential store", err)
 	}
 	noSocket(t, paths)
+}
+
+// withUmask sets the process umask for the rest of the test and restores it
+// afterwards. The umask is process-wide, which is why none of these tests run
+// in parallel.
+func withUmask(t *testing.T, mask int) {
+	t.Helper()
+	old := syscall.Umask(mask)
+	t.Cleanup(func() { syscall.Umask(old) })
+}
+
+// mode is the permission bits of what is at path.
+func mode(t *testing.T, path string) fs.FileMode {
+	t.Helper()
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%s): %v", path, err)
+	}
+	return st.Mode().Perm()
+}
+
+func TestS1TheSocketIs0600AndItsDirectory0700UnderAPermissiveUmask(t *testing.T) {
+	paths := tempPaths(t)
+	withUmask(t, 0o022)
+	stop := run(t, paths)
+	waitStatus(t, client.New(paths.SocketPath))
+
+	if got := mode(t, paths.SocketPath); got != 0o600 {
+		t.Errorf("socket mode = %o, want 600: only the owning user may connect", got)
+	}
+	if got := mode(t, filepath.Dir(paths.SocketPath)); got != 0o700 {
+		t.Errorf("socket directory mode = %o, want 700", got)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if got := syscall.Umask(0o022); got != 0o022 {
+		t.Errorf("umask after the daemon stopped = %o, want 022: the daemon did not restore it", got)
+	}
+}
+
+func TestS2APreExisting0755SocketDirectoryIs0700AfterStart(t *testing.T) {
+	paths := tempPaths(t)
+	dir := filepath.Dir(paths.SocketPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	run(t, paths)
+	waitStatus(t, client.New(paths.SocketPath))
+
+	if got := mode(t, dir); got != 0o700 {
+		t.Errorf("socket directory mode = %o, want 700: a directory found in place is tightened like one made new", got)
+	}
 }
 
 // TestProjectErrorsReachTheClientClassified checks the whole error path over a
