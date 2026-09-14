@@ -373,6 +373,38 @@ func TestS2ASettingsFileTheUserEditedIsNeverTouched(t *testing.T) {
 	}
 }
 
+func TestS9ASettingsFileThatCannotBeReadIsRefusedNotSeededOverAndNotWaitedOn(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+	dir := filepath.Join(t.TempDir(), "work")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A link to nowhere: the name is taken, and there is nothing to read.
+	if err := os.Symlink(filepath.Join(dir, "not-there.json"), filepath.Join(dir, "settings.json")); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+
+	_, err := claudecode.New().Command(forAccount(dir))
+
+	if err == nil {
+		t.Fatal("Command accepted an account whose settings file cannot be read")
+	}
+	if !strings.Contains(err.Error(), "settings.json") {
+		t.Errorf("the error %q does not name the settings file", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Errorf("Command took %s, want it back promptly rather than trying again and again", elapsed)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "settings.json" {
+		t.Errorf("the account's directory holds %v, want only the link that was there", entries)
+	}
+}
+
 func TestS3TheInvocationCarriesThePermissionsInForceAndPassesAProjectsOwn(t *testing.T) {
 	stubClaude(t, "2.1.267 (Claude Code)")
 	dir := filepath.Join(t.TempDir(), "work")
