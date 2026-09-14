@@ -173,9 +173,6 @@ func newDaemonStatusCmd(env Env) *cobra.Command {
 		Short: "Report whether the daemon is running and reachable",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := xdg.CheckSocketPath(env.Paths.SocketPath); err != nil {
-				return err
-			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), statusTimeout)
 			defer cancel()
 			st, err := client.New(env.Paths.SocketPath).DaemonStatus(ctx)

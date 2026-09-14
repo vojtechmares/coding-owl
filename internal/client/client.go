@@ -15,6 +15,7 @@ import (
 
 	codingowlv1 "github.com/vojtechmares/coding-owl/gen/codingowl/v1"
 	"github.com/vojtechmares/coding-owl/gen/codingowl/v1/codingowlv1connect"
+	"github.com/vojtechmares/coding-owl/internal/xdg"
 )
 
 // ErrDaemonNotRunning is wrapped into errors returned when nothing answers on
@@ -71,6 +72,13 @@ func New(socketPath string) *Client {
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				// A path a unix socket address cannot hold is refused as
+				// such, here where every client dials, rather than by the
+				// dialer in its own words: what is wrong is the path, not
+				// the daemon.
+				if err := xdg.CheckSocketPath(socketPath); err != nil {
+					return nil, err
+				}
 				var d net.Dialer
 				return d.DialContext(ctx, "unix", socketPath)
 			},
@@ -108,6 +116,11 @@ func (c *Client) DaemonStatus(ctx context.Context) (*DaemonStatus, error) {
 func (c *Client) wrap(err error) error {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, xdg.ErrSocketPathTooLong) {
+		// The refusal is the client's own, and is said in its own words
+		// rather than in the transport's envelope.
+		return xdg.CheckSocketPath(c.socket)
 	}
 	if connect.CodeOf(err) == connect.CodeUnavailable ||
 		errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) {
