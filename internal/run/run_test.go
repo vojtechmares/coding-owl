@@ -1052,7 +1052,18 @@ func decidedWhileRunning(t *testing.T, exitCode int) (*store.Store, store.Job, s
 		t.Fatalf("DequeueJob: %v", err)
 	}
 	close(e.hold)
-	return st, j, awaitEnded(t, st, j.ID)
+	// The Run's end is written before the Job is moved on, so the Run is read
+	// once the Service has stopped carrying the Job: that is when everything
+	// about the Run has been written.
+	awaitEnded(t, st, j.ID)
+	deadline := time.Now().Add(10 * time.Second)
+	for svc.Carrying(j.ID) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the service never stopped carrying job %d", j.ID)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return st, j, lastRun(t, st, j.ID)
 }
 
 func TestS1ARunWhoseJobWasDecidedAboutWhileItRanRecordsThatItCouldNotMoveTheJobOn(t *testing.T) {

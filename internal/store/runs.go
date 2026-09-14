@@ -98,9 +98,22 @@ func (s *Store) FailRun(ctx context.Context, id int64, reason string) error {
 		return err
 	}
 	if n == 0 {
-		return fmt.Errorf("%w: %d", ErrRunNotFound, id)
+		return notEnded(ctx, s.db, id)
 	}
 	return nil
+}
+
+// notEnded says why a Run's end could not be rewritten: either there is no
+// such Run, or it has not ended yet, so there is no end to rewrite.
+func notEnded(ctx context.Context, db *sql.DB, id int64) error {
+	var exists int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM runs WHERE id = ?`, id).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return fmt.Errorf("%w: %d", ErrRunNotFound, id)
+	}
+	return fmt.Errorf("run %d has not ended", id)
 }
 
 // alreadyEnded says why a Run could not be ended: either there is no such Run,

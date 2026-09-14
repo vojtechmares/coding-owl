@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -278,8 +279,11 @@ func TestFailRunRewritesHowAnEndedRunEndedAndRefusesOneStillGoing(t *testing.T) 
 		t.Fatalf("StartRun: %v", err)
 	}
 
-	if err := s.FailRun(ctx, r.ID, "too soon"); !errors.Is(err, store.ErrRunNotFound) {
-		t.Errorf("FailRun of a run still going = %v, want ErrRunNotFound: only an ended run has an end to rewrite", err)
+	if err := s.FailRun(ctx, r.ID, "too soon"); err == nil || !strings.Contains(err.Error(), "not ended") {
+		t.Errorf("FailRun of a run still going = %v, want a refusal saying it has not ended: only an ended run has an end to rewrite", err)
+	}
+	if err := s.FailRun(ctx, r.ID+100, "nobody"); !errors.Is(err, store.ErrRunNotFound) {
+		t.Errorf("FailRun of a run that is not there = %v, want ErrRunNotFound", err)
 	}
 	if err := s.FinishRun(ctx, r.ID, now, "succeeded", "", 0); err != nil {
 		t.Fatalf("FinishRun: %v", err)
