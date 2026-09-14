@@ -4,6 +4,7 @@ package daemon
 // from "Owl broke", so the mapping is checked rather than assumed.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -30,6 +31,10 @@ func TestRPCErrorCodes(t *testing.T) {
 		{"job left the queue mid-request", fmt.Errorf("%w: 7", store.ErrNotQueued), connect.CodeInvalidArgument},
 		{"wrapped invalid", fmt.Errorf("while adding: %w", &project.InvalidError{Err: errors.New("bad name")}), connect.CodeInvalidArgument},
 		{"anything else", errors.New("disk on fire"), connect.CodeInternal},
+		// S4 of tests/behavior/issue-51.md: a request the daemon ended is the
+		// daemon stopping, not Owl breaking.
+		{"S4 cancelled", fmt.Errorf("waiting for an answer: %w", context.Canceled), connect.CodeCanceled},
+		{"S4 deadline passed", fmt.Errorf("asking the provider: %w", context.DeadlineExceeded), connect.CodeDeadlineExceeded},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := connect.CodeOf(rpcError(tc.err)); got != tc.want {
