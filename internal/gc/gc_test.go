@@ -399,6 +399,59 @@ func TestCollectPrunesNothingWhenThereIsNothingStale(t *testing.T) {
 	}
 }
 
+// usersWorktree makes a worktree of the Project's repository somewhere of the
+// user's own choosing, as a user working beside Owl does.
+func (f fixture) usersWorktree(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "spike")
+	gitIn(t, f.repo, "worktree", "add", "-b", "user/spike", path, "main")
+	return path
+}
+
+func TestS1CollectPrunesOnlyOwlsStaleWorktreeEntry(t *testing.T) {
+	f := newFixture(t)
+	j := f.job(t, "a", string(queue.StateReview), true)
+	users := f.usersWorktree(t)
+	// Both directories are gone: the user's may be on a volume that is not
+	// mounted right now, and is not Owl's to forget.
+	for _, dir := range []string{j.Worktree, users} {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	report := f.collect(t)
+
+	list := gitIn(t, f.repo, "worktree", "list")
+	if strings.Contains(list, j.Worktree) {
+		t.Errorf("git still counts the job's worktree nobody can use:\n%s", list)
+	}
+	if !strings.Contains(list, users) {
+		t.Errorf("git no longer counts the user's own worktree; collection forgot what is not Owl's:\n%s", list)
+	}
+	if len(report.Pruned) != 1 || report.Pruned[0] != "api" {
+		t.Errorf("pruned = %v, want the project", report.Pruned)
+	}
+}
+
+func TestS2CollectPrunesNothingWhenOnlyTheUsersWorktreesAreStale(t *testing.T) {
+	f := newFixture(t, func(o *gc.Options) { o.ReviewAfter = time.Hour })
+	f.job(t, "a", string(queue.StateReview), true)
+	users := f.usersWorktree(t)
+	if err := os.RemoveAll(users); err != nil {
+		t.Fatal(err)
+	}
+
+	report := f.collect(t)
+
+	if list := gitIn(t, f.repo, "worktree", "list"); !strings.Contains(list, users) {
+		t.Errorf("git no longer counts the user's own worktree; collection forgot what is not Owl's:\n%s", list)
+	}
+	if len(report.Pruned) != 0 {
+		t.Errorf("pruned = %v, want nothing: the user's worktrees are not Owl's to prune", report.Pruned)
+	}
+}
+
 func TestCollectReportsAJobWaitingTooLongForADecision(t *testing.T) {
 	f := newFixture(t, func(o *gc.Options) { o.ReviewAfter = time.Nanosecond })
 	j := f.job(t, "a", string(queue.StateReview), false)

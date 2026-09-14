@@ -496,6 +496,49 @@ func TestPruneWorktreesForgetsAWorktreeWhoseDirectoryIsGone(t *testing.T) {
 	}
 }
 
+func TestS4ForgetWorktreeForgetsThatOneWhateverStateItIsIn(t *testing.T) {
+	dir := newRepo(t)
+	root := t.TempDir()
+	gone := filepath.Join(root, "gone")
+	half := filepath.Join(root, "half")
+	kept := filepath.Join(root, "kept")
+	for i, path := range []string{gone, half, kept} {
+		if err := git.AddWorktree(dir, path, "owl/job-"+strconv.Itoa(i), "main"); err != nil {
+			t.Fatalf("AddWorktree: %v", err)
+		}
+	}
+	// One directory is gone; one is there but no longer linked to the
+	// repository, as an interrupted removal leaves it.
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(half, ".git")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{gone, half} {
+		if err := git.ForgetWorktree(dir, path); err != nil {
+			t.Fatalf("ForgetWorktree(%s): %v", path, err)
+		}
+	}
+
+	list := run(t, dir, "worktree", "list")
+	for _, path := range []string{gone, half} {
+		if strings.Contains(list, path) {
+			t.Errorf("git still reports a worktree it cannot use, %s:\n%s", path, list)
+		}
+	}
+	if !strings.Contains(list, kept) {
+		t.Errorf("git no longer counts the worktree that is in place:\n%s", list)
+	}
+	if err := git.ForgetWorktree(dir, kept); err == nil {
+		t.Error("forgetting a worktree git can still work in reported success; that strands a checkout")
+	}
+	if list := run(t, dir, "worktree", "list"); !strings.Contains(list, kept) {
+		t.Errorf("a refused forgetting still took the worktree away:\n%s", list)
+	}
+}
+
 func TestIsWorktreeSaysNoToAHalfRemovedWorktree(t *testing.T) {
 	dir := newRepo(t)
 	worktree := filepath.Join(t.TempDir(), "job-1")
