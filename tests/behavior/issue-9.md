@@ -86,7 +86,7 @@ And no other source file contains a colour literal (hex, `rgb(`, `hsl(`)
 And the palette in the tokens file is night-sky and navy blues: every hue is between 200 and 260 degrees or grey
 
 ### S11 - the app builds
-Given the Wails CLI, Node and npm, and `OWL_DESKTOP_BUILD=1`
+Given the Wails CLI, Node and pnpm, and `OWL_DESKTOP_BUILD=1`
 When `make desktop` runs
 Then it exits 0 and leaves an app bundle under `cmd/owl-desktop/build/bin`
 And without `OWL_DESKTOP_BUILD` the scenario is skipped, not failed

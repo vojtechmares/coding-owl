@@ -209,7 +209,7 @@ func TestLoadGlobalReportsAMissingFileAsAbsentRatherThanBroken(t *testing.T) {
 func TestParseReadsChecksAndSetup(t *testing.T) {
 	cfg, err := config.Parse("main:.coding-owl.yaml", []byte(`apiVersion: codingowl.dev/v1
 setup:
-  - npm ci
+  - pnpm install --frozen-lockfile
 checks:
   - name: build
     run: go build ./...
@@ -224,7 +224,7 @@ checks:
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if len(cfg.Setup) != 1 || cfg.Setup[0] != "npm ci" {
+	if len(cfg.Setup) != 1 || cfg.Setup[0] != "pnpm install --frozen-lockfile" {
 		t.Errorf("setup = %v, want the command the file carries", cfg.Setup)
 	}
 	if len(cfg.Checks) != 3 {

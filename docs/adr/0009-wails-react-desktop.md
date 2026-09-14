@@ -29,7 +29,10 @@ Visual direction: liquid glass, night-sky and navy blues.
 
 - The Go side of the app reuses `internal/client`, so there is no second API
   surface and no risk of the GUI growing behaviour the CLI cannot reach.
-- Node and npm join the build for the frontend.
+- Node and pnpm join the build for the frontend. pnpm is the frontend's one
+  package manager: its version is pinned in `package.json`, its lockfile is
+  committed, and every build - local, CI, release - installs from that
+  lockfile alone. (Amended 2026-09-14: npm until then.)
 - Because the frontend talks to Go through Wails bindings rather than to the
   daemon directly, no TypeScript client is generated from the protobufs. This
   is worth stating because it removes what looks like an obvious argument for
