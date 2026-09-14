@@ -2,9 +2,11 @@ package claudecode_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -281,6 +283,103 @@ func TestS5TheTokenSetupFlowRunsWithoutTheDaemonsCredentialsToo(t *testing.T) {
 	unsetsDaemonCredentials(t, inv)
 	if got := environment(inv.Env); got["CLAUDE_CONFIG_DIR"] != "/accounts/work" || len(inv.Env) != 1 {
 		t.Errorf("the setup's environment is %v, want only the account's own directory", inv.Env)
+	}
+}
+
+// settingsIn reads the allowlist out of an Account's settings file.
+func settingsIn(t *testing.T, configDir string) (allow []string, mode os.FileMode, raw string) {
+	t.Helper()
+	path := filepath.Join(configDir, "settings.json")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("the settings file: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Permissions struct {
+			Allow []string `json:"allow"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		t.Fatalf("the settings file is not what the tool reads: %v\n%s", err, data)
+	}
+	return file.Permissions.Allow, info.Mode().Perm(), string(data)
+}
+
+// forAccount is a Run's request on an Account whose configuration directory
+// is dir.
+func forAccount(dir string, allowed ...string) driver.Request {
+	return driver.Request{
+		Prompt: "work", WorkingDir: "/worktrees/1", ConfigDir: dir, Token: "sk-ant-oat01-one",
+		AllowedTools: allowed,
+	}
+}
+
+func TestS1AFreshAccountGetsTheSettingsFileWithTheDefaultAllowlist(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+	dir := filepath.Join(t.TempDir(), "work")
+
+	if _, err := claudecode.New().Command(forAccount(dir)); err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+
+	allow, mode, _ := settingsIn(t, dir)
+	if !slices.Equal(allow, claudecode.DefaultAllowedTools) {
+		t.Errorf("the settings file allows %v, want the default allowlist %v", allow, claudecode.DefaultAllowedTools)
+	}
+	if mode != 0o600 {
+		t.Errorf("the settings file is %o, want 600: it is the account's own", mode)
+	}
+}
+
+func TestS2ASettingsFileTheUserEditedIsNeverTouched(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+	dir := filepath.Join(t.TempDir(), "work")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	theirs := "{\n  \"permissions\": {\"allow\": [\"Read\"]},\n  \"theme\": \"dark\"\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(theirs), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := claudecode.New().Command(forAccount(dir)); err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+
+	if _, _, raw := settingsIn(t, dir); raw != theirs {
+		t.Errorf("the settings file was rewritten:\n%s\nwant what the user wrote:\n%s", raw, theirs)
+	}
+}
+
+func TestS3TheInvocationCarriesThePermissionsInForceAndPassesAProjectsOwn(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+	dir := filepath.Join(t.TempDir(), "work")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"),
+		[]byte(`{"permissions":{"allow":["Read","Edit"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	inv, err := claudecode.New().Command(forAccount(dir, "Bash(make test:*)", "WebFetch"))
+
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	if want := []string{"Read", "Edit", "Bash(make test:*)", "WebFetch"}; !slices.Equal(inv.Permissions, want) {
+		t.Errorf("the invocation's permissions are %v, want the file's then the project's %v", inv.Permissions, want)
+	}
+	args := strings.Join(inv.Args, " ")
+	if !strings.Contains(args, "--allowedTools Bash(make test:*),WebFetch") {
+		t.Errorf("args %q do not pass the project's allowed tools", args)
+	}
+	if !strings.Contains(args, "--permission-prompts none") {
+		t.Errorf("args %q no longer disable permission prompts", args)
 	}
 }
 

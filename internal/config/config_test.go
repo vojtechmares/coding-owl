@@ -673,6 +673,24 @@ func TestS4AnUnknownKeyInsideABlockIsRefusedByName(t *testing.T) {
 	refusedNaming(t, err, "a project file with a misspelled check setting", "runn", "main:.coding-owl.yaml")
 }
 
+// S4 of tests/behavior/issue-56.md: a Project may extend the allowlist its
+// Agents run with, and an entry that names nothing is refused by name.
+func TestS4AProjectFileMayExtendTheAllowlist(t *testing.T) {
+	cfg, err := config.Parse("main:.coding-owl.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\nallowedTools:\n  - \"Bash(make test:*)\"\n  - WebFetch\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if want := []string{"Bash(make test:*)", "WebFetch"}; strings.Join(cfg.AllowedTools, ",") != strings.Join(want, ",") {
+		t.Errorf("allowedTools = %v, want %v in order", cfg.AllowedTools, want)
+	}
+
+	_, err = config.Parse("main:.coding-owl.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\nallowedTools:\n  - WebFetch\n  - \"  \"\n"))
+
+	refusedNaming(t, err, "a project file with an empty allowed tool", "allowedTools", "2", "main:.coding-owl.yaml")
+}
+
 // An Account with no cap of its own is held only by the other two: burn rate is
 // already governed by the ceiling (ADR-0021).
 func TestAnAccountWithNoCapOfItsOwnIsUnlimited(t *testing.T) {
