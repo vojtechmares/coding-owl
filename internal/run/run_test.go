@@ -38,6 +38,10 @@ type fakeDriver struct {
 	// silent is a tool that does not report any at all (ADR-0020).
 	reports map[string]driver.Usage
 	silent  bool
+	// onCheck runs inside Check, which start calls after it has picked a Job
+	// and before it claims it - so a scenario can be somebody deciding about
+	// the Job in that moment.
+	onCheck func()
 }
 
 func (*fakeDriver) Name() string { return "fake" }
@@ -54,7 +58,12 @@ func (d *fakeDriver) Usage(line string) (driver.Usage, bool) {
 	return u, ok && !d.silent
 }
 
-func (d *fakeDriver) Check(context.Context) error { return d.checkErr }
+func (d *fakeDriver) Check(context.Context) error {
+	if d.onCheck != nil {
+		d.onCheck()
+	}
+	return d.checkErr
+}
 
 func (d *fakeDriver) Command(req driver.Request) (agent.Invocation, error) {
 	d.mu.Lock()
@@ -977,6 +986,108 @@ func TestSetupStoppedByTheDaemonLeavesTheJobWhereItWas(t *testing.T) {
 	// Nothing failed at anything: the Job is still waiting its turn.
 	if queue.State(after.State) != queue.StatePending || after.Reason != "" {
 		t.Errorf("job = %+v, want it pending with nothing held against it", after)
+	}
+}
+
+// cancelledBeforeClaim starts a Run for a Job that somebody cancels after the
+// start has picked it and before it has claimed it, which is the window of
+// issue #48. It returns the Service, the store, the fixture's root and the Job.
+func cancelledBeforeClaim(t *testing.T) (*run.Service, *store.Store, string, store.Job) {
+	t.Helper()
+	ctx := context.Background()
+	d := &fakeDriver{}
+	svc, st, _, root := newVerifiedFixture(t, d, &fakeExecutor{}, &fakeVerifier{})
+	j := queueJob(t, st, "work")
+	jobs := queue.NewService(st, queue.Local{})
+	d.onCheck = func() {
+		if _, err := jobs.Cancel(ctx, j.ID); err != nil {
+			t.Errorf("cancelling the job while it is being started: %v", err)
+		}
+	}
+
+	_, _, started, err := svc.Start(ctx)
+
+	if err != nil {
+		t.Fatalf("Start = %v, want no error for a job somebody else decided about", err)
+	}
+	if started {
+		t.Error("Start reported a run for a job that had been cancelled")
+	}
+	return svc, st, root, j
+}
+
+func TestS4JobCancelledBeforeItsClaimGetsNoRunAndNoWorktree(t *testing.T) {
+	ctx := context.Background()
+	_, st, root, j := cancelledBeforeClaim(t)
+
+	runs, err := st.ListRuns(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Errorf("runs = %+v, want none for a cancelled job", runs)
+	}
+	after, err := st.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if queue.State(after.State) != queue.StateCancelled || after.Position != 0 {
+		t.Errorf("job = %+v, want it cancelled with no position", after)
+	}
+	worktree := filepath.Join(root, "worktrees", strconv.FormatInt(j.ID, 10))
+	if _, err := os.Stat(worktree); !os.IsNotExist(err) {
+		t.Errorf("a worktree was left at %s for a cancelled job: %v", worktree, err)
+	}
+}
+
+func TestS5JobCancelledBeforeItsClaimIsNotRequeuedOnRestart(t *testing.T) {
+	ctx := context.Background()
+	svc, st, _, j := cancelledBeforeClaim(t)
+
+	if err := svc.Recover(ctx); err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+
+	after, err := st.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if queue.State(after.State) != queue.StateCancelled {
+		t.Errorf("state after the restart = %q, want the job still cancelled", after.State)
+	}
+	pending, err := st.ListQueue(ctx, string(queue.StatePending))
+	if err != nil {
+		t.Fatalf("ListQueue: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Errorf("queue = %+v, want a cancelled job not put back in it", pending)
+	}
+}
+
+func TestS8JobWhoseSlowWorkIsRefusedIsPendingAgainNotActive(t *testing.T) {
+	ctx := context.Background()
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, &fakeExecutor{}, &fakeVerifier{},
+		"apiVersion: codingowl.dev/v1\nskills:\n  - git: /nowhere/at/all\n")
+	j := queueJob(t, st, "work")
+
+	_, _, started, err := svc.Start(ctx)
+
+	var refused *run.RefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("Start = %v, want it refused", err)
+	}
+	if started {
+		t.Error("a run started although its skills could not be placed")
+	}
+	after, err := st.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if queue.State(after.State) != queue.StatePending || after.Position != 1 {
+		t.Errorf("job = %+v, want it pending again at position 1", after)
+	}
+	if svc.Carrying(j.ID) {
+		t.Error("the daemon still says it is carrying a job it gave up on")
 	}
 }
 
