@@ -184,6 +184,52 @@ func TestSilentSocketAtSocketPathIsRefused(t *testing.T) {
 	}
 }
 
+// globalConfig writes the daemon's own configuration file into the layout.
+func globalConfig(t *testing.T, paths xdg.Paths, body string) string {
+	t.Helper()
+	if err := os.MkdirAll(paths.ConfigDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(paths.ConfigDir, "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// noSocket fails the test if anything is at the socket path: a daemon that
+// could not start never owned one, so there is nothing to leave behind.
+func noSocket(t *testing.T, paths xdg.Paths) {
+	t.Helper()
+	if _, err := os.Lstat(paths.SocketPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Lstat(socket) = %v, want not to exist: a daemon that could not start left a socket behind", err)
+	}
+}
+
+func TestS1ADaemonWhoseConfigurationDoesNotParseLeavesNoSocketBehind(t *testing.T) {
+	paths := tempPaths(t)
+	path := globalConfig(t, paths, "apiVersion: codingowl.dev/v1\ncredentialStore: file\nnotAKey: 1\n")
+
+	err := daemon.Run(context.Background(), daemon.Options{Paths: paths, Version: "t"})
+
+	if err == nil || !strings.Contains(err.Error(), path) {
+		t.Fatalf("err = %v, want an error naming %s", err, path)
+	}
+	noSocket(t, paths)
+}
+
+func TestS2ADaemonWhoseCredentialStoreIsUnknownLeavesNoSocketBehind(t *testing.T) {
+	paths := tempPaths(t)
+	globalConfig(t, paths, "apiVersion: codingowl.dev/v1\ncredentialStore: vault\n")
+
+	err := daemon.Run(context.Background(), daemon.Options{Paths: paths, Version: "t"})
+
+	if err == nil || !strings.Contains(err.Error(), "vault") {
+		t.Fatalf("err = %v, want an error naming the credential store", err)
+	}
+	noSocket(t, paths)
+}
+
 // TestProjectErrorsReachTheClientClassified checks the whole error path over a
 // real socket: a service failure keeps both its message and its classification
 // by the time a client sees it.
