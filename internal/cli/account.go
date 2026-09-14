@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/account"
 	"github.com/vojtechmares/coding-owl/internal/agent"
 	"github.com/vojtechmares/coding-owl/internal/client"
+	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/drivers"
 	"github.com/vojtechmares/coding-owl/internal/store"
 )
@@ -71,7 +73,13 @@ input instead, for a machine that has one already.`,
 			if driverName == "" {
 				driverName = drivers.Default
 			}
-			d, ok := drivers.Lookup(driverName)
+			// The tool's own setup runs the tool, so where the tool is comes
+			// from the daemon's own file, as it does for a Run.
+			global, _, err := config.LoadGlobal(filepath.Join(env.Paths.ConfigDir, config.GlobalFileName))
+			if err != nil {
+				return err
+			}
+			d, ok := drivers.Lookup(driverName, global)
 			if !ok {
 				return drivers.Unknown(driverName)
 			}

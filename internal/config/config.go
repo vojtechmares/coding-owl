@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,6 +19,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+// GlobalFileName is the daemon's own configuration file, inside its
+// configuration directory (ADR-0014).
+const GlobalFileName = "config.yaml"
 
 // APIVersion is the only apiVersion Owl recognises. A file carrying anything
 // else is refused rather than guessed at (ADR-0014).
@@ -155,6 +160,11 @@ type Global struct {
 	// Project. One unless the file says otherwise: nothing runs in parallel
 	// until somebody asks (ADR-0021).
 	MaxParallelRuns int
+	// ClaudePath is where Claude Code is, as an absolute path, for a daemon
+	// whose PATH does not hold it: one kept running by brew services gets a
+	// fixed PATH without ~/.local/bin, where the tool's own installer puts
+	// it. Empty looks on PATH and then under ~/.local/bin.
+	ClaudePath string
 }
 
 // Limits is the ceiling an Account's utilization is held to, per window
@@ -252,6 +262,7 @@ type globalFile struct {
 	Idle              *idlePolicy             `yaml:"idle"`
 	MaxParallelRuns   any                     `yaml:"maxParallelRuns"`
 	Accounts          map[string]accountEntry `yaml:"accounts"`
+	ClaudePath        string                  `yaml:"claudePath"`
 }
 
 // accountEntry is the on-disk shape of one entry under `accounts`.
@@ -606,8 +617,21 @@ func ParseGlobal(source string, data []byte) (Global, error) {
 	if err != nil {
 		return Global{}, err
 	}
+	// Where the tool is, when the daemon's PATH does not say. A relative
+	// path would mean something different wherever the daemon happened to
+	// be started from, which is exactly what this setting exists to escape.
+	claudePath := strings.TrimSpace(f.ClaudePath)
+	if claudePath != "" {
+		if err := CheckText("claudePath", claudePath); err != nil {
+			return Global{}, fmt.Errorf("%s: %w", source, err)
+		}
+		if !filepath.IsAbs(claudePath) {
+			return Global{}, fmt.Errorf("%s: claudePath: %q is not an absolute path", source, claudePath)
+		}
+	}
 	return Global{
 		Phases:            phases,
+		ClaudePath:        claudePath,
 		CredentialStore:   strings.TrimSpace(f.CredentialStore),
 		GarbageCollection: collection,
 		GraceWindow:       grace,

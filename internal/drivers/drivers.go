@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/driver"
 	"github.com/vojtechmares/coding-owl/internal/driver/claudecode"
 )
@@ -16,18 +17,27 @@ import (
 // Default is the Driver an Account belongs to when nobody says otherwise.
 const Default = "claude-code"
 
-// all is every Driver Owl has, by name.
-var all = map[string]func() driver.Driver{
-	Default: func() driver.Driver { return claudecode.New() },
+// all is every Driver Owl has, by name, each built from the daemon's own
+// configuration: what a Driver needs to know about the machine - where its
+// tool is - lives there.
+var all = map[string]func(config.Global) driver.Driver{
+	Default: func(g config.Global) driver.Driver { return claudecode.NewWithPath(g.ClaudePath) },
 }
 
-// Lookup returns the Driver of that name.
-func Lookup(name string) (driver.Driver, bool) {
+// Known reports whether Owl has a Driver of that name.
+func Known(name string) bool {
+	_, ok := all[name]
+	return ok
+}
+
+// Lookup returns the Driver of that name, built from the daemon's own
+// configuration.
+func Lookup(name string, global config.Global) (driver.Driver, bool) {
 	make, ok := all[name]
 	if !ok {
 		return nil, false
 	}
-	return make(), true
+	return make(global), true
 }
 
 // Names is every Driver Owl has, in order.

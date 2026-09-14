@@ -115,7 +115,11 @@ class CodingOwl < Formula
     keep_alive true
     log_path var/"log/coding-owl.log"
     error_log_path var/"log/coding-owl.log"
-    environment_variables PATH: std_service_path_env
+    # Claude Code's own installer puts claude under ~/.local/bin, which the
+    # standard service PATH does not hold; a daemon that cannot find the tool
+    # cannot run anything. The daemon's own file can name the tool outright
+    # with claudePath, for a tool that is somewhere else again.
+    environment_variables PATH: "#{std_service_path_env}:#{Dir.home}/.local/bin"
   end
 
   def caveats
@@ -127,6 +131,12 @@ class CodingOwl < Formula
       It logs to #{var}/log/coding-owl.log. Check on it with:
 
         owl daemon status
+
+      The service runs with a fixed PATH: Homebrew's, plus ~/.local/bin,
+      where Claude Code's installer puts claude. If claude is somewhere
+      else, name it in the daemon's own file:
+
+        claudePath: /path/to/claude
     EOS
   end
 
