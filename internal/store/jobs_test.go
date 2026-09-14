@@ -442,3 +442,85 @@ func TestMoveJobStateLeavesAJobThatIsNotThere(t *testing.T) {
 		t.Error("MoveJobState = true for a job that is not there")
 	}
 }
+
+// jobStates is every state a Job can be in, for the scenarios of issue #48
+// that try every move from every one of them.
+var jobStates = []string{"pending", "active", "blocked", "review", "done", "cancelled", "exhausted"}
+
+func TestS1JobMovesStateOnlyFromTheStateTheMoveNames(t *testing.T) {
+	ctx := context.Background()
+	for _, in := range jobStates {
+		for _, from := range jobStates {
+			t.Run(in+"_from_"+from, func(t *testing.T) {
+				s := jobStore(t)
+				j := queuedJob(t, s, "work", "a")
+				if err := s.SetJobState(ctx, j.ID, in); err != nil {
+					t.Fatalf("SetJobState: %v", err)
+				}
+
+				moved, err := s.MoveJobState(ctx, j.ID, from, "done")
+
+				if err != nil {
+					t.Fatalf("MoveJobState: %v", err)
+				}
+				if want := in == from; moved != want {
+					t.Errorf("MoveJobState(%s -> done) on a %s job = %v, want %v", from, in, moved, want)
+				}
+				got, err := s.GetJob(ctx, j.ID)
+				if err != nil {
+					t.Fatalf("GetJob: %v", err)
+				}
+				want := in
+				if moved {
+					want = "done"
+				}
+				if got.State != want {
+					t.Errorf("state = %q, want %q", got.State, want)
+				}
+			})
+		}
+	}
+}
+
+func TestS2JobLeavesTheQueueOnlyFromTheStateTheDepartureNames(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	jobs := threeQueued(t, s)
+
+	err := s.DequeueJob(ctx, jobs[0].ID, "active", "review", "")
+
+	if !errors.Is(err, store.ErrNotQueued) {
+		t.Errorf("dequeuing a pending job as active = %v, want ErrNotQueued", err)
+	}
+	got, err := s.GetJob(ctx, jobs[0].ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if got.State != "pending" || got.Position != 1 {
+		t.Errorf("job = %+v, want it still pending at position 1", got)
+	}
+	if err := s.DequeueJob(ctx, jobs[0].ID, "pending", "cancelled", ""); err != nil {
+		t.Errorf("dequeuing it as what it is = %v, want it to leave", err)
+	}
+}
+
+func TestS3JobIsMovedInTheQueueOnlyFromTheStateTheMoveNames(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	jobs := threeQueued(t, s)
+	if moved, err := s.MoveJobState(ctx, jobs[0].ID, "pending", "active"); err != nil || !moved {
+		t.Fatalf("claiming the job = %v, %v", moved, err)
+	}
+
+	err := s.MoveJob(ctx, jobs[0].ID, 3, "pending")
+
+	if !errors.Is(err, store.ErrNotQueued) {
+		t.Errorf("moving an active job as pending = %v, want ErrNotQueued", err)
+	}
+	if got := queued(t, s, true); strings.Join(got, ",") != "first,second,third" {
+		t.Errorf("queue = %v, want it untouched", got)
+	}
+	if err := s.MoveJob(ctx, jobs[1].ID, 3, "pending"); err != nil {
+		t.Errorf("moving a pending job as pending = %v, want it moved", err)
+	}
+}
