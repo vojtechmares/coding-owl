@@ -1174,6 +1174,102 @@ func TestS1FetchBaseReportsTheRefItUpdated(t *testing.T) {
 	}
 }
 
+// recorder writes an executable that records it was run in marker and then
+// fails, standing in for a signing program that would ask for a passphrase
+// nobody is there to type (issue #55).
+func recorder(t *testing.T, marker string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "signer")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho ran > "+marker+"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// signedCommitRepo is a repository that asks for every commit to be signed by
+// the program named, with a note ready to be committed.
+func signedCommitRepo(t *testing.T, marker string, config ...[2]string) string {
+	t.Helper()
+	dir := newRepo(t)
+	run(t, dir, "config", "commit.gpgsign", "true")
+	for _, kv := range config {
+		run(t, dir, "config", kv[0], kv[1])
+	}
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("owl's own bookkeeping\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestS1TheHandoffCommitDoesNotInvokeTheSigningProgram(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "ran")
+	dir := signedCommitRepo(t, marker, [2]string{"gpg.program", recorder(t, marker)})
+
+	committed, err := git.CommitPath(context.Background(), dir, "note.txt", "note")
+
+	if err != nil || !committed {
+		t.Fatalf("CommitPath = %v, %v, want the note committed", committed, err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the signing program was run for owl's own commit")
+	}
+	if out := strings.TrimSpace(run(t, dir, "log", "-1", "--format=%s")); out != "note" {
+		t.Errorf("the last commit is %q, want the note", out)
+	}
+}
+
+func TestS2CancellingTheContextEndsACommitThatIsStuck(t *testing.T) {
+	dir := newRepo(t)
+	hooks := strings.TrimSpace(run(t, dir, "rev-parse", "--git-path", "hooks"))
+	if !filepath.IsAbs(hooks) {
+		hooks = filepath.Join(dir, hooks)
+	}
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A hook git waits for, standing in for anything that holds a commit up.
+	if err := os.WriteFile(filepath.Join(hooks, "post-commit"), []byte("#!/bin/sh\nsleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("held up\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := time.Now()
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		cancel()
+	}()
+
+	_, err := git.CommitPath(ctx, dir, "note.txt", "note")
+
+	if err == nil {
+		t.Error("CommitPath = nil after its context was cancelled, want an error")
+	}
+	// The kill delay is what git's held-open pipes are given, plus a margin.
+	if elapsed := time.Since(started); elapsed > 8*time.Second {
+		t.Errorf("CommitPath took %s after being cancelled, want it back within the kill delay", elapsed)
+	}
+}
+
+func TestS3TheSameForARepositoryThatSignsWithSSH(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "ran")
+	dir := signedCommitRepo(t, marker,
+		[2]string{"gpg.format", "ssh"},
+		[2]string{"user.signingkey", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN0bogusbogusbogusbogusbogusbogusbogusbogu"},
+		[2]string{"gpg.ssh.program", recorder(t, marker)})
+
+	committed, err := git.CommitPath(context.Background(), dir, "note.txt", "note")
+
+	if err != nil || !committed {
+		t.Fatalf("CommitPath = %v, %v, want the note committed", committed, err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the ssh signing program was run for owl's own commit")
+	}
+}
+
 func TestFetchBaseReportsARemoteItCannotReach(t *testing.T) {
 	dir := newRepo(t)
 	run(t, dir, "remote", "add", "origin", filepath.Join(t.TempDir(), "not-there.git"))
