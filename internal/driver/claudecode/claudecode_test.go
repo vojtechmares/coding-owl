@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vojtechmares/coding-owl/internal/agent"
 	"github.com/vojtechmares/coding-owl/internal/driver"
 	"github.com/vojtechmares/coding-owl/internal/driver/claudecode"
 )
@@ -196,6 +197,91 @@ func environment(env []string) map[string]string {
 		out[name] = value
 	}
 	return out
+}
+
+// daemonCredentials are the variables a daemon started from a shell may carry,
+// each of which Claude Code would use in place of an Account's own (ADR-0019).
+var daemonCredentials = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+
+// withDaemonCredentials sets all three on the test process, which is where the
+// invocation is built.
+func withDaemonCredentials(t *testing.T) {
+	t.Helper()
+	for _, name := range daemonCredentials {
+		t.Setenv(name, "the-daemons-own-"+strings.ToLower(name))
+	}
+}
+
+// unsetsDaemonCredentials checks the invocation names all three as unset.
+func unsetsDaemonCredentials(t *testing.T, inv agent.Invocation) {
+	t.Helper()
+	unset := map[string]bool{}
+	for _, name := range inv.Unset {
+		unset[name] = true
+	}
+	for _, name := range daemonCredentials {
+		if !unset[name] {
+			t.Errorf("the invocation does not unset %s, so the daemon's own would reach the agent", name)
+		}
+	}
+}
+
+func TestS1AnAgentForAnAccountIsGivenNoneOfTheDaemonsCredentials(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+	withDaemonCredentials(t)
+
+	inv, err := claudecode.New().Command(driver.Request{
+		Prompt: "work", WorkingDir: "/worktrees/1",
+		ConfigDir: "/accounts/work", Token: "sk-ant-oat01-one",
+	})
+
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	unsetsDaemonCredentials(t, inv)
+	got := environment(inv.Env)
+	if got["CLAUDE_CONFIG_DIR"] != "/accounts/work" || got["CLAUDE_CODE_OAUTH_TOKEN"] != "sk-ant-oat01-one" {
+		t.Errorf("the agent's environment is %v, want the account's own directory and token", inv.Env)
+	}
+	if len(inv.Env) != 2 {
+		t.Errorf("the agent's environment is %v, want only the account's own two variables", inv.Env)
+	}
+}
+
+func TestS2AnAccountWithNoTokenRunsWithNoneNotTheDaemons(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+	withDaemonCredentials(t)
+
+	inv, err := claudecode.New().Command(driver.Request{
+		Prompt: "work", WorkingDir: "/worktrees/1", ConfigDir: "/accounts/work",
+	})
+
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	unsetsDaemonCredentials(t, inv)
+	got := environment(inv.Env)
+	if got["CLAUDE_CONFIG_DIR"] != "/accounts/work" {
+		t.Errorf("the agent runs with CLAUDE_CONFIG_DIR=%q, want the account's own directory", got["CLAUDE_CONFIG_DIR"])
+	}
+	if _, ok := got["CLAUDE_CODE_OAUTH_TOKEN"]; ok || len(inv.Env) != 1 {
+		t.Errorf("the agent's environment is %v, want the directory alone: an account with no token runs with none", inv.Env)
+	}
+}
+
+func TestS5TheTokenSetupFlowRunsWithoutTheDaemonsCredentialsToo(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+	withDaemonCredentials(t)
+
+	inv, err := claudecode.New().SetupToken("/accounts/work")
+
+	if err != nil {
+		t.Fatalf("SetupToken: %v", err)
+	}
+	unsetsDaemonCredentials(t, inv)
+	if got := environment(inv.Env); got["CLAUDE_CONFIG_DIR"] != "/accounts/work" || len(inv.Env) != 1 {
+		t.Errorf("the setup's environment is %v, want only the account's own directory", inv.Env)
+	}
 }
 
 func TestCommandRefusesAnEmptyPrompt(t *testing.T) {

@@ -407,3 +407,36 @@ func TestS2CancelledAgentThatStopsWhenAskedIsNotMadeToWaitForTheKill(t *testing.
 		t.Fatal("Wait did not return")
 	}
 }
+
+func TestS3ExecutorTakesWhatAnInvocationUnsetsOutOfTheAgentsEnvironment(t *testing.T) {
+	// The daemon's own environment carries a credential (issue #52).
+	t.Setenv("ANTHROPIC_API_KEY", "the-daemons-own-key")
+
+	p, err := host.New().Start(context.Background(), agent.Invocation{
+		Path:  script(t, "echo \"key=$ANTHROPIC_API_KEY\"\necho \"own=$OWL_TEST_VALUE\"\n"),
+		Dir:   t.TempDir(),
+		Env:   []string{"OWL_TEST_VALUE=carried"},
+		Unset: []string{"ANTHROPIC_API_KEY"},
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	out, err := io.ReadAll(p.Stdout())
+	if err != nil {
+		t.Fatalf("reading stdout: %v", err)
+	}
+	if _, err := p.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("output = %q, want the two values", out)
+	}
+	if lines[0] != "key=" {
+		t.Errorf("the agent saw %q, want the daemon's credential taken out of its environment", lines[0])
+	}
+	if lines[1] != "own=carried" {
+		t.Errorf("the agent saw %q, want the value the invocation added", lines[1])
+	}
+}
