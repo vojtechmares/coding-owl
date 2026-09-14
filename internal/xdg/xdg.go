@@ -69,11 +69,16 @@ func ResolveFrom(getenv func(string) string) (Paths, error) {
 	return p, nil
 }
 
+// ErrSocketPathTooLong is wrapped into the error CheckSocketPath returns, so
+// that whoever meets it further along can tell it from a dial that failed for
+// any other reason. Check with errors.Is.
+var ErrSocketPathTooLong = errors.New("socket path too long")
+
 // CheckSocketPath reports an error when path cannot fit in a unix socket
 // address on the platforms Owl targets.
 func CheckSocketPath(path string) error {
 	if len(path)+1 > maxSocketPath {
-		return fmt.Errorf("socket path too long (%d bytes, max %d): %s", len(path), maxSocketPath-1, path)
+		return fmt.Errorf("%w (%d bytes, max %d): %s", ErrSocketPathTooLong, len(path), maxSocketPath-1, path)
 	}
 	return nil
 }
