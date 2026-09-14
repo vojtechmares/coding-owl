@@ -114,6 +114,36 @@ func gitOut(t *testing.T, dir string, args ...string) string {
 	return string(out)
 }
 
+func TestS3AcceptForgetsTheJobsWorktreeAndLeavesTheUsersAlone(t *testing.T) {
+	svc, st, repo := newFixture(t, &fakeDriver{}, &fakeExecutor{})
+	j := reviewing(t, st, repo)
+	users := filepath.Join(t.TempDir(), "spike")
+	gitIn(t, repo, "worktree", "add", "-b", "user/spike", users, "main")
+	// Both directories are gone: the user's may be on a volume that is not
+	// mounted right now, and is not Owl's to forget.
+	for _, dir := range []string{j.Worktree, users} {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := svc.Accept(context.Background(), j.ID, false)
+
+	if err != nil {
+		t.Fatalf("Accept: %v; a job whose worktree is gone can still be finished", err)
+	}
+	if got.State != queue.StateDone {
+		t.Errorf("state = %s, want done", got.State)
+	}
+	list := gitOut(t, repo, "worktree", "list")
+	if strings.Contains(list, j.Worktree) {
+		t.Errorf("git still reports the worktree that is not there:\n%s", list)
+	}
+	if !strings.Contains(list, users) {
+		t.Errorf("git no longer counts the user's own worktree; disposal forgot what is not Owl's:\n%s", list)
+	}
+}
+
 func TestAcceptFinishesAJobWhoseWorktreeGitCannotUse(t *testing.T) {
 	svc, st, repo := newFixture(t, &fakeDriver{}, &fakeExecutor{})
 	j := reviewing(t, st, repo)
