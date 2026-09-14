@@ -712,8 +712,7 @@ func (s *Service) abandon(runID, jobID int64, cause error) {
 	if err := s.opts.Store.DequeueJob(ctx, jobID, string(queue.StateActive), string(queue.StateBlocked), ""); err != nil {
 		reason = s.couldNotMove(ctx, runID, reason, err)
 	}
-	s.opts.Logger.Info("run finished",
-		"run", runID, "job", jobID, "outcome", OutcomeFailed, "reason", reason)
+	s.opts.Logger.Info("run finished", ended(runID, jobID, "", OutcomeFailed, reason)...)
 }
 
 // release gives a claimed Job back to the queue when its Run did not start:
@@ -985,7 +984,21 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 		outcome, reason = OutcomeFailed, s.couldNotMove(ctx, r.ID, reason, err)
 	}
 	s.opts.Logger.Info("run finished",
-		"run", r.ID, "job", r.JobID, "phase", phase, "outcome", outcome, "reason", reason)
+		ended(r.ID, r.JobID, phase, outcome, reason)...)
+}
+
+// ended is what the log says about a Run's end: the reason only when there is
+// one, as a Run that succeeded has nothing to explain.
+func ended(runID, jobID int64, phase Phase, outcome Outcome, reason string) []any {
+	args := []any{"run", runID, "job", jobID}
+	if phase != "" {
+		args = append(args, "phase", phase)
+	}
+	args = append(args, "outcome", outcome)
+	if reason != "" {
+		args = append(args, "reason", reason)
+	}
+	return args
 }
 
 // moveOn takes a Job to where its Run's end leaves it: back into the queue,
