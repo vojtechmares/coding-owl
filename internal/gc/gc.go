@@ -463,9 +463,9 @@ func (s *Service) prune(projects []store.Project, report *Report) {
 	}
 }
 
-// stale is the worktrees of Owl's a Project is still counting whose
-// directories are not there. Pruning is only reported when there was something
-// to prune, so that a collection with nothing to do says so.
+// stale is Owl's worktrees that a Project is still counting whose directories
+// are not there. Pruning is only reported when there was something to prune,
+// so that a collection with nothing to do says so.
 func (s *Service) stale(p store.Project) ([]string, error) {
 	paths, err := git.WorktreePaths(p.Path)
 	if err != nil {
@@ -624,10 +624,17 @@ func projectsByName(projects []store.Project) map[string]store.Project {
 }
 
 // resolve cleans a path and follows symlinks, so that a worktree recorded as
-// /tmp/... and read back as /private/tmp/... is one worktree.
+// /tmp/... and read back as /private/tmp/... is one worktree. A path that is
+// gone is resolved as far as it goes: through the nearest ancestor that is
+// there, with the rest of the name kept as it is.
 func resolve(path string) string {
+	path = filepath.Clean(path)
 	if r, err := filepath.EvalSymlinks(path); err == nil {
 		return filepath.Clean(r)
 	}
-	return filepath.Clean(path)
+	parent := filepath.Dir(path)
+	if parent == path {
+		return path
+	}
+	return filepath.Join(resolve(parent), filepath.Base(path))
 }
