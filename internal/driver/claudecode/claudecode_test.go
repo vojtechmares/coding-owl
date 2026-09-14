@@ -16,6 +16,11 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/driver/claudecode"
 )
 
+// workAccount is the configuration directory of the Account these tests run
+// on. It is under the temporary directory rather than a made-up path, because
+// building an Agent seeds the Account's settings file there (ADR-0035).
+var workAccount = filepath.Join(os.TempDir(), "coding-owl-driver-tests", "accounts", "work")
+
 // stubClaude writes a program named claude that prints version for --version,
 // and puts it on PATH for the test.
 func stubClaude(t *testing.T, version string) string {
@@ -79,7 +84,7 @@ func TestCommandIsPrintModeWithStructuredOutputAndNoPrompts(t *testing.T) {
 		Prompt:       "fix the flaky test",
 		SystemPrompt: "you are running unattended",
 		WorkingDir:   "/worktrees/1",
-		ConfigDir:    "/accounts/work",
+		ConfigDir:    workAccount,
 	})
 
 	if err != nil {
@@ -115,11 +120,11 @@ func TestCommandCapsSpendOnlyWhenAsked(t *testing.T) {
 	stubClaude(t, "2.1.267 (Claude Code)")
 	d := claudecode.New()
 
-	capped, err := d.Command(driver.Request{Prompt: "work", BudgetUSD: 5, ConfigDir: "/accounts/work"})
+	capped, err := d.Command(driver.Request{Prompt: "work", BudgetUSD: 5, ConfigDir: workAccount})
 	if err != nil {
 		t.Fatalf("Command: %v", err)
 	}
-	uncapped, err := d.Command(driver.Request{Prompt: "work", ConfigDir: "/accounts/work"})
+	uncapped, err := d.Command(driver.Request{Prompt: "work", ConfigDir: workAccount})
 	if err != nil {
 		t.Fatalf("Command: %v", err)
 	}
@@ -137,14 +142,14 @@ func TestCommandCarriesTheAccountsDirectoryAndToken(t *testing.T) {
 
 	inv, err := claudecode.New().Command(driver.Request{
 		Prompt: "work", WorkingDir: "/worktrees/1",
-		ConfigDir: "/accounts/work", Token: "sk-ant-oat01-one",
+		ConfigDir: workAccount, Token: "sk-ant-oat01-one",
 	})
 
 	if err != nil {
 		t.Fatalf("Command: %v", err)
 	}
 	want := map[string]string{
-		"CLAUDE_CONFIG_DIR":       "/accounts/work",
+		"CLAUDE_CONFIG_DIR":       workAccount,
 		"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-one",
 	}
 	got := environment(inv.Env)
@@ -171,7 +176,7 @@ func TestCommandRefusesARunWithNoAccount(t *testing.T) {
 func TestSetupTokenRunsAgainstTheAccountsOwnDirectory(t *testing.T) {
 	path := stubClaude(t, "2.1.267 (Claude Code)")
 
-	inv, err := claudecode.New().SetupToken("/accounts/work")
+	inv, err := claudecode.New().SetupToken(workAccount)
 
 	if err != nil {
 		t.Fatalf("SetupToken: %v", err)
@@ -183,7 +188,7 @@ func TestSetupTokenRunsAgainstTheAccountsOwnDirectory(t *testing.T) {
 		t.Errorf("args = %v, want the tool's token setup", inv.Args)
 	}
 	got := environment(inv.Env)
-	if got["CLAUDE_CONFIG_DIR"] != "/accounts/work" {
+	if got["CLAUDE_CONFIG_DIR"] != workAccount {
 		t.Errorf("the setup runs with CLAUDE_CONFIG_DIR=%q, want the account's own directory", got["CLAUDE_CONFIG_DIR"])
 	}
 	if _, ok := got["CLAUDE_CODE_OAUTH_TOKEN"]; ok {
@@ -234,7 +239,7 @@ func TestS1AnAgentForAnAccountIsGivenNoneOfTheDaemonsCredentials(t *testing.T) {
 
 	inv, err := claudecode.New().Command(driver.Request{
 		Prompt: "work", WorkingDir: "/worktrees/1",
-		ConfigDir: "/accounts/work", Token: "sk-ant-oat01-one",
+		ConfigDir: workAccount, Token: "sk-ant-oat01-one",
 	})
 
 	if err != nil {
@@ -242,7 +247,7 @@ func TestS1AnAgentForAnAccountIsGivenNoneOfTheDaemonsCredentials(t *testing.T) {
 	}
 	unsetsDaemonCredentials(t, inv)
 	got := environment(inv.Env)
-	if got["CLAUDE_CONFIG_DIR"] != "/accounts/work" || got["CLAUDE_CODE_OAUTH_TOKEN"] != "sk-ant-oat01-one" {
+	if got["CLAUDE_CONFIG_DIR"] != workAccount || got["CLAUDE_CODE_OAUTH_TOKEN"] != "sk-ant-oat01-one" {
 		t.Errorf("the agent's environment is %v, want the account's own directory and token", inv.Env)
 	}
 	if len(inv.Env) != 2 {
@@ -255,7 +260,7 @@ func TestS2AnAccountWithNoTokenRunsWithNoneNotTheDaemons(t *testing.T) {
 	withDaemonCredentials(t)
 
 	inv, err := claudecode.New().Command(driver.Request{
-		Prompt: "work", WorkingDir: "/worktrees/1", ConfigDir: "/accounts/work",
+		Prompt: "work", WorkingDir: "/worktrees/1", ConfigDir: workAccount,
 	})
 
 	if err != nil {
@@ -263,7 +268,7 @@ func TestS2AnAccountWithNoTokenRunsWithNoneNotTheDaemons(t *testing.T) {
 	}
 	unsetsDaemonCredentials(t, inv)
 	got := environment(inv.Env)
-	if got["CLAUDE_CONFIG_DIR"] != "/accounts/work" {
+	if got["CLAUDE_CONFIG_DIR"] != workAccount {
 		t.Errorf("the agent runs with CLAUDE_CONFIG_DIR=%q, want the account's own directory", got["CLAUDE_CONFIG_DIR"])
 	}
 	if _, ok := got["CLAUDE_CODE_OAUTH_TOKEN"]; ok || len(inv.Env) != 1 {
@@ -275,13 +280,13 @@ func TestS5TheTokenSetupFlowRunsWithoutTheDaemonsCredentialsToo(t *testing.T) {
 	stubClaude(t, "2.1.267 (Claude Code)")
 	withDaemonCredentials(t)
 
-	inv, err := claudecode.New().SetupToken("/accounts/work")
+	inv, err := claudecode.New().SetupToken(workAccount)
 
 	if err != nil {
 		t.Fatalf("SetupToken: %v", err)
 	}
 	unsetsDaemonCredentials(t, inv)
-	if got := environment(inv.Env); got["CLAUDE_CONFIG_DIR"] != "/accounts/work" || len(inv.Env) != 1 {
+	if got := environment(inv.Env); got["CLAUDE_CONFIG_DIR"] != workAccount || len(inv.Env) != 1 {
 		t.Errorf("the setup's environment is %v, want only the account's own directory", inv.Env)
 	}
 }
@@ -413,7 +418,7 @@ func TestCapabilitiesSayWhatClaudeCodeCanDo(t *testing.T) {
 func TestSetupTokenRunsInTheAccountsDirectoryRatherThanWhereverItWasTyped(t *testing.T) {
 	stubClaude(t, "2.1.267 (Claude Code)")
 
-	inv, err := claudecode.New().SetupToken("/accounts/work")
+	inv, err := claudecode.New().SetupToken(workAccount)
 
 	if err != nil {
 		t.Fatalf("SetupToken: %v", err)
@@ -421,7 +426,7 @@ func TestSetupTokenRunsInTheAccountsDirectoryRatherThanWhereverItWasTyped(t *tes
 	// A tool started with no working directory inherits the one the process
 	// that started it had, which for owl account add is the user's own
 	// checkout (ADR-0006).
-	if inv.Dir != "/accounts/work" {
+	if inv.Dir != workAccount {
 		t.Errorf("the setup runs in %q, want the account's own directory", inv.Dir)
 	}
 }

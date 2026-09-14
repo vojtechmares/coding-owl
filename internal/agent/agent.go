@@ -26,6 +26,11 @@ type Invocation struct {
 	// starts from, before Env is added: what the daemon itself was started
 	// with is not always what an Agent may see (ADR-0019).
 	Unset []string
+	// Permissions are the tool rules the Agent runs with, in the tool's own
+	// syntax, so that a Run can record what its Agent was allowed to do
+	// (ADR-0035). The Executor does nothing with them; the Driver has already
+	// arranged for the tool to read them.
+	Permissions []string
 }
 
 // Environ is the environment the Agent runs in, given the one it would

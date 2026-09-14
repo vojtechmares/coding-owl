@@ -108,6 +108,9 @@ type Run struct {
 	// Skills is what the Run read, so that what an Agent did is attributable
 	// to the instructions it had (ADR-0024).
 	Skills []skill.Locked
+	// Permissions is what the Run's Agent was allowed to do, in the tool's
+	// own rule syntax and in the order it read them (ADR-0035).
+	Permissions []string
 	// Paused is whether the Run is frozen right now. Only a Run this daemon is
 	// carrying out can be (ADR-0011).
 	Paused bool
@@ -576,6 +579,7 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 		Effort:       settings.Effort.Value,
 		ConfigDir:    acct.ConfigDir,
 		Token:        token,
+		AllowedTools: details.Config.AllowedTools,
 	}
 	// The broker is opened here rather than in the goroutine, so a follower
 	// that arrives the instant owl start returns finds the Run rather than an
@@ -737,6 +741,11 @@ func (s *Service) Show(ctx context.Context, jobID int64) (Details, error) {
 			out.Skills = append(out.Skills, skill.Locked{
 				Name: sk.Name, Source: sk.Source, Ref: sk.Ref, Commit: sk.Commit, Digest: sk.Digest,
 			})
+		}
+		// And what its Agent was allowed to do, for the same reason
+		// (ADR-0035).
+		if out.Permissions, err = s.opts.Store.ListRunPermissions(ctx, r.ID); err != nil {
+			return Details{}, err
 		}
 		runs = append(runs, s.paused(out))
 	}
@@ -1360,6 +1369,15 @@ func (s *Service) execute(r store.Run, account string, req driver.Request, b *br
 	inv, err := s.opts.Driver.Command(req)
 	if err != nil {
 		return OutcomeFailed, err.Error(), store.NoExitCode
+	}
+	// What the Agent may do is written down before it starts, so that what
+	// it did is attributable to what it was allowed (ADR-0035). Bookkeeping,
+	// so it gets the bookkeeping deadline rather than the daemon's context.
+	book, done := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
+	err = s.opts.Store.SetRunPermissions(book, r.ID, inv.Permissions)
+	done()
+	if err != nil {
+		return OutcomeFailed, fmt.Sprintf("recording the run's permissions: %v", err), store.NoExitCode
 	}
 	proc, err := s.opts.Executor.Start(s.ctx, inv)
 	if err != nil {

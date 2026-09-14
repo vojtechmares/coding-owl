@@ -133,6 +133,44 @@ func (s *Store) SetRunSkills(ctx context.Context, runID int64, skills []RunSkill
 	})
 }
 
+// SetRunPermissions records what a Run's Agent was allowed to do, in the
+// order the tool read the rules, replacing whatever was recorded before
+// (ADR-0035).
+func (s *Store) SetRunPermissions(ctx context.Context, runID int64, rules []string) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM run_permissions WHERE run_id = ?`, runID); err != nil {
+			return err
+		}
+		for i, rule := range rules {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO run_permissions (run_id, position, rule) VALUES (?, ?, ?)`,
+				runID, i, rule); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ListRunPermissions is what a Run's Agent was allowed to do, in order.
+func (s *Store) ListRunPermissions(ctx context.Context, runID int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT rule FROM run_permissions WHERE run_id = ? ORDER BY position`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var rule string
+		if err := rows.Scan(&rule); err != nil {
+			return nil, err
+		}
+		out = append(out, rule)
+	}
+	return out, rows.Err()
+}
+
 // ListRunSkills is what a Run ran with, by name.
 func (s *Store) ListRunSkills(ctx context.Context, runID int64) ([]RunSkill, error) {
 	rows, err := s.db.QueryContext(ctx,

@@ -36,6 +36,9 @@ type Run struct {
 	// Skills is what the Run read, so that what an Agent did is attributable
 	// to the instructions it had (ADR-0024).
 	Skills []Skill
+	// Permissions is what the Run's Agent was allowed to do, in the tool's
+	// own rule syntax and in the order it read them (ADR-0035).
+	Permissions []string
 	// Paused is whether the Run is frozen right now (ADR-0011).
 	Paused bool
 	// Stage is where a Run that has not ended is: starting, agent, verifying
@@ -213,6 +216,8 @@ func runFromProto(r *codingowlv1.Run) Run {
 		Skills:   skillsFromProto(r.GetSkills()),
 		Paused:   r.GetPaused(),
 		Stage:    r.GetStage(),
+		// What the Agent was allowed to do, as recorded (ADR-0035).
+		Permissions: r.GetPermissions(),
 	}
 	if r.GetEnded() != nil {
 		out.Ended = r.GetEnded().AsTime()

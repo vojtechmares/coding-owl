@@ -194,6 +194,9 @@ message Run {
   // Skills is what this Run read, so that what an Agent did is attributable to
   // the instructions it had (ADR-0024).
   repeated Skill skills = 11;
+  // Permissions is what this Run's Agent was allowed to do, in the tool's own
+  // rule syntax and in the order it read them (ADR-0035).
+  repeated string permissions = 14;
 }
 
 message PauseRunRequest {}

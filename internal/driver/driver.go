@@ -67,6 +67,9 @@ type Request struct {
 	// Job runs on is its Project's to say (ADR-0023).
 	ConfigDir string
 	Token     string
+	// AllowedTools are the tool rules the Project grants its Agents on top of
+	// the Account's own allowlist, in the tool's own rule syntax (ADR-0035).
+	AllowedTools []string
 }
 
 // Driver knows one coding tool.
