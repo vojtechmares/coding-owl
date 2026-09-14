@@ -1192,6 +1192,66 @@ func TestS5ADaemonStopDuringTheHandoffCommitInterruptsTheRun(t *testing.T) {
 	}
 }
 
+// S6 of tests/behavior/issue-55.md: the commit is work that takes time, and
+// the deadline sized for writing rows starts after it, not during it.
+func TestS6AHandoffCommitSlowerThanTheBookkeepingBudgetStillRecordsThePlan(t *testing.T) {
+	ctx := context.Background()
+	hold, started := make(chan struct{}), make(chan struct{})
+	svc, st, repo := newFixture(t, &fakeDriver{}, &fakeExecutor{hold: hold, started: started})
+	// A hook git waits for, taking longer than the bookkeeping deadline.
+	hooks := filepath.Join(repo, ".git", "hooks")
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooks, "post-commit"), []byte("#!/bin/sh\nsleep 12\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	j, err := st.UpsertJob(ctx, store.Job{
+		Source: "local", SourceRef: "planned", Project: "repo", Prompt: "work",
+		State: string(queue.StatePending), Planned: true, TTL: queue.DefaultTTL, Created: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started
+	active := awaitState(t, st, j.ID, queue.StateActive)
+	if err := os.MkdirAll(filepath.Join(active.Worktree, filepath.Dir(run.HandoffPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(active.Worktree, run.HandoffPath), []byte("# Handoff\n\nstep one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	close(hold)
+
+	// Longer than the hook and the bookkeeping budget together.
+	deadline := time.Now().Add(30 * time.Second)
+	var after store.Job
+	for time.Now().Before(deadline) {
+		after, err = st.GetJob(ctx, j.ID)
+		if err != nil {
+			t.Fatalf("GetJob: %v", err)
+		}
+		if queue.State(after.State) != queue.StateActive {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if queue.State(after.State) != queue.StatePending || !strings.Contains(after.Plan, "step one") {
+		t.Errorf("job = %+v, want it pending again with its plan recorded", after)
+	}
+	runs, err := st.ListRuns(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Outcome != string(run.OutcomeSucceeded) {
+		t.Errorf("runs = %+v, want one succeeded run", runs)
+	}
+}
+
 // gitOutput runs git in a directory and returns what it printed, trimmed.
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
