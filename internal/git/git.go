@@ -664,7 +664,8 @@ func defaultExcludes() string {
 // directory is gone, or one left without the file linking it to its
 // repository, as an interrupted removal leaves it. A worktree git can still
 // work in is refused, so that no checkout is stranded; a path git holds no
-// entry for is already forgotten.
+// entry for is already forgotten. Unlike pruning, it does not honour a lock on
+// the entry: it is for Owl's own worktrees, which Owl never locks.
 func ForgetWorktree(dir, path string) error {
 	live, err := IsWorktree(path)
 	if err != nil {
