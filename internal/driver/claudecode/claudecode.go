@@ -213,7 +213,7 @@ func (d *Driver) Command(req driver.Request) (agent.Invocation, error) {
 	if err != nil {
 		return agent.Invocation{}, err
 	}
-	return agent.Invocation{Path: path, Args: args, Dir: req.WorkingDir, Env: env}, nil
+	return agent.Invocation{Path: path, Args: args, Dir: req.WorkingDir, Env: env, Unset: daemonCredentials}, nil
 }
 
 // SetupToken builds `claude setup-token`, which walks the user through
@@ -232,8 +232,15 @@ func (d *Driver) SetupToken(configDir string) (agent.Invocation, error) {
 	// The setup runs in the Account's own directory, not in whatever directory
 	// the user happened to type the command in: it is the tool's own flow, and
 	// an Agent belongs where its work is (ADR-0006, ADR-0019).
-	return agent.Invocation{Path: path, Args: []string{"setup-token"}, Dir: configDir, Env: env}, nil
+	return agent.Invocation{Path: path, Args: []string{"setup-token"}, Dir: configDir, Env: env, Unset: daemonCredentials}, nil
 }
+
+// daemonCredentials are the variables the tool takes a credential from, which
+// a daemon started from a shell may carry from the user's own setup. Each of
+// them is kept from every Agent: an API key would be used in place of any
+// Account's token, and a token would fill in for an Account that has none.
+// An Account draws on its own credential and nothing else (ADR-0019).
+var daemonCredentials = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", tokenEnv}
 
 // accountEnv is what an Account adds to the environment an Agent runs in: the
 // configuration directory that keeps it apart from every other Account, and

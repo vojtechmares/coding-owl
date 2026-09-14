@@ -20,6 +20,10 @@ type Invocation struct {
 	Dir string
 	// Env is added to the environment the Executor starts from, as NAME=value.
 	Env []string
+	// Unset names variables the Executor takes out of the environment it
+	// starts from, before Env is added: what the daemon itself was started
+	// with is not always what an Agent may see (ADR-0019).
+	Unset []string
 }
 
 // Process is a running Agent.
