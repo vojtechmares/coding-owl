@@ -154,14 +154,16 @@ func Run(ctx context.Context, opts Options) error {
 		Collector:         collector,
 		Skills:            skills,
 		WorktreeConfigDir: filepath.Join(opts.Paths.DataDir, ownedDir),
-		Driver:            claudecode.New(),
-		Executor:          host.New(),
-		Verifier:          command.New(),
-		AgentVerifier:     agentverifier.New(claudecode.New(), host.New()),
-		WorktreeDir:       worktrees,
-		LogDir:            filepath.Join(opts.Paths.StateDir, logsDir),
-		ConfigPath:        configPath,
-		Logger:            log,
+		// Where the tool is, when the daemon's PATH does not say: a daemon
+		// under brew services gets a fixed PATH without ~/.local/bin.
+		Driver:        claudecode.NewWithPath(global.ClaudePath),
+		Executor:      host.New(),
+		Verifier:      command.New(),
+		AgentVerifier: agentverifier.New(claudecode.NewWithPath(global.ClaudePath), host.New()),
+		WorktreeDir:   worktrees,
+		LogDir:        filepath.Join(opts.Paths.StateDir, logsDir),
+		ConfigPath:    configPath,
+		Logger:        log,
 	})
 	// Agents outlive the request that started them, so they are stopped when
 	// the daemon stops rather than when a caller hangs up.

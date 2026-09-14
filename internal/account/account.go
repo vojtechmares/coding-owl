@@ -141,7 +141,7 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Account, error) {
 	if driverName == "" {
 		driverName = drivers.Default
 	}
-	if _, ok := drivers.Lookup(driverName); !ok {
+	if !drivers.Known(driverName) {
 		return Account{}, &InvalidError{Err: drivers.Unknown(driverName)}
 	}
 	if strings.TrimSpace(req.Token) == "" {

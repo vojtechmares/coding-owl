@@ -55,10 +55,21 @@ const (
 const versionTimeout = 30 * time.Second
 
 // Driver builds Claude Code invocations.
-type Driver struct{}
+type Driver struct {
+	// path is where the tool is when the daemon's file says so, and empty
+	// when it is to be looked for.
+	path string
+}
 
-// New returns the Claude Code Driver.
+// New returns the Claude Code Driver, which looks for the tool on PATH and
+// then under the home directory's .local/bin, where the tool's own installer
+// puts it.
 func New() *Driver { return &Driver{} }
+
+// NewWithPath returns the Claude Code Driver told where the tool is, as the
+// daemon's file may say for a daemon whose PATH does not hold it (a daemon
+// kept running by brew services gets a fixed one). Empty is New.
+func NewWithPath(path string) *Driver { return &Driver{path: strings.TrimSpace(path)} }
 
 // Name identifies the Driver.
 func (*Driver) Name() string { return "claude-code" }
@@ -150,7 +161,7 @@ func (*Driver) SkillsDir() string { return skillsDir }
 
 // Check reports whether Claude Code is installed and a version Owl drives.
 func (d *Driver) Check(ctx context.Context) error {
-	path, err := lookPath()
+	path, err := d.lookPath()
 	if err != nil {
 		return err
 	}
@@ -178,7 +189,7 @@ func (d *Driver) Command(req driver.Request) (agent.Invocation, error) {
 	if strings.TrimSpace(req.Prompt) == "" {
 		return agent.Invocation{}, errors.New("a run needs a prompt")
 	}
-	path, err := lookPath()
+	path, err := d.lookPath()
 	if err != nil {
 		return agent.Invocation{}, err
 	}
@@ -244,7 +255,7 @@ func (d *Driver) Command(req driver.Request) (agent.Invocation, error) {
 // the Account's own configuration directory, so the flow never touches the
 // user's own (ADR-0019).
 func (d *Driver) SetupToken(configDir string) (agent.Invocation, error) {
-	path, err := lookPath()
+	path, err := d.lookPath()
 	if err != nil {
 		return agent.Invocation{}, err
 	}
@@ -430,12 +441,40 @@ func accountEnv(configDir, token string) ([]string, error) {
 }
 
 // lookPath finds Claude Code, and says so plainly when it is not there.
-func lookPath() (string, error) {
-	path, err := exec.LookPath(program)
-	if err != nil {
-		return "", fmt.Errorf("%s is not installed, or not on the daemon's PATH: %w", program, err)
+func (d *Driver) lookPath() (string, error) {
+	// A path the daemon's file names is used as it is: the setting exists
+	// for a daemon whose PATH says nothing useful, so PATH is not asked.
+	if d.path != "" {
+		if err := executable(d.path); err != nil {
+			return "", fmt.Errorf("claudePath %s: %w", d.path, err)
+		}
+		return d.path, nil
 	}
-	return path, nil
+	if path, err := exec.LookPath(program); err == nil {
+		return path, nil
+	}
+	// Then where the tool's own installer puts it, which a daemon kept
+	// running by brew services does not have on its PATH.
+	if home, err := os.UserHomeDir(); err == nil {
+		local := filepath.Join(home, ".local", "bin", program)
+		if executable(local) == nil {
+			return local, nil
+		}
+	}
+	return "", fmt.Errorf("%s is not installed, or not on the daemon's PATH nor under ~/.local/bin; "+
+		"put it on PATH, or name it with claudePath in the daemon's own file", program)
+}
+
+// executable reports whether a path names a regular file somebody may run.
+func executable(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		return errors.New("is not an executable file")
+	}
+	return nil
 }
 
 // formatUSD renders a budget the way a person wrote it, so `5` does not become

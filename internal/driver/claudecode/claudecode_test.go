@@ -147,7 +147,9 @@ func TestS3AToolThatIsNowhereIsRefusedNamingBothPlacesToPutIt(t *testing.T) {
 }
 
 func TestCheckReportsAToolThatIsNotInstalled(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
+	// Neither on PATH nor under the home directory's .local/bin, where the
+	// tool's own installer puts it and the lookup now looks.
+	nowhere(t)
 
 	err := claudecode.New().Check(context.Background())
 
