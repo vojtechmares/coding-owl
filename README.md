@@ -1,4 +1,55 @@
+<p align="center">
+  <img src="docs/assets/coding-owl-logo.png" alt="Coding Owl" width="320">
+</p>
+
 # Coding Owl
+
+Coding Owl runs coding agents on your machine while it is otherwise idle, so
+that work you queued up happens while you are away and is waiting for review
+when you come back.
+
+You describe a piece of work, Owl queues it against one of your repositories,
+and once your machine has been idle for a while it hands the work to an Agent
+(Claude Code today) in a git worktree and branch of its own. When you sit back
+down, Owl freezes the Agent and gives the machine back. When the work is done
+and passes your project's checks, it lands in a branch for you to review.
+
+## How it works
+
+- **Jobs are queued, not run.** `owl add` records a standing intent to do one
+  piece of work in one Project. The queue is first in, first out, and can be
+  reordered.
+- **Idle is the trigger.** By default Owl works only after ten minutes without
+  keyboard or mouse input and with the machine on AC power. Both are
+  configurable, and `owl start` and `owl pause` override them in either
+  direction.
+- **Every Job gets its own worktree and branch.** An Agent never touches your
+  checkout. The branch is rebased onto the Project's base branch at the start of
+  every Run.
+- **Plan first, then execute.** A Job's first Run produces a plan, which becomes
+  the execution prompt. Every Run starts in a fresh context and orients from a
+  handoff document committed on the Job's branch, so a Job can take several
+  Runs without any conversation surviving between them.
+- **Giving the machine back is instant.** On your first input event Owl stops
+  the Agent's whole process group. If the machine goes idle again within the
+  grace window the same Run continues. Otherwise the Run ends and the next one
+  picks up from the handoff.
+- **Verification gates completion.** After the Agent exits, Owl runs the
+  Project's checks from the base branch, out of the Agent's reach. A Job that
+  passes goes to review. One that fails is blocked and says why.
+- **You have the last word.** `owl jobs accept` keeps the work and reclaims the
+  worktree. `owl jobs drop` deletes the branch and the worktree.
+
+Owl is built around a small vocabulary - Project, Job, Run, Handoff, Idle,
+Verification, Account, Driver, Executor - defined in [CONTEXT.md](CONTEXT.md).
+Every decision behind the design is recorded in [docs/adr](docs/adr/README.md).
+
+## Status
+
+Owl is early software, versioned as v0.x.y, and currently ships for macOS on
+Apple silicon only. Idle detection is implemented for macOS. Agents run as host
+processes rather than in containers, bounded by the worktree they work in, so
+treat a Job the way you would treat running the same tool yourself.
 
 ## Installing
 
@@ -9,6 +60,18 @@ logins:
 brew install vojtechmares/tap/coding-owl
 brew services start coding-owl
 ```
+
+The desktop app is a separate cask that depends on the formula:
+
+```
+brew install --cask vojtechmares/tap/coding-owl-desktop
+```
+
+On a machine without Homebrew, `owl daemon install` writes a launchd agent
+that keeps `owl daemon run` running. The daemon never daemonizes itself; that
+is launchd's job.
+
+### Finding Claude Code
 
 The daemon runs Claude Code on your behalf, so `claude` has to be somewhere the
 daemon can find it. A daemon started from your shell has your `PATH`. A daemon
@@ -26,3 +89,217 @@ When `claudePath` is set the daemon uses it and does not look on `PATH`. When
 it is not, the daemon looks on `PATH` and then under `~/.local/bin`. The daemon
 reads the setting when it starts, so after changing it run
 `brew services restart coding-owl`.
+
+## Quick start
+
+1. **Add an Account.** An Account is a subscription Owl runs work on, with a
+   tool configuration directory of its own so a night of Owl's work never
+   touches your setup. The token goes to the OS keychain.
+
+   ```
+   owl account add work
+   ```
+
+2. **Register a Project.** The name defaults to the directory basename and the
+   base branch to the repository's current branch.
+
+   ```
+   owl project add ~/code/my-app
+   ```
+
+3. **Tell Owl how to verify work.** Commit a `.coding-owl.yaml` on the base
+   branch (see [Configuration](#configuration)):
+
+   ```yaml
+   apiVersion: codingowl.dev/v1
+   account: work
+   checks:
+     - name: test
+       run: go test ./...
+   ```
+
+4. **Queue a Job.** Inside the Project, or with `--project`:
+
+   ```
+   owl add "Add a --json flag to the status command"
+   ```
+
+5. **Let it run, or make it.** Owl starts work when the machine is idle.
+   `owl start` runs the Job at the head of the queue now, and `owl logs -f`
+   follows the Agent's output.
+
+6. **Review in the morning.**
+
+   ```
+   owl status
+   owl jobs show <job>
+   owl jobs accept <job>   # or: owl jobs drop <job>
+   ```
+
+## Configuration
+
+Every config file carries `apiVersion: codingowl.dev/v1`. Owl refuses a file
+whose version or keys it does not recognise rather than guessing.
+
+### Project configuration
+
+Discovered in this order, first match wins:
+
+1. `<project>/.coding-owl.yaml`
+2. `<project>/.config/coding-owl.yaml`
+3. `<project>/.meta/coding-owl.yaml`
+4. `~/.config/coding-owl/<project-name>/config.yaml`
+
+The in-repo forms are read from the Project's base branch, never from a Job's
+worktree, so an Agent cannot weaken the checks that judge it. The fourth form
+is for Projects that should carry no Owl file, and for overrides you do not
+want committed. `owl project show` prints which file is in force.
+
+```yaml
+apiVersion: codingowl.dev/v1
+account: work            # the Account this Project's Jobs run on
+branchPrefix: owl/       # the default; Job branches are named under it
+setup:                   # prepares each fresh worktree before an Agent starts
+  - npm ci
+checks:                  # shell commands; all run, every failure is reported
+  - name: build
+    run: go build ./...
+  - name: test
+    run: go test ./...
+    timeout: 10m
+  - name: fmt
+    run: gofmt -l .
+    expect: empty_output # default expectation is exit zero
+verification:
+  agent: true            # additionally have a fresh Agent review the diff
+phases:                  # model and effort per phase
+  plan:
+    model: opus
+    effort: xhigh
+  execute:
+    model: sonnet
+allowedTools:            # what an unattended Agent may do without asking
+  - Bash(go test:*)
+skills:                  # reusable instructions fetched and pinned by Owl
+  - git: owner/repo
+    ref: main
+unattendedClauses:       # appended to Owl's standing unattended contract
+  - Never touch the migrations directory.
+```
+
+### Daemon configuration
+
+`~/.config/coding-owl/config.yaml` holds global settings:
+
+```yaml
+apiVersion: codingowl.dev/v1
+claudePath: /opt/homebrew/bin/claude
+idle:
+  after: 10m
+  requirePower: true
+graceWindow: 15m
+maxParallelRuns: 2
+accounts:
+  work:
+    limits:
+      fiveHourMax: 60
+      weeklyMax: 50
+garbageCollection:
+  interval: 1h
+```
+
+Account limits are percentages of a subscription's rate-limit window. Owl
+will not schedule past them, measured against the account's total usage rather
+than Owl's alone, so there is always room left for you.
+
+### Filesystem layout
+
+Owl honours the XDG variables on both macOS and Linux:
+
+```
+~/.config/coding-owl/        daemon config and per-Project fallback config
+~/.local/share/coding-owl/   owl.db, worktrees, per-Account tool config, skills
+~/.local/state/coding-owl/   daemon socket and per-Run logs
+```
+
+## Command overview
+
+| Command | What it does |
+| --- | --- |
+| `owl project add\|list\|show\|rename\|move\|remove` | Register repositories as Projects |
+| `owl account add\|list\|remove` | Manage the subscriptions Owl runs work on |
+| `owl add <prompt>` | Queue a Job, planned first unless `--no-plan` |
+| `owl queue list\|reorder\|remove` | Show and reorder the queued Jobs |
+| `owl start` / `owl pause` / `owl resume` | Override idle: run now, freeze everything, continue |
+| `owl status` | What ran, what is running, what is waiting for you |
+| `owl jobs show\|accept\|drop\|extend` | Inspect a Job, keep or refuse its work, give it more Runs |
+| `owl logs <run> [-f]` | The Agent's own structured stream, one event per line |
+| `owl skills add\|list\|update\|remove` | Manage the Skills a Project gives its Agents |
+| `owl providers add\|list\|remove` | Model providers the desktop chat speaks to |
+| `owl gc` | Reclaim finished worktrees, report what is unfinished |
+| `owl daemon run\|install\|status` | Run, install and inspect the daemon |
+
+Every command talks to the daemon over ConnectRPC on a unix socket. The CLI
+and the desktop app are both clients; the daemon is the single source of truth.
+
+## Desktop app
+
+The desktop app is a Wails application with a React frontend. It is a pure
+view of the daemon: overview, queue, Jobs with their Runs, diffs, handoffs,
+Verification results and logs. Everything it can do exists as a daemon RPC the
+CLI can also call.
+
+It also carries a chat, answered by the daemon. The chat proposes commands and
+runs nothing without consent, and what it can run is a fixed allowlist of
+read-only programs executed directly, without a shell, confined to a Project or
+one of its worktrees.
+
+Screenshots live in [docs/desktop](docs/desktop).
+
+## What Owl promises an unattended run
+
+- The Agent's working directory is its Job's worktree, and the Job's branch is
+  the only branch it works on.
+- Verification config comes from the base branch, so the Agent being judged
+  cannot change the rules.
+- Every Run carries a standing unattended contract: make reasonable assumptions
+  and write them down, commit incrementally, keep the handoff current, stop and
+  say so when genuinely blocked, never guess at anything destructive.
+  `owl jobs show` prints the effective system prompt so nothing is hidden.
+- An Agent that ignores a request to stop is killed.
+- Garbage collection never deletes uncommitted work. Anything that looks
+  unfinished is reported under `owl status` for you to decide.
+
+## Development
+
+Owl is a single Go module. The CLI, the daemon and the desktop backend all live
+in it; plugins (Drivers, Executors, Verifiers) are Go interfaces, not external
+processes.
+
+```
+make build      # bin/owl
+make test       # go test ./...
+make lint       # go vet, gofmt, buf lint
+make generate   # regenerate the ConnectRPC code from proto/
+make desktop    # the Wails app; needs the Wails CLI, Node and npm
+```
+
+Behaviour tests in `tests/behavior` drive the built binary against a fake
+Claude Code and a fake machine, one scenario file per issue. Releases are cut
+by `scripts/release.sh`, which tags `main`; the release workflow builds the
+tag, publishes the assets and updates the Homebrew tap.
+
+Layout:
+
+```
+cmd/owl           the owl binary: CLI and daemon
+cmd/owl-desktop   the Wails desktop app
+internal/         daemon, queue, run, drivers, executor, verifier, gc, ...
+proto/, gen/      ConnectRPC service definitions and generated code
+deploy/launchd    the launchd agent template
+docs/adr          architecture decision records
+docs/agents       how AI agents work on this repository
+tests/behavior    end-to-end behaviour scenarios
+```
+
+Working on the repository with an agent? Start with [AGENTS.md](AGENTS.md).
