@@ -1340,7 +1340,9 @@ func (s *Service) agentRequest(j store.Job, details project.Details, req driver.
 }
 
 // global reads the daemon's own configuration, so an edit takes effect on the
-// next Run rather than on the next restart.
+// next Run rather than on the next restart - for what a Run reads here. What
+// the daemon settled at startup, the credential store and where the tool is,
+// waits for a restart.
 func (s *Service) global() (config.Global, error) {
 	if s.opts.ConfigPath == "" {
 		return config.DefaultGlobal(), nil

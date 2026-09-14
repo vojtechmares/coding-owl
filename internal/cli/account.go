@@ -73,14 +73,7 @@ input instead, for a machine that has one already.`,
 			if driverName == "" {
 				driverName = drivers.Default
 			}
-			// The tool's own setup runs the tool, so where the tool is comes
-			// from the daemon's own file, as it does for a Run.
-			global, _, err := config.LoadGlobal(filepath.Join(env.Paths.ConfigDir, config.GlobalFileName))
-			if err != nil {
-				return err
-			}
-			d, ok := drivers.Lookup(driverName, global)
-			if !ok {
+			if !drivers.Known(driverName) {
 				return drivers.Unknown(driverName)
 			}
 			// The tool's own setup is a browser round trip the user does by
@@ -89,12 +82,22 @@ input instead, for a machine that has one already.`,
 			// finding out about before that rather than after it: re-running
 			// the setup for an Account that exists would authorise a
 			// subscription into its directory and then be refused.
+			var setup setupCommand
 			if !tokenStdin {
 				if err := nameIsFree(cmd, env, name); err != nil {
 					return err
 				}
+				// The setup runs the tool, so where the tool is comes from
+				// the daemon's own file, as it does for a Run. A token typed
+				// in runs nothing, and reads nothing.
+				global, _, err := config.LoadGlobal(filepath.Join(env.Paths.ConfigDir, config.GlobalFileName))
+				if err != nil {
+					return err
+				}
+				d, _ := drivers.Lookup(driverName, global)
+				setup = d.SetupToken
 			}
-			token, err := accountToken(cmd, env, d.SetupToken, env.Paths.DataDir, name, tokenStdin)
+			token, err := accountToken(cmd, env, setup, env.Paths.DataDir, name, tokenStdin)
 			if err != nil {
 				return err
 			}

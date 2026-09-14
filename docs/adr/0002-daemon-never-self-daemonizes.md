@@ -27,9 +27,13 @@ service do
   keep_alive true
   log_path var/"log/coding-owl.log"
   error_log_path var/"log/coding-owl.log"
-  environment_variables PATH: std_service_path_env
+  environment_variables PATH: "#{std_service_path_env}:#{Dir.home}/.local/bin"
 end
 ```
+
+The service's `PATH` is Homebrew's fixed one plus `~/.local/bin`, where Claude
+Code's own installer puts `claude`; a tool somewhere else is named with
+`claudePath` in the daemon's own file.
 
 `owl daemon install` writes launchd/systemd units for people who did not
 install via Homebrew. Templates live in `deploy/`.

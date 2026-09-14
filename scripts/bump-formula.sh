@@ -134,7 +134,7 @@ class CodingOwl < Formula
 
       The service runs with a fixed PATH: Homebrew's, plus ~/.local/bin,
       where Claude Code's installer puts claude. If claude is somewhere
-      else, name it in the daemon's own file:
+      else, name it in the daemon's own file and restart the service:
 
         claudePath: /path/to/claude
     EOS
