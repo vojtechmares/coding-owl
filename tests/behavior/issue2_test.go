@@ -277,7 +277,14 @@ func (s *syncBuffer) String() string {
 
 func startDaemon(t *testing.T, l *layout) *daemonProc {
 	t.Helper()
-	cmd := exec.Command(owlBin, "daemon", "run")
+	return startDaemonWith(t, l)
+}
+
+// startDaemonWith is startDaemon with flags of the caller's choosing after
+// `daemon run`.
+func startDaemonWith(t *testing.T, l *layout, flags ...string) *daemonProc {
+	t.Helper()
+	cmd := exec.Command(owlBin, append([]string{"daemon", "run"}, flags...)...)
 	cmd.Env = l.env
 	p := &daemonProc{cmd: cmd, stdout: &syncBuffer{}, stderr: &syncBuffer{}, done: make(chan struct{})}
 	cmd.Stdout = p.stdout
