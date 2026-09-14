@@ -10,7 +10,10 @@
 //	OWL_FAKE_CLAUDE_ARGV     file to append the invocation to, one JSON object
 //	                         per line, so several runs each leave a record
 //	OWL_FAKE_CLAUDE_SCRIPT   file of lines to emit on stdout, one per line
-//	OWL_FAKE_CLAUDE_WAIT     file whose appearance releases a `#wait` line
+//	OWL_FAKE_CLAUDE_WAIT     file whose appearance releases a `#wait` line.
+//	                         A `#fill <n>` line emits one line of n bytes
+//	                         instead of itself, so a script can say more than
+//	                         a reader will take without a file that size
 //	OWL_FAKE_CLAUDE_HOLD     when set, records the invocation and then waits
 //	                         for that same file before touching anything, so a
 //	                         scenario can see a working directory the agent has
@@ -56,6 +59,11 @@ import (
 	"syscall"
 	"time"
 )
+
+// fillLine prefixes a directive that emits one line of the given many bytes,
+// so a scenario can hand Owl a line longer than it reads without a script file
+// that size on disk.
+const fillLine = "#fill "
 
 // waitLine holds the script until the release file appears, so a scenario can
 // keep a Run in progress for as long as it needs.
@@ -386,6 +394,13 @@ func emit(script string) error {
 				return err
 			}
 			continue
+		}
+		if rest, ok := strings.CutPrefix(line, fillLine); ok {
+			n, err := strconv.Atoi(strings.TrimSpace(rest))
+			if err != nil {
+				return fmt.Errorf("%q: %w", line, err)
+			}
+			line = strings.Repeat("x", n)
 		}
 		if _, err := fmt.Fprintln(os.Stdout, line); err != nil {
 			return err
