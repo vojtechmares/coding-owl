@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -56,8 +57,9 @@ func (*Executor) Start(ctx context.Context, inv agent.Invocation) (agent.Process
 	cmd := exec.Command(inv.Path, inv.Args...)
 	cmd.Dir = inv.Dir
 	// The Agent inherits the user's already-authenticated environment
-	// (ADR-0006); the invocation only adds to it.
-	cmd.Env = append(os.Environ(), inv.Env...)
+	// (ADR-0006), less what the invocation says an Agent may not see, plus
+	// what it adds.
+	cmd.Env = append(without(os.Environ(), inv.Unset), inv.Env...)
 	// Nobody is at a terminal, so there is nothing to read: an Agent that
 	// waits on stdin sees end of file rather than hanging until morning.
 	cmd.Stdin = nil
@@ -81,6 +83,26 @@ func (*Executor) Start(ctx context.Context, inv agent.Invocation) (agent.Process
 	}
 	go p.stopWhenDone(ctx)
 	return p, nil
+}
+
+// without returns the environment less the variables named, so that what the
+// daemon itself was started with does not reach an Agent it was not meant for.
+func without(environ, names []string) []string {
+	if len(names) == 0 {
+		return environ
+	}
+	drop := make(map[string]bool, len(names))
+	for _, name := range names {
+		drop[name] = true
+	}
+	kept := make([]string, 0, len(environ))
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		if !drop[name] {
+			kept = append(kept, kv)
+		}
+	}
+	return kept
 }
 
 // process is one running Agent.
