@@ -31,6 +31,21 @@ type fakeProvider struct {
 	replies []string
 	// breakAfter, when set, writes that much and then hangs up.
 	breakAfter string
+	// hold, when set, keeps every request waiting for an answer until it is
+	// closed or the daemon hangs up, which is what a provider that is slow to
+	// answer looks like.
+	hold chan struct{}
+}
+
+// askedTimes waits until the provider has been asked at least n times, which
+// is how a scenario knows an exchange is parked on it.
+func (p *fakeProvider) askedTimes(t *testing.T, n int) {
+	t.Helper()
+	waitFor(t, "the provider to be asked", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return len(p.requests) >= n
+	})
 }
 
 // newFakeProvider starts one, answering every request with those bodies in
@@ -57,8 +72,16 @@ func newFakeProvider(t *testing.T, replies ...string) *fakeProvider {
 			reply = p.replies[len(p.replies)-1]
 		}
 		broken := p.breakAfter
+		hold := p.hold
 		p.mu.Unlock()
 
+		if hold != nil {
+			select {
+			case <-hold:
+			case <-r.Context().Done():
+				return
+			}
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher, _ := w.(http.Flusher)
