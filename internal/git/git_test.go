@@ -1188,7 +1188,7 @@ func recorder(t *testing.T, marker string) string {
 
 // signedCommitRepo is a repository that asks for every commit to be signed by
 // the program named, with a note ready to be committed.
-func signedCommitRepo(t *testing.T, marker string, config ...[2]string) string {
+func signedCommitRepo(t *testing.T, config ...[2]string) string {
 	t.Helper()
 	dir := newRepo(t)
 	run(t, dir, "config", "commit.gpgsign", "true")
@@ -1203,7 +1203,7 @@ func signedCommitRepo(t *testing.T, marker string, config ...[2]string) string {
 
 func TestS1TheHandoffCommitDoesNotInvokeTheSigningProgram(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "ran")
-	dir := signedCommitRepo(t, marker, [2]string{"gpg.program", recorder(t, marker)})
+	dir := signedCommitRepo(t, [2]string{"gpg.program", recorder(t, marker)})
 
 	committed, err := git.CommitPath(context.Background(), dir, "note.txt", "note")
 
@@ -1255,7 +1255,7 @@ func TestS2CancellingTheContextEndsACommitThatIsStuck(t *testing.T) {
 
 func TestS3TheSameForARepositoryThatSignsWithSSH(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "ran")
-	dir := signedCommitRepo(t, marker,
+	dir := signedCommitRepo(t,
 		[2]string{"gpg.format", "ssh"},
 		[2]string{"user.signingkey", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN0bogusbogusbogusbogusbogusbogusbogusbogu"},
 		[2]string{"gpg.ssh.program", recorder(t, marker)})

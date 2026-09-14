@@ -1008,8 +1008,8 @@ var owlIdentity = []string{
 // CommitPath commits one path in a worktree, if it has anything to commit.
 // committed is false when the path was already committed as it stands, which
 // is the ordinary case for an Agent that commits its own work (ADR-0017).
-func CommitPath(dir, path, msg string) (committed bool, err error) {
-	_, stderr, code, err := run(dir, "add", "--", path)
+func CommitPath(ctx context.Context, dir, path, msg string) (committed bool, err error) {
+	_, stderr, code, err := runWithin(ctx, dir, "add", "--", path)
 	if err != nil {
 		return false, err
 	}
@@ -1017,7 +1017,7 @@ func CommitPath(dir, path, msg string) (committed bool, err error) {
 		return false, fmt.Errorf("staging %s in %s: %s", path, dir, message(stderr))
 	}
 	// --quiet exits 1 when something is staged, which is the question here.
-	_, stderr, code, err = run(dir, "diff", "--cached", "--quiet", "--", path)
+	_, stderr, code, err = runWithin(ctx, dir, "diff", "--cached", "--quiet", "--", path)
 	if err != nil {
 		return false, err
 	}
@@ -1030,8 +1030,14 @@ func CommitPath(dir, path, msg string) (committed bool, err error) {
 	}
 	// --no-verify: the hooks in this repository are the Agent's to write, and
 	// Owl's bookkeeping commit is not the place to run them.
-	args := append(append([]string{}, owlIdentity...), "commit", "--no-verify", "-m", msg, "--", path)
-	_, stderr, code, err = run(dir, args...)
+	// commit.gpgsign=false: this is Owl's own commit, not the user's signature
+	// to give, and a signing program that wants a passphrase would wait for
+	// somebody who is not there - exactly as for the rebase above. Turning
+	// signing off covers a key of any format, gpg or ssh.
+	args := append(append([]string{}, owlIdentity...),
+		"-c", "commit.gpgsign=false",
+		"commit", "--no-verify", "-m", msg, "--", path)
+	_, stderr, code, err = runWithin(ctx, dir, args...)
 	if err != nil {
 		return false, err
 	}
