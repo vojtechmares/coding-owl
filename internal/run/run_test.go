@@ -1125,6 +1125,73 @@ func TestS2ACommitPushedSinceTheCloneIsUnderTheJobBranchAfterARun(t *testing.T) 
 	}
 }
 
+// S5 of tests/behavior/issue-55.md: a daemon stop that cuts the handoff
+// commit short is the daemon stopping, not the Run failing, so the Run is
+// interrupted and the Job waits its turn again rather than for a human.
+func TestS5ADaemonStopDuringTheHandoffCommitInterruptsTheRun(t *testing.T) {
+	ctx := context.Background()
+	hold, started := make(chan struct{}), make(chan struct{})
+	svc, st, repo := newFixture(t, &fakeDriver{}, &fakeExecutor{hold: hold, started: started})
+	// A hook git waits for, standing in for anything that holds a commit up.
+	// Worktrees share the repository's hooks.
+	hooks := filepath.Join(repo, ".git", "hooks")
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooks, "post-commit"), []byte("#!/bin/sh\nsleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	j, err := st.UpsertJob(ctx, store.Job{
+		Source: "local", SourceRef: "planned", Project: "repo", Prompt: "work",
+		State: string(queue.StatePending), Planned: true, TTL: queue.DefaultTTL, Created: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started
+	// The planning Agent writes the handoff and leaves it uncommitted.
+	active := awaitState(t, st, j.ID, queue.StateActive)
+	if err := os.MkdirAll(filepath.Join(active.Worktree, filepath.Dir(run.HandoffPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(active.Worktree, run.HandoffPath), []byte("# Handoff\n\nstep one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	close(hold)
+	// Give the Run time to reach the commit, whose hook then holds it.
+	time.Sleep(500 * time.Millisecond)
+
+	closed := make(chan error, 1)
+	go func() { closed <- svc.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("Close waited for a commit it should have cut short")
+	}
+
+	runs, err := st.ListRuns(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Outcome != string(run.OutcomeInterrupted) {
+		t.Errorf("runs = %+v, want one interrupted run", runs)
+	}
+	after, err := st.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if queue.State(after.State) != queue.StatePending {
+		t.Errorf("state = %q, want the job pending again rather than blocked", after.State)
+	}
+}
+
 // gitOutput runs git in a directory and returns what it printed, trimmed.
 func gitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()

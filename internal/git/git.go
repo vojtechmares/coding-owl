@@ -962,6 +962,11 @@ func FetchBase(ctx context.Context, dir, base string) (ref string, err error) {
 // stopping is not held up by one.
 const rebaseTimeout = 2 * time.Minute
 
+// commitTimeout bounds Owl's own commit of a handoff, for the same reason and
+// with the same figure: it is one path in a worktree, and only a hook or a
+// signing tool that is waiting on somebody could make it take longer.
+const commitTimeout = 2 * time.Minute
+
 // fetchTimeout bounds a fetch. A remote that is slow or gone is not a reason to
 // leave a Job unstarted, so this only has to be short enough to notice.
 const fetchTimeout = 2 * time.Minute
@@ -1009,6 +1014,11 @@ var owlIdentity = []string{
 // committed is false when the path was already committed as it stands, which
 // is the ordinary case for an Agent that commits its own work (ADR-0017).
 func CommitPath(ctx context.Context, dir, path, msg string) (committed bool, err error) {
+	// Bounded on its own, as a rebase is: a hook that never returns, or a
+	// signing tool that waits for somebody, must end as a failure rather
+	// than as a daemon that never finishes a Run.
+	ctx, cancel := context.WithTimeout(ctx, commitTimeout)
+	defer cancel()
 	_, stderr, code, err := runWithin(ctx, dir, "add", "--", path)
 	if err != nil {
 		return false, err

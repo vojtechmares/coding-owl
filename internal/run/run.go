@@ -668,10 +668,12 @@ func (s *Service) recordPlan(ctx context.Context, j store.Job) error {
 	if strings.TrimSpace(plan) == "" {
 		return fmt.Errorf("the planning run left no %s, so there is no plan to carry out", HandoffPath)
 	}
-	// Under the bookkeeping deadline the caller set, and cut short when the
-	// daemon stops: a commit that is held up by something in the repository
-	// is not something a daemon on its way out waits on.
-	committing, done := s.untilClosed(ctx)
+	// Not under the bookkeeping deadline, which is sized for writing rows: a
+	// commit can wait on a post-commit hook or a large index, and has a bound
+	// of its own, as the rebase does. The daemon stopping still cuts it
+	// short: a commit held up by something in the repository is not
+	// something a daemon on its way out waits on.
+	committing, done := s.untilClosedFrom(ctx)
 	defer done()
 	if _, err := git.CommitPath(committing, j.Worktree, HandoffPath, "plan job "+strconv.FormatInt(j.ID, 10)); err != nil {
 		return err
@@ -935,6 +937,13 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 	if outcome == OutcomeSucceeded && phase == PhasePlan {
 		if err := s.recordPlan(ctx, j); err != nil {
 			outcome, reason = OutcomeFailed, err.Error()
+			// The daemon stopping cuts the commit short, and that is the
+			// daemon stopping rather than the Run failing: the Job waits its
+			// turn again, as it would for any Run a stop interrupted
+			// (ADR-0011).
+			if s.ctx.Err() != nil {
+				outcome, reason = OutcomeInterrupted, "the daemon stopped while the plan was being recorded"
+			}
 		}
 	}
 

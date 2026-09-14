@@ -43,3 +43,9 @@ When the planning Run ends
 Then the handoff is committed on the Job's branch
 And the Job is `pending` again for its execution Run
 And the program was never run
+
+### S5 - a daemon stop that cuts the handoff commit short interrupts the Run rather than failing it
+Given a planned Job whose Agent left the handoff uncommitted, in a repository whose post-commit hook waits for a minute
+When the daemon stops while Owl is committing the handoff
+Then the Run is recorded `interrupted`, not `failed`
+And the Job is `pending` again rather than `blocked`
