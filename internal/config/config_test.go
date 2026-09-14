@@ -630,8 +630,6 @@ func TestACapThatIsNotOneIsRefusedByName(t *testing.T) {
 	}
 }
 
-// An Account with no cap of its own is held only by the other two: burn rate is
-// already governed by the ceiling (ADR-0021).
 // refusedNaming checks a parse was refused with an error that names each of
 // the given things, which for issue #54 is the unknown key and the file.
 func refusedNaming(t *testing.T, err error, what string, names ...string) {
@@ -675,6 +673,8 @@ func TestS4AnUnknownKeyInsideABlockIsRefusedByName(t *testing.T) {
 	refusedNaming(t, err, "a project file with a misspelled check setting", "runn", "main:.coding-owl.yaml")
 }
 
+// An Account with no cap of its own is held only by the other two: burn rate is
+// already governed by the ceiling (ADR-0021).
 func TestAnAccountWithNoCapOfItsOwnIsUnlimited(t *testing.T) {
 	cfg, err := config.ParseGlobal("owl.yaml", []byte(
 		"apiVersion: codingowl.dev/v1\naccounts:\n  work:\n    maxParallel: 2\n  other:\n    limits:\n      fiveHourMax: 60\n"))

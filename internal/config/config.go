@@ -343,7 +343,10 @@ func unknownKeys(whose string, typeErr *yaml.TypeError) string {
 		// "line 3: field maxParalellRuns not found in type config.projectFile"
 		at, rest, found := strings.Cut(msg, ": field ")
 		if key, _, ok := strings.Cut(rest, notFound); found && ok {
-			out = append(out, fmt.Sprintf("%s: %s is not a setting in %s file", at, key, whose))
+			// Quoted: the key comes out of a file a merged pull request can
+			// change, and is printed back to a terminal, so it is shown as
+			// what it is rather than as what it might do (see CheckText).
+			out = append(out, fmt.Sprintf("%s: %q is not a setting in %s file", at, key, whose))
 			continue
 		}
 		out = append(out, msg)
