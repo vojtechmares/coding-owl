@@ -42,15 +42,22 @@ func (s *Service) rebase(ctx context.Context, j store.Job, details project.Detai
 			j.Worktree, details.Name, details.Path))
 	}
 
-	// What the remote knows is worth having before the branch is replayed, but
-	// a remote that cannot be reached is not a reason to leave a Job unstarted:
-	// the rebase is onto the Project's own base branch either way, and nothing
-	// the user has is moved by a fetch. It comes before the worktree is looked
-	// at: a fetch can take minutes, and what is checked out is read as close
-	// to the rebase as it can be, so nothing has room to change in between.
-	if err := git.FetchBase(ctx, details.Path, details.BaseBranch); err != nil {
-		s.opts.Logger.Warn("fetching the base branch",
+	// What the remote knows is what the branch is replayed onto: the local
+	// base branch is the user's, is never moved by Owl, and says only what
+	// they last pulled. A Project with no remote has only its local base, and
+	// a remote that cannot be reached is not a reason to leave a Job
+	// unstarted: the rebase is onto the local base then, and says so
+	// (ADR-0016). The fetch comes before the worktree is looked at: it can
+	// take minutes, and what is checked out is read as close to the rebase
+	// as it can be, so nothing has room to change in between.
+	onto := git.BranchRef(details.BaseBranch)
+	fetched, err := git.FetchBase(ctx, details.Path, details.BaseBranch)
+	switch {
+	case err != nil:
+		s.opts.Logger.Warn("fetching the base branch; rebasing onto the local one",
 			"project", details.Name, "branch", details.BaseBranch, "error", err)
+	case fetched != "":
+		onto = fetched
 	}
 
 	// A worktree somebody left mid-rebase is not Owl's to finish or throw
@@ -100,7 +107,7 @@ func (s *Service) rebase(ctx context.Context, j store.Job, details project.Detai
 	// The daemon stopping still cuts it short, and it is bounded either way.
 	rebasing, done := s.untilClosedFrom(ctx)
 	defer done()
-	conflict, err := git.Rebase(rebasing, j.Worktree, details.BaseBranch)
+	conflict, err := git.Rebase(rebasing, j.Worktree, onto)
 	switch {
 	case err != nil:
 		// A rebase that could not be carried out at all is not something the
@@ -108,15 +115,14 @@ func (s *Service) rebase(ctx context.Context, j store.Job, details project.Detai
 		// trying again every time the queue turns. What git said carries the
 		// difference between a rebase that would not go through and a worktree
 		// that had to be put back by force.
-		return s.blocked(j, fmt.Sprintf("rebasing onto %s could not be carried out: %v",
-			details.BaseBranch, err))
+		return s.blocked(j, fmt.Sprintf("rebasing onto %s could not be carried out: %v", onto, err))
 	case conflict.InStash:
 		return s.blocked(j, fmt.Sprintf(
 			"rebasing onto %s conflicts in %s, in changes nobody had committed; git kept them in the repository's stash",
-			details.BaseBranch, strings.Join(conflict.Paths, ", ")))
+			onto, strings.Join(conflict.Paths, ", ")))
 	case conflict.Conflicted():
 		return s.blocked(j, fmt.Sprintf("rebasing onto %s conflicts in %s",
-			details.BaseBranch, strings.Join(conflict.Paths, ", ")))
+			onto, strings.Join(conflict.Paths, ", ")))
 	}
 	return nil
 }

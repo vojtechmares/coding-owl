@@ -68,6 +68,10 @@ func CurrentBranch(dir string) (string, error) {
 // is not the same permission as pushing a protected branch.
 func branchRef(branch string) string { return "refs/heads/" + branch }
 
+// BranchRef names a local branch as a ref written out in full, which is how a
+// rebase is told what to replay onto when nothing was fetched (ADR-0016).
+func BranchRef(branch string) string { return branchRef(branch) }
+
 // HasBranch reports whether dir has a local branch of exactly that name.
 // It verifies a ref rather than resolving a revision, so `main:path` and
 // `main@{1}` are not branches.
@@ -715,15 +719,16 @@ type Conflict struct {
 // Conflicted reports whether anything stood in the way.
 func (c Conflict) Conflicted() bool { return len(c.Paths) > 0 }
 
-// Rebase replays the branch checked out in a worktree onto base. A rebase that
-// conflicts is aborted and the conflicting paths are reported, so that whoever
-// asked can say what is in the way; the worktree is left exactly as it was
-// (ADR-0016).
+// Rebase replays the branch checked out in a worktree onto a ref, written out
+// in full: the remote-tracking ref a fetch brought in, or the local base
+// branch as BranchRef names it. A rebase that conflicts is aborted and the
+// conflicting paths are reported, so that whoever asked can say what is in
+// the way; the worktree is left exactly as it was (ADR-0016).
 //
 // Changes nobody committed are stashed and put back afterwards: an interrupted
 // Run leaves a possibly untidy worktree behind (ADR-0011), and that is not a
 // reason to leave a Job unrebased.
-func Rebase(ctx context.Context, path, base string) (Conflict, error) {
+func Rebase(ctx context.Context, path, onto string) (Conflict, error) {
 	ctx, cancel := context.WithTimeout(ctx, rebaseTimeout)
 	defer cancel()
 
@@ -734,9 +739,9 @@ func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 		return Conflict{}, err
 	}
 	// The identity is Owl's own: a rebase can need one, and it must not depend
-	// on the user having configured one. The base is named as a ref rather
-	// than by its bare name, because a tag of the same name would otherwise
-	// decide what the Job is rebased onto.
+	// on the user having configured one. What the branch is rebased onto is a
+	// ref written out in full rather than a bare name, because a tag of the
+	// same name would otherwise decide what the Job is rebased onto.
 	// --no-update-refs: git will otherwise carry other branches along with the
 	// commits it rewrites, and rebase.updateRefs is a setting a user may have
 	// on globally - or an Agent may set in the repository the worktree shares.
@@ -750,7 +755,7 @@ func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 	// wait for somebody who is not there.
 	args := append(append([]string{}, owlIdentity...),
 		"-c", "commit.gpgsign=false",
-		"rebase", "--no-update-refs", "--no-verify", "--autostash", "--", branchRef(base))
+		"rebase", "--no-update-refs", "--no-verify", "--autostash", "--", onto)
 	_, stderr, code, err := runWithin(ctx, path, args...)
 	if err != nil {
 		// git was killed - by the deadline above, or by the daemon stopping -
@@ -790,7 +795,7 @@ func Rebase(ctx context.Context, path, base string) (Conflict, error) {
 	}
 	// Anything that is not a conflict is the caller's to report as it is.
 	if len(conflicts) == 0 {
-		return Conflict{}, fmt.Errorf("rebasing %s onto %s: %s", path, base, message(stderr))
+		return Conflict{}, fmt.Errorf("rebasing %s onto %s: %s", path, onto, message(stderr))
 	}
 	return Conflict{Paths: conflicts}, nil
 }
@@ -922,17 +927,18 @@ func unmergedPaths(path string) ([]string, error) {
 // belongs to - the branch's own remote when it has one, and origin otherwise.
 // A repository with no remote has nothing to fetch, which is not a failure.
 // The fetch is bounded: a daemon must not wait on a remote for ever.
-func FetchBase(ctx context.Context, dir, base string) error {
+func FetchBase(ctx context.Context, dir, base string) (ref string, err error) {
 	remote, err := remoteFor(dir, base)
 	if err != nil || remote == "" {
-		return err
+		return "", err
 	}
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 	// The refspec is written out in full: only the remote-tracking branch is
 	// updated, nothing the user has is moved, and neither side can be read as
 	// a tag of the same name.
-	refspec := fmt.Sprintf("+%s:refs/remotes/%s/%s", branchRef(base), remote, base)
+	ref = fmt.Sprintf("refs/remotes/%s/%s", remote, base)
+	refspec := "+" + branchRef(base) + ":" + ref
 	// protocol.ext.allow=never: a remote URL is configuration, and an ext::
 	// one is a command for git to run. It is not the only way a repository can
 	// name a program - core.sshCommand and uploadpack are others - but it is
@@ -940,12 +946,15 @@ func FetchBase(ctx context.Context, dir, base string) error {
 	_, stderr, code, err := runWithin(ctx, dir,
 		"-c", "protocol.ext.allow=never", "fetch", "--quiet", "--", remote, refspec)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if code != 0 {
-		return fmt.Errorf("fetching %s from %s: %s", base, remote, message(stderr))
+		return "", fmt.Errorf("fetching %s from %s: %s", base, remote, message(stderr))
 	}
-	return nil
+	// What was fetched is what a rebase should be onto: the local branch is
+	// the user's and is never moved, so it says nothing about what the remote
+	// knows (ADR-0016).
+	return ref, nil
 }
 
 // rebaseTimeout bounds a rebase. Replaying a short-lived branch is quick; this

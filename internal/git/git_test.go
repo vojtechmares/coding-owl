@@ -996,7 +996,7 @@ func TestRebaseReplaysABranchOntoAMovedBase(t *testing.T) {
 	commit(t, worktree, "work.txt", "the agent's work\n")
 	commit(t, dir, "from-base.txt", "moved on\n")
 
-	conflict, err := git.Rebase(context.Background(), worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, git.BranchRef("main"))
 
 	if err != nil || conflict.Conflicted() {
 		t.Fatalf("Rebase = %+v, %v, want a clean rebase", conflict, err)
@@ -1022,7 +1022,7 @@ func TestRebaseAbortsAConflictAndNamesThePaths(t *testing.T) {
 	before := strings.TrimSpace(run(t, worktree, "rev-parse", "HEAD"))
 	commit(t, dir, "both.txt", "what the base says\n")
 
-	conflict, err := git.Rebase(context.Background(), worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, git.BranchRef("main"))
 
 	if err != nil {
 		t.Fatalf("Rebase: %v", err)
@@ -1058,7 +1058,7 @@ func TestRebaseKeepsWhatNobodyCommitted(t *testing.T) {
 	}
 	commit(t, dir, "from-base.txt", "moved on\n")
 
-	conflict, err := git.Rebase(context.Background(), worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, git.BranchRef("main"))
 
 	if err != nil || conflict.Conflicted() {
 		t.Fatalf("Rebase = %+v, %v, want a clean rebase", conflict, err)
@@ -1078,7 +1078,7 @@ func TestRebaseReportsABaseThatIsNotThere(t *testing.T) {
 		t.Fatalf("AddWorktree: %v", err)
 	}
 
-	conflict, err := git.Rebase(context.Background(), worktree, "no-such-branch")
+	conflict, err := git.Rebase(context.Background(), worktree, git.BranchRef("no-such-branch"))
 
 	if err == nil {
 		t.Fatalf("Rebase onto a branch that is not there reported %+v and no error", conflict)
@@ -1126,7 +1126,7 @@ func TestFetchBaseUpdatesWhatIsKnownWithoutMovingAnything(t *testing.T) {
 	pushed := strings.TrimSpace(run(t, other, "rev-parse", "HEAD"))
 	mine := strings.TrimSpace(run(t, dir, "rev-parse", "main"))
 
-	if err := git.FetchBase(context.Background(), dir, "main"); err != nil {
+	if _, err := git.FetchBase(context.Background(), dir, "main"); err != nil {
 		t.Fatalf("FetchBase: %v", err)
 	}
 
@@ -1178,7 +1178,7 @@ func TestFetchBaseReportsARemoteItCannotReach(t *testing.T) {
 	dir := newRepo(t)
 	run(t, dir, "remote", "add", "origin", filepath.Join(t.TempDir(), "not-there.git"))
 
-	err := git.FetchBase(context.Background(), dir, "main")
+	_, err := git.FetchBase(context.Background(), dir, "main")
 
 	if err == nil {
 		t.Fatal("FetchBase reported success for a remote that is not there")
@@ -1215,7 +1215,7 @@ func TestRebaseIsOntoTheBranchNotATagOfTheSameName(t *testing.T) {
 	run(t, worktree, "tag", "main", "HEAD")
 	commit(t, dir, "from-base.txt", "moved on\n")
 
-	conflict, err := git.Rebase(context.Background(), worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, git.BranchRef("main"))
 
 	if err != nil || conflict.Conflicted() {
 		t.Fatalf("Rebase = %+v, %v, want a clean rebase", conflict, err)
@@ -1240,7 +1240,7 @@ func TestRebaseReportsAConflictInWhatNobodyCommitted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conflict, err := git.Rebase(context.Background(), worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, git.BranchRef("main"))
 
 	if err != nil {
 		t.Fatalf("Rebase: %v", err)
@@ -1290,7 +1290,7 @@ func TestRebaseLeavesNoRebaseInProgressWhenItStopsPartWay(t *testing.T) {
 	// Configured last: the commits above would trip it too.
 	stopsPartWay(t, dir)
 
-	conflict, err := git.Rebase(context.Background(), worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, git.BranchRef("main"))
 
 	if err == nil {
 		t.Fatalf("Rebase = %+v and no error, want the failure reported", conflict)
@@ -1323,7 +1323,7 @@ func TestRebaseCarriesNoOtherBranchWithIt(t *testing.T) {
 	run(t, dir, "config", "rebase.updateRefs", "true")
 	commit(t, dir, "from-base.txt", "moved on\n")
 
-	conflict, err := git.Rebase(context.Background(), worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, git.BranchRef("main"))
 
 	if err != nil || conflict.Conflicted() {
 		t.Fatalf("Rebase = %+v, %v, want a clean rebase", conflict, err)
@@ -1356,7 +1356,7 @@ func TestRebaseDoesNotAskARepositorysPreRebaseHook(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conflict, err := git.Rebase(context.Background(), worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, git.BranchRef("main"))
 
 	if err != nil || conflict.Conflicted() {
 		t.Fatalf("Rebase = %+v, %v; a hook of somebody else's refused it", conflict, err)
@@ -1395,7 +1395,7 @@ func TestFetchBaseRunsNoCommandARemoteUrlNames(t *testing.T) {
 	run(t, dir, "remote", "add", "origin", "ext::"+helper)
 	run(t, dir, "config", "protocol.ext.allow", "always")
 
-	err := git.FetchBase(context.Background(), dir, "main")
+	_, err := git.FetchBase(context.Background(), dir, "main")
 
 	if err == nil {
 		t.Error("FetchBase reported success for a remote that names a command")
@@ -1436,7 +1436,7 @@ func TestRebasePutsAWorktreeBackWhenTheAbortItselfRefuses(t *testing.T) {
 	// put the worktree back.
 	refusing(t, dir, 2)
 
-	conflict, err := git.Rebase(context.Background(), worktree, "main")
+	conflict, err := git.Rebase(context.Background(), worktree, git.BranchRef("main"))
 
 	if err == nil {
 		t.Fatalf("Rebase = %+v and no error, want the failure reported", conflict)
