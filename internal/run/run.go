@@ -668,7 +668,12 @@ func (s *Service) recordPlan(ctx context.Context, j store.Job) error {
 	if strings.TrimSpace(plan) == "" {
 		return fmt.Errorf("the planning run left no %s, so there is no plan to carry out", HandoffPath)
 	}
-	if _, err := git.CommitPath(j.Worktree, HandoffPath, "plan job "+strconv.FormatInt(j.ID, 10)); err != nil {
+	// Under the bookkeeping deadline the caller set, and cut short when the
+	// daemon stops: a commit that is held up by something in the repository
+	// is not something a daemon on its way out waits on.
+	committing, done := s.untilClosed(ctx)
+	defer done()
+	if _, err := git.CommitPath(committing, j.Worktree, HandoffPath, "plan job "+strconv.FormatInt(j.ID, 10)); err != nil {
 		return err
 	}
 	return s.opts.Store.SetJobPlan(ctx, j.ID, plan)
