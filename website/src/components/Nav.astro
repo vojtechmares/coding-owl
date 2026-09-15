@@ -3,17 +3,17 @@ import Mark from './Mark.astro';
 import { REPO } from '../lib/markdown';
 
 const items = [
-  { href: '/docs', label: 'docs' },
-  { href: '/changelog', label: 'changelog' },
+  { href: '/docs', label: 'Docs' },
+  { href: '/changelog', label: 'Changelog' },
 ];
 const path = Astro.url.pathname.replace(/\/+$/, '') || '/';
 const isActive = (href: string) => path === href || path.startsWith(href + '/');
 ---
 
-<header class="sticky top-0 z-20 bar">
-  <nav class="mx-auto flex h-13 max-w-4xl items-center gap-1 px-5 sm:px-8" aria-label="Main">
+<header class="mx-auto w-full max-w-5xl px-6 sm:px-10">
+  <nav class="flex h-16 items-center gap-7" aria-label="Main">
     <a href="/" class="mr-auto flex items-center gap-2.5 text-ink no-underline">
-      <Mark size={24} />
+      <Mark size={26} />
       <span class="text-[15px] font-semibold tracking-tight whitespace-nowrap">Coding Owl</span>
     </a>
     {
@@ -22,20 +22,16 @@ const isActive = (href: string) => path === href || path.startsWith(href + '/');
           href={item.href}
           aria-current={isActive(item.href) ? 'page' : undefined}
           class:list={[
-            'rounded-(--radius-control) px-2.5 py-1.5 font-mono text-[13px] no-underline transition-colors',
-            isActive(item.href) ? 'bg-accent-soft text-accent-strong' : 'text-ink-dim hover:bg-neutral-100 hover:text-ink',
+            'text-sm no-underline transition-colors',
+            isActive(item.href) ? 'text-ink' : 'text-ink-dim hover:text-ink',
           ]}
         >
           {item.label}
         </a>
       ))
     }
-    <a
-      href={REPO}
-      class="rounded-(--radius-control) px-2.5 py-1.5 font-mono text-[13px] text-ink-dim no-underline transition-colors hover:bg-neutral-100 hover:text-ink"
-      rel="noopener"
-    >
-      github
+    <a href={REPO} class="text-sm text-ink-dim no-underline transition-colors hover:text-ink" rel="noopener">
+      GitHub
       <span class="sr-only">(opens the repository)</span>
     </a>
   </nav>

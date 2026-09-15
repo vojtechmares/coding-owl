@@ -1,21 +1,20 @@
 ---
 title: Coding Owl
+eyebrow: Coding agents, while you are away
 tagline: Your machine works while you are away.
 description: Coding Owl runs coding agents on your machine while it is idle, so the work you queued up is waiting for review when you come back.
 install: brew install vojtechmares/tap/coding-owl
+features:
+  - label: Idle
+    title: Only when you are away.
+    text: Ten minutes without input, on AC power, and Owl starts. The moment you are back, the agent is frozen and the machine is yours.
+  - label: Isolated
+    title: A worktree and a branch per Job.
+    text: An agent never touches your checkout. Every Job works on its own branch, rebased onto the base branch at the start of each Run.
+  - label: Verified
+    title: Done means the checks pass.
+    text: After the agent exits, Owl runs your project's own checks. A Job is finished only once they pass, and lands as a branch for you to review.
 ---
-
-## What it is
-
-Coding Owl is a daemon and a small desktop app for your Mac. You register a git
-repository as a Project and queue Jobs against it - a prompt each, with the
-branch and checks it should run under. When the machine has been idle for ten
-minutes and is on AC power, Owl picks the next Job, gives it a worktree and a
-branch of its own, and runs a coding agent on it. Claude Code is the first
-agent it knows how to drive.
-
-Nothing runs while you are at the keyboard. The moment you come back, the
-agent is stopped and the machine is yours again.
 
 ## How it works
 
@@ -25,9 +24,6 @@ agent is stopped and the machine is yours again.
 - **Owl owns the process, the agent owns the conversation.** Owl decides when
   to start, when to stop and what counts as done. The agent decides how to do
   the work.
-- **Verification gates completion.** After the agent exits, Owl runs the
-  Project's own checks. A Job is only done once they pass; until then it comes
-  back for another Run.
 - **Unattended by contract.** Every Run tells the agent it is running alone:
   make reasonable assumptions, write them down, commit as you go, and stop
   plainly when blocked.

@@ -8,9 +8,11 @@ const pages = defineCollection({
   loader: glob({ pattern: '*.md', base: './src/content/pages' }),
   schema: z.object({
     title: z.string(),
+    eyebrow: z.string(),
     tagline: z.string(),
     description: z.string(),
     install: z.string(),
+    features: z.array(z.object({ label: z.string(), title: z.string(), text: z.string() })),
   }),
 });
 

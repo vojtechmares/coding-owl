@@ -50,8 +50,8 @@ export default function Terminal() {
         <span className="dot text-line-strong" aria-hidden="true" />
         <span className="dot text-line-strong" aria-hidden="true" />
         <span className="dot text-line-strong" aria-hidden="true" />
-        <span className="label ml-2">owl session</span>
-        <span className="label ml-auto">zsh</span>
+        <span className="eyebrow ml-2">owl session</span>
+        <span className="eyebrow ml-auto">zsh</span>
       </div>
       <pre className="m-0 min-h-[21.5rem] overflow-x-auto px-4 py-3 whitespace-pre-wrap text-ink" aria-live="polite">
         {SESSION.slice(0, shown).map((line, i) => {
