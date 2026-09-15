@@ -442,7 +442,9 @@ func whyHere(d client.JobDetails) string {
 
 // printChecks reports what Verification said, every check of it: a Job that
 // was refused says everything that is wrong at once (ADR-0030). A failing
-// check's output follows it, indented.
+// check's output follows it, indented. A check is named in the Project's own
+// file and its output is whatever the Project's command printed, so the name,
+// the reason and every line of the output reach the terminal as text.
 func printChecks(env Env, checks []client.CheckResult) {
 	if len(checks) == 0 {
 		return
@@ -453,10 +455,10 @@ func printChecks(env Env, checks []client.CheckResult) {
 		if !c.Passed {
 			verdict = "failed"
 			if c.Reason != "" {
-				verdict += " (" + c.Reason + ")"
+				verdict += " (" + terminalSafe(c.Reason) + ")"
 			}
 		}
-		_, _ = fmt.Fprintf(env.Stdout, "- %s: %s\n", c.Name, verdict)
+		_, _ = fmt.Fprintf(env.Stdout, "- %s: %s\n", terminalSafe(c.Name), verdict)
 		// A check's output is evidence for a failure, and noise when it
 		// passed. The agent Verifier's findings are its answer either way: one
 		// that passed the work with a note wrote that note to be read
@@ -468,7 +470,7 @@ func printChecks(env Env, checks []client.CheckResult) {
 			if ln == "" {
 				continue
 			}
-			_, _ = fmt.Fprintf(env.Stdout, "    %s\n", ln)
+			_, _ = fmt.Fprintf(env.Stdout, "    %s\n", terminalSafe(ln))
 		}
 	}
 }
