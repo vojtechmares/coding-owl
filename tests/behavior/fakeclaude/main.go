@@ -20,13 +20,15 @@
 //	                         started in and not yet touched
 //	OWL_FAKE_CLAUDE_EXIT     exit status, default 0
 //	OWL_FAKE_CLAUDE_SIGNAL   signal the stub kills itself with instead of
-//	                         exiting, by name, such as SIGKILL: an Agent the
-//	                         OOM killer or somebody's kill -9 ends has no exit
-//	                         status of its own. Only a signal the Go runtime
-//	                         does not keep for itself will do - SIGKILL,
-//	                         SIGTERM, SIGINT, SIGHUP - and the stub exits 98
-//	                         for a name that is not a signal, or when it is
-//	                         still alive after sending one
+//	                         exiting, by name: an Agent the OOM killer or
+//	                         somebody's kill -9 ends has no exit status of its
+//	                         own. Only SIGHUP, SIGINT, SIGKILL and SIGTERM
+//	                         kill a Go program as themselves, so any other
+//	                         name is refused with exit status 98 before
+//	                         anything is sent, as is one of those the stub is
+//	                         ignoring: the runtime turns SIGSEGV, SIGABRT and
+//	                         SIGQUIT into exit status 2, and a stop signal
+//	                         pauses the stub rather than ending it
 //	OWL_FAKE_CLAUDE_STDERR   line written to standard error just before the
 //	                         stub exits or kills itself, so a scenario can see
 //	                         what an Agent said follow the reason a Run failed
@@ -69,6 +71,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -79,8 +82,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 // fillLine prefixes a directive that emits one line of the given many bytes,
@@ -194,26 +195,46 @@ func main() {
 	os.Exit(code)
 }
 
+// fatal is every signal the stub can be killed by as that signal: SIGKILL,
+// which nothing catches, and the three the Go runtime dies of when nothing in
+// the program asked for them. Any other would make a scenario about a killed
+// Agent quietly test something else. The runtime turns SIGSEGV, SIGABRT,
+// SIGQUIT and their like into an exit status 2 and a crash dump, catches the
+// rest and does nothing, and a stop signal pauses the stub rather than ending
+// it, holding the scenario until it times out.
+var fatal = map[string]syscall.Signal{
+	"SIGHUP":  syscall.SIGHUP,
+	"SIGINT":  syscall.SIGINT,
+	"SIGKILL": syscall.SIGKILL,
+	"SIGTERM": syscall.SIGTERM,
+}
+
 // dieTimeout bounds how long the stub waits to be killed by the signal it
-// sent itself. The runtime acts on most signals on a thread of its own, so the
+// sent itself. The runtime acts on a signal on a thread of its own, so the
 // death is not instant, but it is not slow either.
 const dieTimeout = 5 * time.Second
 
 // die kills the stub with the named signal, the way the OOM killer, a crash or
-// somebody's kill -9 ends an Agent: it never returns from a signal that kills
-// it, and reports the one that did not.
+// somebody's kill -9 ends an Agent, and returns only if the stub outlives it.
+// It refuses, before sending anything, a name that is not one of the signals
+// above, and one of those the stub is ignoring - SIGTERM under
+// OWL_FAKE_CLAUDE_IGNORE_TERM, or SIGHUP and SIGINT when it was started with
+// them ignored, which the runtime leaves as they were.
 func die(name string) error {
-	sig := unix.SignalNum(name)
-	if sig == 0 {
-		return fmt.Errorf("OWL_FAKE_CLAUDE_SIGNAL: %q names no signal", name)
+	sig, ok := fatal[name]
+	if !ok {
+		return fmt.Errorf("OWL_FAKE_CLAUDE_SIGNAL: the stub cannot be killed by %q as that signal; it can be by %s",
+			name, strings.Join(slices.Sorted(maps.Keys(fatal)), ", "))
+	}
+	if signal.Ignored(sig) {
+		return fmt.Errorf("OWL_FAKE_CLAUDE_SIGNAL: the stub is ignoring %s, so it cannot be killed by it", name)
 	}
 	if err := syscall.Kill(os.Getpid(), sig); err != nil {
 		return fmt.Errorf("OWL_FAKE_CLAUDE_SIGNAL: %w", err)
 	}
-	// A signal the runtime keeps for itself - SIGSEGV, SIGABRT, SIGQUIT - ends
-	// the stub with an exit status rather than with the signal, and one it
-	// ignores does not end it at all. Either would pass for an Agent that
-	// exited, so the stub says so instead.
+	// Every signal above ends the stub; this is only reached if something
+	// about the runtime changed, and a stub that outlived its signal would
+	// otherwise pass for an Agent that exited.
 	time.Sleep(dieTimeout)
 	return fmt.Errorf("OWL_FAKE_CLAUDE_SIGNAL: still alive %s after sending itself %s", dieTimeout, name)
 }
