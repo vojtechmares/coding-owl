@@ -5,51 +5,50 @@ import Base from '../../../layouts/Base.astro';
 const decisions = (await getCollection('decisions')).sort((a, b) => b.data.number - a.data.number);
 const pad = (n: number) => String(n).padStart(4, '0');
 const statusClass = (status: string) =>
-  status.startsWith('Accepted')
-    ? 'text-added border-added/40'
-    : status.startsWith('Superseded')
-      ? 'text-ink-faint border-glass-edge-strong'
-      : 'text-changed border-changed/40';
-const shortStatus = (status: string) => status.split(/[;,]/)[0].trim();
+  status.startsWith('Accepted') ? 'text-added' : status.startsWith('Superseded') ? 'text-ink-faint' : 'text-changed';
+const shortStatus = (status: string) => status.split(/[;,]/)[0].trim().toLowerCase();
 ---
 
 <Base
   title="Architecture decision records"
   description="One record per decision, numbered in the order they were accepted. Why Coding Owl is built the way it is."
 >
-  <nav class="text-sm text-ink-faint" aria-label="Breadcrumb">
-    <a href="/docs" class="no-underline hover:text-ink-dim">Docs</a>
+  <nav class="label" aria-label="Breadcrumb">
+    <a href="/docs" class="no-underline hover:text-ink">docs</a>
     <span class="mx-1.5" aria-hidden="true">/</span>
-    <span class="text-ink-dim">Decisions</span>
+    <span class="text-ink-dim">decisions</span>
   </nav>
-  <h1 class="mt-3 text-3xl font-semibold tracking-tight text-ink">Architecture decision records</h1>
+  <h1 class="mt-2 text-3xl font-semibold tracking-tight text-ink">Architecture decision records</h1>
   <p class="mt-3 max-w-xl text-ink-dim">
     One record per decision, numbered in the order decisions were accepted. Numbers are never reused and records
     are never deleted; a decision that stops being true is marked superseded and stays where it is.
   </p>
-  <ol class="glass mt-8 divide-y divide-glass-edge/70 overflow-hidden">
-    {
-      decisions.map((d) => (
-        <li>
-          <a
-            href={`/docs/decisions/${d.id}`}
-            class="flex items-baseline gap-4 px-5 py-3.5 no-underline transition-colors hover:bg-glass-strong"
-          >
-            <span class="w-12 shrink-0 font-mono text-xs text-ink-faint">{pad(d.data.number)}</span>
-            <span class="min-w-0 flex-1 text-[15px] text-ink">{d.data.title}</span>
-            <span class="hidden shrink-0 text-xs text-ink-faint sm:inline">{d.data.date}</span>
-            <span
-              class:list={[
-                'shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium',
-                statusClass(d.data.status),
-              ]}
-              title={d.data.status}
+  <div class="panel mt-8 overflow-hidden">
+    <div class="grid grid-cols-[3.5rem_1fr_auto] gap-4 border-b border-line bg-neutral-50 px-4 py-2 sm:grid-cols-[3.5rem_1fr_6rem_7rem]">
+      <span class="label">adr</span>
+      <span class="label">title</span>
+      <span class="label hidden sm:inline">date</span>
+      <span class="label">status</span>
+    </div>
+    <ol class="divide-y divide-line">
+      {
+        decisions.map((d) => (
+          <li>
+            <a
+              href={`/docs/decisions/${d.id}`}
+              class="grid grid-cols-[3.5rem_1fr_auto] items-baseline gap-4 px-4 py-3 no-underline transition-colors hover:bg-neutral-50 sm:grid-cols-[3.5rem_1fr_6rem_7rem]"
             >
-              {shortStatus(d.data.status)}
-            </span>
-          </a>
-        </li>
-      ))
-    }
-  </ol>
+              <span class="font-mono text-xs text-ink-faint">{pad(d.data.number)}</span>
+              <span class="min-w-0 text-[15px] text-ink">{d.data.title}</span>
+              <span class="hidden font-mono text-xs text-ink-faint sm:inline">{d.data.date}</span>
+              <span class:list={['inline-flex items-center gap-1.5 font-mono text-[11px]', statusClass(d.data.status)]} title={d.data.status}>
+                <span class="dot" aria-hidden="true" />
+                {shortStatus(d.data.status)}
+              </span>
+            </a>
+          </li>
+        ))
+      }
+    </ol>
+  </div>
 </Base>

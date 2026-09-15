@@ -9,23 +9,40 @@ export async function getStaticPaths() {
 }
 
 const { doc } = Astro.props;
-const { Content } = await render(doc);
+const { Content, headings } = await render(doc);
+const toc = headings.filter((h) => h.depth === 2);
 ---
 
 <Base title={doc.data.title} description={doc.data.description}>
-  <nav class="text-sm text-ink-faint" aria-label="Breadcrumb">
-    <a href="/docs" class="no-underline hover:text-ink-dim">Docs</a>
+  <nav class="label" aria-label="Breadcrumb">
+    <a href="/docs" class="no-underline hover:text-ink">docs</a>
     <span class="mx-1.5" aria-hidden="true">/</span>
-    <span class="text-ink-dim">{doc.data.title}</span>
+    <span class="text-ink-dim">{doc.id}</span>
   </nav>
-  <h1 class="mt-3 text-3xl font-semibold tracking-tight text-ink">{doc.data.title}</h1>
-  <p class="mt-2 text-ink-dim">{doc.data.description}</p>
-  <article class="glass prose mt-8 px-6 py-8 sm:px-8">
-    <Content />
-  </article>
-  <p class="mt-6 text-sm text-ink-faint">
-    Source: <a href={`${REPO}/blob/main/${doc.data.source}`} class="hover:text-ink-dim" rel="noopener"
-      >{doc.data.source}</a
-    >
+  <h1 class="mt-2 text-3xl font-semibold tracking-tight text-ink">{doc.data.title}</h1>
+  <p class="mt-2 max-w-xl text-ink-dim">{doc.data.description}</p>
+  <div class="mt-10 grid gap-10 lg:grid-cols-[1fr_12rem]">
+    <article class="prose order-2 lg:order-1">
+      <Content />
+    </article>
+    {
+      toc.length > 1 && (
+        <aside class="order-1 lg:order-2 lg:sticky lg:top-20 lg:self-start">
+          <p class="label mb-2">on this page</p>
+          <ol class="space-y-1.5 border-l border-line text-[13px]">
+            {toc.map((h) => (
+              <li>
+                <a href={`#${h.slug}`} class="-ml-px block border-l border-transparent pl-3 text-ink-dim no-underline hover:border-accent hover:text-ink">
+                  {h.text}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </aside>
+      )
+    }
+  </div>
+  <p class="mt-10 font-mono text-xs text-ink-faint">
+    source: <a href={`${REPO}/blob/main/${doc.data.source}`} class="hover:text-ink" rel="noopener">{doc.data.source}</a>
   </p>
 </Base>

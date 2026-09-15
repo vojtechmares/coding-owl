@@ -4,6 +4,7 @@ import { Image } from 'astro:assets';
 import Base from '../layouts/Base.astro';
 import Mark from '../components/Mark.astro';
 import CopyCommand from '../components/CopyCommand';
+import Terminal from '../components/Terminal';
 import { REPO } from '../lib/markdown';
 import overview from '../../../docs/desktop/overview.jpg';
 
@@ -13,58 +14,65 @@ const { Content } = await render(page);
 const { title, tagline, description, install } = page.data;
 ---
 
-<Base title={title} description={description} wide>
-  <section class="glass relative overflow-hidden px-6 py-10 sm:px-10 sm:py-14">
-    <div
-      class="pointer-events-none absolute -top-32 -right-24 h-72 w-72 rounded-full bg-accent/20 blur-3xl"
-      aria-hidden="true"
-    ></div>
-    <div class="flex items-center gap-4">
-      <Mark size={72} />
-      <p class="text-sm font-medium tracking-wide text-ink-faint uppercase">Coding agents, while you are away</p>
+<Base title={title} description={description}>
+  <section class="grid items-start gap-10 lg:grid-cols-[1.05fr_1fr] lg:gap-12">
+    <div class="min-w-0">
+      <div class="flex items-center gap-3">
+        <Mark size={40} />
+        <p class="label flex items-center gap-2">
+          <span class="dot text-accent" aria-hidden="true"></span>
+          macOS · daemon + desktop app
+        </p>
+      </div>
+      <h1 class="mt-6 text-4xl font-semibold tracking-tight text-ink sm:text-[2.75rem] sm:leading-[1.1]">
+        {tagline}
+      </h1>
+      <p class="mt-5 max-w-lg text-lg leading-8 text-ink-dim">{description}</p>
+      <div class="mt-7 max-w-lg">
+        <CopyCommand client:load command={install} />
+      </div>
+      <div class="mt-4 flex flex-wrap gap-2 text-sm">
+        <a
+          href="/docs/guide#installing"
+          class="rounded-(--radius-control) bg-accent px-3.5 py-2 font-medium text-ink-on-accent no-underline transition-colors hover:bg-accent-strong"
+        >
+          Get started
+        </a>
+        <a
+          href="/docs"
+          class="panel px-3.5 py-2 font-medium text-ink no-underline transition-colors hover:border-line-strong"
+        >
+          Read the docs
+        </a>
+        <a
+          href={REPO}
+          rel="noopener"
+          class="px-3.5 py-2 font-mono text-[13px] text-ink-dim no-underline transition-colors hover:text-ink"
+        >
+          github →
+        </a>
+      </div>
     </div>
-    <h1 class="mt-6 text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-      {tagline}
-    </h1>
-    <p class="mt-5 max-w-xl text-lg leading-8 text-ink-dim">{description}</p>
-    <div class="mt-8 max-w-xl">
-      <CopyCommand client:load command={install} />
-    </div>
-    <div class="mt-5 flex flex-wrap gap-3 text-sm">
-      <a
-        href="/docs/guide#installing"
-        class="rounded-(--radius-control) bg-accent px-4 py-2 font-medium text-ink-on-accent no-underline transition-colors hover:bg-accent-strong"
-      >
-        Get started
-      </a>
-      <a
-        href="/docs"
-        class="rounded-(--radius-control) border border-glass-edge-strong bg-glass px-4 py-2 font-medium text-ink no-underline transition-colors hover:bg-glass-strong"
-      >
-        Read the docs
-      </a>
-      <a
-        href={REPO}
-        rel="noopener"
-        class="rounded-(--radius-control) px-4 py-2 font-medium text-ink-dim no-underline transition-colors hover:text-ink"
-      >
-        Source on GitHub
-      </a>
+    <div class="min-w-0">
+      <Terminal client:load />
     </div>
   </section>
 
-  <figure class="glass mt-8 overflow-hidden p-2">
-    <Image
-      src={overview}
-      alt="The Coding Owl desktop app: the overview with jobs pending, one awaiting review and one blocked."
-      widths={[640, 960, 1400]}
-      sizes="(min-width: 768px) 736px, 100vw"
-      class="w-full rounded-(--radius-control)"
-      loading="eager"
-    />
-  </figure>
+  <section class="mt-16">
+    <p class="label mb-3">the desktop app</p>
+    <figure class="panel overflow-hidden p-1.5">
+      <Image
+        src={overview}
+        alt="The Coding Owl desktop app: the overview with jobs pending, one awaiting review and one blocked."
+        widths={[640, 960, 1400]}
+        sizes="(min-width: 896px) 864px, 100vw"
+        class="w-full rounded-[3px]"
+        loading="lazy"
+      />
+    </figure>
+  </section>
 
-  <article class="glass prose mt-8 px-6 py-8 sm:px-10 sm:py-10">
+  <article class="prose mt-16">
     <Content />
   </article>
 </Base>
