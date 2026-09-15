@@ -24,6 +24,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/vojtechmares/coding-owl/internal/account"
 	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/driver"
@@ -76,7 +78,8 @@ type Outcome string
 const (
 	// OutcomeSucceeded is an Agent that exited cleanly.
 	OutcomeSucceeded Outcome = "succeeded"
-	// OutcomeFailed is an Agent that exited non-zero, or could not be run.
+	// OutcomeFailed is an Agent that exited non-zero, was killed by a signal
+	// Owl did not send, or could not be run.
 	OutcomeFailed Outcome = "failed"
 	// OutcomeInterrupted is a Run that was stopped rather than finished.
 	OutcomeInterrupted Outcome = "interrupted"
@@ -1458,17 +1461,26 @@ func (s *Service) execute(r store.Run, account string, req driver.Request, b *br
 	// write for good, and the Run would hold its Job until the daemon stopped.
 	_, _ = io.Copy(io.Discard, proc.Stdout())
 	code, waitErr := proc.Wait()
+	killedBy := proc.KilledBy()
 
 	why, ended := s.interrupted(r.ID)
 	switch {
 	// This daemon ends a Run by stopping its Agent, so the Agent's death is
-	// how the Run was meant to end rather than a failure of its own.
+	// how the Run was meant to end rather than a failure of its own - whatever
+	// signal it finally died of (ADR-0011, ADR-0034).
 	case ended:
 		return OutcomeInterrupted, why, store.NoExitCode
 	case s.ctx.Err() != nil:
 		return OutcomeInterrupted, "the daemon stopped while the agent was working", store.NoExitCode
 	case waitErr != nil:
 		return OutcomeFailed, fmt.Sprintf("waiting for the agent: %v", waitErr), store.NoExitCode
+	// Anything else that killed it - the OOM killer, a crash, somebody's
+	// kill -9 - is not how the Run was meant to end. An Agent killed by a
+	// signal did not exit with a status, so the signal is named where the
+	// status would have been, and none is recorded.
+	case killedBy != nil:
+		return OutcomeFailed, fmt.Sprintf("the agent was killed by %s%s",
+			signalName(killedBy), quote(proc.Stderr())), store.NoExitCode
 	case code != 0:
 		return OutcomeFailed, fmt.Sprintf("the agent exited with status %d%s", code, quote(proc.Stderr())), code
 	case readErr != nil:
@@ -1498,6 +1510,17 @@ func quote(stderr string) string {
 		return ""
 	}
 	return ": " + stderr
+}
+
+// signalName is a signal as a person looks it up, SIGKILL, rather than the
+// "killed" a signal describes itself as.
+func signalName(sig os.Signal) string {
+	if s, ok := sig.(syscall.Signal); ok {
+		if name := unix.SignalName(s); name != "" {
+			return name
+		}
+	}
+	return sig.String()
 }
 
 func trimTail(s string, n int) string {
