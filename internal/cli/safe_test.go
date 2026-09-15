@@ -2,8 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/vojtechmares/coding-owl/internal/client"
 )
@@ -85,6 +87,38 @@ func TestJobsShowPrintsAReportWithNothingToEscapeAsItWas(t *testing.T) {
 
 	if got := out.String(); got != reportedAsItWas {
 		t.Errorf("owl jobs show printed\n%s\nwant it byte for byte as it was\n%s", got, reportedAsItWas)
+	}
+}
+
+// TestJobsShowShowsAnEscapeFromOutsideOwlAsText puts an escape in one value
+// of the report at a time. Wherever it is, the report reaches the terminal as
+// text, with the escape shown as the bytes it is.
+func TestJobsShowShowsAnEscapeFromOutsideOwlAsText(t *testing.T) {
+	const escape, shown = "\x1b]0;pwned\a\x1b[2K", `\x1b]0;pwned\x07\x1b[2K`
+	for _, c := range []struct {
+		what  string
+		carry func(d *client.JobDetails)
+	}{
+		{"the plan", func(d *client.JobDetails) { d.Job.Plan = "read the tests " + escape + "\n\tthen fix them\n" }},
+		{"the handoff", func(d *client.JobDetails) { d.Handoff = "step two " + escape + "\n\tthe tab stays\n" }},
+		{"the system prompt", func(d *client.JobDetails) { d.SystemPrompt += "\n- run gofmt " + escape }},
+		{"the verifier system prompt", func(d *client.JobDetails) { d.VerifierSystemPrompt += "\n- " + escape }},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			d := reported()
+			c.carry(&d)
+			var out bytes.Buffer
+
+			printJob(Env{Stdout: &out}, d)
+
+			got := out.String()
+			if strings.ContainsFunc(got, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) {
+				t.Errorf("owl jobs show reaches the terminal with a control character in it:\n%q", got)
+			}
+			if !strings.Contains(got, shown) {
+				t.Errorf("owl jobs show does not show the escape as text:\n%s", got)
+			}
+		})
 	}
 }
 
