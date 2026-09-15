@@ -8,14 +8,17 @@ const pad = (n: number) => String(n).padStart(4, '0');
 const statusClass = (status: string) =>
   status.startsWith('Accepted') ? 'text-added' : status.startsWith('Superseded') ? 'text-ink-faint' : 'text-changed';
 const shortStatus = (status: string) => status.split(/[;,]/)[0].trim();
+const crumbs = [{ href: '/docs', label: 'Docs' }, { label: 'Decisions' }];
 ---
 
 <Base
   title="Architecture decision records"
   description="One record per decision, numbered in the order they were accepted. Why Coding Owl is built the way it is."
+  collection
+  crumbs={crumbs}
 >
   <PageHead
-    crumbs={[{ href: '/docs', label: 'Docs' }, { label: 'Decisions' }]}
+    crumbs={crumbs}
     title="Architecture decision records."
     lead="One record per decision, numbered in the order decisions were accepted. Numbers are never reused and records are never deleted; a decision that stops being true is marked superseded and stays where it is."
   />

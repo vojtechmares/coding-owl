@@ -12,10 +12,11 @@ export async function getStaticPaths() {
 const { doc } = Astro.props;
 const { Content, headings } = await render(doc);
 const toc = headings.filter((h) => h.depth === 2);
+const crumbs = [{ href: '/docs', label: 'Docs' }, { label: doc.data.title }];
 ---
 
-<Base title={doc.data.title} description={doc.data.description}>
-  <PageHead crumbs={[{ href: '/docs', label: 'Docs' }, { label: doc.data.title }]} title={doc.data.title} lead={doc.data.description} />
+<Base title={doc.data.title} description={doc.data.description} type="article" crumbs={crumbs}>
+  <PageHead crumbs={crumbs} title={doc.data.title} lead={doc.data.description} />
   <div class="grid gap-12 border-t border-line pt-12 lg:grid-cols-[1fr_14rem] lg:gap-20">
     <article class="prose order-2 lg:order-1">
       <Content />

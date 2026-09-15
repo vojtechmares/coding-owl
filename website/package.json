@@ -14,10 +14,12 @@
     "preview:worker": "astro build && wrangler dev",
     "check": "astro sync && tsc --noEmit && tsc -p worker",
     "deploy": "astro build && wrangler deploy",
+    "og": "node scripts/og.mjs",
     "astro": "astro"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.0",
+    "@astrojs/sitemap": "^3.7.3",
     "@tailwindcss/vite": "^4.0.0",
     "astro": "^7.0.0",
     "marked": "^18.0.11",

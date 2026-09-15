@@ -22,11 +22,18 @@ const meta: [string, string][] = [
 ];
 if (d.data.supersedes) meta.push(['Supersedes', d.data.supersedes]);
 if (d.data.amended) meta.push(['Amended', d.data.amended]);
+const crumbs = [{ href: '/docs', label: 'Docs' }, { href: '/docs/decisions', label: 'Decisions' }, { label: `ADR-${num}` }];
 ---
 
-<Base title={`ADR-${num}: ${d.data.title}`} description={`Architecture decision record ${num}: ${d.data.title}.`}>
+<Base
+  title={`ADR-${num}: ${d.data.title}`}
+  description={`Architecture decision record ${num}: ${d.data.title}.`}
+  type="article"
+  crumbs={crumbs}
+  datePublished={d.data.date}
+>
   <PageHead
-    crumbs={[{ href: '/docs', label: 'Docs' }, { href: '/docs/decisions', label: 'Decisions' }, { label: `ADR-${num}` }]}
+    crumbs={crumbs}
     eyebrow={`ADR-${num}`}
     title={d.data.title}
   />
