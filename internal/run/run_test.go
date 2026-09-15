@@ -100,6 +100,10 @@ type fakeExecutor struct {
 	// stderr what it wrote to standard error before it ended.
 	killedBy os.Signal
 	stderr   string
+	// diesOf is the signal a held Agent is killed by when it is sent it, as
+	// one that will not stop when it is asked dies of the kill that follows
+	// (ADR-0034). Every other signal it is sent does nothing.
+	diesOf os.Signal
 	// hold keeps the Agent running until it is closed or the run is cancelled.
 	hold chan struct{}
 	// started is closed once an Agent has been started.
@@ -111,7 +115,10 @@ func (*fakeExecutor) Name() string { return "fake" }
 
 func (e *fakeExecutor) Start(ctx context.Context, _ agent.Invocation) (agent.Process, error) {
 	r, w := io.Pipe()
-	p := &fakeProcess{out: r, code: e.exitCode, killedBy: e.killedBy, stderr: e.stderr, done: make(chan struct{})}
+	p := &fakeProcess{
+		out: r, code: e.exitCode, killedBy: e.killedBy, stderr: e.stderr, done: make(chan struct{}),
+		diesOf: e.diesOf, killed: make(chan struct{}),
+	}
 	if e.killedBy != nil {
 		// What Go gives a process that was killed rather than exited, which
 		// is what the host Executor has always reported as its status.
@@ -131,6 +138,8 @@ func (e *fakeExecutor) Start(ctx context.Context, _ agent.Invocation) (agent.Pro
 			case <-e.hold:
 			case <-ctx.Done():
 				p.code = 130
+			case <-p.killed:
+				p.code, p.killedBy = -1, p.diesOf
 			}
 		}
 		_ = w.Close()
@@ -145,13 +154,27 @@ type fakeProcess struct {
 	killedBy os.Signal
 	stderr   string
 	done     chan struct{}
+	// diesOf is the fake Executor's, and killed is closed once the Agent has
+	// been sent it.
+	diesOf os.Signal
+	killed chan struct{}
+	kill   sync.Once
 }
 
-func (p *fakeProcess) Stdout() io.Reader           { return p.out }
-func (p *fakeProcess) SignalGroup(os.Signal) error { return nil }
-func (p *fakeProcess) Stderr() string              { return p.stderr }
-func (p *fakeProcess) Wait() (int, error)          { <-p.done; return p.code, nil }
-func (p *fakeProcess) KilledBy() os.Signal         { return p.killedBy }
+func (p *fakeProcess) Stdout() io.Reader { return p.out }
+
+// SignalGroup kills a held Agent that is sent the signal it dies of, and does
+// nothing with any other.
+func (p *fakeProcess) SignalGroup(sig os.Signal) error {
+	if p.diesOf != nil && sig == p.diesOf {
+		p.kill.Do(func() { close(p.killed) })
+	}
+	return nil
+}
+
+func (p *fakeProcess) Stderr() string      { return p.stderr }
+func (p *fakeProcess) Wait() (int, error)  { <-p.done; return p.code, nil }
+func (p *fakeProcess) KilledBy() os.Signal { return p.killedBy }
 
 // fakeVerifier answers with what a scenario scripted rather than running
 // anything.
@@ -635,6 +658,48 @@ func TestCloseInterruptsARunWhoseAgentDiesOfTheSignal(t *testing.T) {
 	r := lastRun(t, st, j.ID)
 	if r.Outcome != string(run.OutcomeInterrupted) || strings.Contains(r.Error, "SIGTERM") {
 		t.Errorf("run = %+v, want it interrupted by the daemon stopping rather than failed by the signal", r)
+	}
+}
+
+// The grace window ends a Run by signalling its Agent, and an Agent that will
+// not stop when it is asked dies of the SIGKILL that follows (ADR-0034). That
+// death is how Owl meant the Run to end, so the Run is interrupted with the
+// window as its reason rather than failed by the signal (issue #101).
+func TestTheGraceWindowInterruptsARunWhoseAgentDiesOfTheKill(t *testing.T) {
+	ctx := context.Background()
+	started := make(chan struct{})
+	e := &fakeExecutor{hold: make(chan struct{}), started: started, diesOf: syscall.SIGKILL}
+	svc, st, _, root := newVerifiedFixture(t, &fakeDriver{}, e, &fakeVerifier{})
+	writeGlobal(t, root, "apiVersion: codingowl.dev/v1\ngraceWindow: 10ms\n")
+	j := queueJob(t, st, "work")
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started
+	// The Agent is started a moment before the daemon can reach it, so
+	// pausing is asked again until there is a Run to freeze.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_, _, err := svc.Pause(ctx, run.ByUser)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Pause: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	r := awaitEnded(t, st, j.ID)
+
+	if r.Outcome != string(run.OutcomeInterrupted) {
+		t.Errorf("outcome = %q, want interrupted", r.Outcome)
+	}
+	if !strings.Contains(r.Error, "grace window") || strings.Contains(r.Error, "SIG") {
+		t.Errorf("reason = %q, want the grace window, not the signal the agent died of", r.Error)
+	}
+	if r.ExitCode != store.NoExitCode {
+		t.Errorf("exit status = %d, want none recorded", r.ExitCode)
 	}
 }
 
