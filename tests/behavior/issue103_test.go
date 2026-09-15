@@ -31,12 +31,25 @@ const (
 // nextPromptHeading heads the prompt the Job's next Run will be given.
 const nextPromptHeading = "the next run will be given this system prompt:"
 
+// givenPromptPhrase is how every heading of a prompt a Run was given ends,
+// whatever Runs it names.
+const givenPromptPhrase = "was given this system prompt:"
+
+// The Runs a heading or a line names, in the wording the sheet quotes: `run
+// <id> was` for one Run, `runs <id>, <id> were` for several. The one Run is the
+// first group and the several the second, so namedRuns reads either.
 var (
 	// givenPromptRE heads a prompt the named Runs were given.
-	givenPromptRE = regexp.MustCompile(`^runs? (\d+(?:, \d+)*) (?:was|were) given this system prompt:$`)
+	givenPromptRE = regexp.MustCompile(`^(?:run (\d+) was|runs (\d+(?:, \d+)+) were) given this system prompt:$`)
 	// unrecordedPromptRE is the line for Runs whose prompt was not recorded.
-	unrecordedPromptRE = regexp.MustCompile(`^the system prompt runs? (\d+(?:, \d+)*) (?:was|were) given was not recorded$`)
+	unrecordedPromptRE = regexp.MustCompile(`^the system prompt (?:run (\d+) was|runs (\d+(?:, \d+)+) were) given was not recorded$`)
 )
+
+// namedRuns is the Run ids a match of one of those names, whichever of its
+// wordings matched.
+func namedRuns(m []string) []string {
+	return strings.Split(m[1]+m[2], ", ")
+}
 
 // printedPrompt is one system prompt owl jobs show printed: the Runs its
 // heading says were given it, or that it is what the next Run will be given,
@@ -66,7 +79,7 @@ func printedPrompts(out string) []printedPrompt {
 		switch {
 		case m != nil:
 			flush()
-			open = &printedPrompt{runs: strings.Split(m[1], ", ")}
+			open = &printedPrompt{runs: namedRuns(m)}
 		case ln == nextPromptHeading:
 			flush()
 			open = &printedPrompt{next: true}
@@ -86,7 +99,7 @@ func unrecordedPrompts(out string) [][]string {
 	var got [][]string
 	for _, ln := range strings.Split(out, "\n") {
 		if m := unrecordedPromptRE.FindStringSubmatch(ln); m != nil {
-			got = append(got, strings.Split(m[1], ", "))
+			got = append(got, namedRuns(m))
 		}
 	}
 	return got
@@ -267,6 +280,9 @@ func TestS3PromptOfARunOutlivesAChangeToTheClauses(t *testing.T) {
 	addJob(t, l, r.dir, "work", "--no-plan")
 	runID, job := startRun(t, l)
 	before := finished(t, l, job)
+	if state := line(t, before, "state"); state != "review" {
+		t.Fatalf("the job is %s after its run, want review:\n%s", state, before)
+	}
 
 	changeClause(t, r, gofmtClause, linterClause)
 	after := mustOwl(t, l, "jobs", "show", job).stdout
@@ -296,6 +312,9 @@ func TestS4PromptOfAJobWithNoRunsIsTheNextRuns(t *testing.T) {
 	}
 	if got := unrecordedPrompts(out); len(got) != 0 {
 		t.Errorf("a job with no runs reports runs %v with no recorded prompt:\n%s", got, out)
+	}
+	if strings.Contains(out, givenPromptPhrase) {
+		t.Errorf("a job with no runs says a run was given a system prompt:\n%s", out)
 	}
 
 	_, job := startRun(t, l)
@@ -364,7 +383,9 @@ func TestS7PromptNotRecordedIsNotSubstituted(t *testing.T) {
 	d := daemonUp(t, l)
 	runnableJob(t, l, "work")
 	runID, job := startRun(t, l)
-	finished(t, l, job)
+	if state := line(t, finished(t, l, job), "state"); state != "review" {
+		t.Fatalf("the job is %s after its run, want review", state)
+	}
 	unrecord(t, l, d, job)
 
 	out := mustOwl(t, l, "jobs", "show", job).stdout
@@ -374,6 +395,9 @@ func TestS7PromptNotRecordedIsNotSubstituted(t *testing.T) {
 	}
 	if got := printedPrompts(out); len(got) != 0 {
 		t.Errorf("owl jobs show printed %d system prompts for a job whose only run has none recorded:\n%s", len(got), out)
+	}
+	if strings.Contains(out, givenPromptPhrase) || strings.Contains(out, nextPromptHeading) {
+		t.Errorf("owl jobs show heads a prompt for a job whose only run has none recorded:\n%s", out)
 	}
 	if strings.Contains(out, run.Contract) {
 		t.Errorf("today's prompt stands in for the one that was not recorded:\n%s", out)
