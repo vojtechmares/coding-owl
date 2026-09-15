@@ -387,6 +387,7 @@ export namespace client {
 	    Phase: string;
 	    Skills: Skill[];
 	    Permissions: string[];
+	    SystemPrompt: string;
 	    Paused: boolean;
 	    Stage: string;
 	
@@ -408,6 +409,7 @@ export namespace client {
 	        this.Phase = source["Phase"];
 	        this.Skills = this.convertValues(source["Skills"], Skill);
 	        this.Permissions = source["Permissions"];
+	        this.SystemPrompt = source["SystemPrompt"];
 	        this.Paused = source["Paused"];
 	        this.Stage = source["Stage"];
 	    }
@@ -434,6 +436,7 @@ export namespace client {
 	    Job: Job;
 	    Runs: Run[];
 	    SystemPrompt: string;
+	    NextSystemPrompt: string;
 	    VerifierSystemPrompt: string;
 	    Phases: PhaseSettings[];
 	    Checks: CheckResult[];
@@ -449,6 +452,7 @@ export namespace client {
 	        this.Job = this.convertValues(source["Job"], Job);
 	        this.Runs = this.convertValues(source["Runs"], Run);
 	        this.SystemPrompt = source["SystemPrompt"];
+	        this.NextSystemPrompt = source["NextSystemPrompt"];
 	        this.VerifierSystemPrompt = source["VerifierSystemPrompt"];
 	        this.Phases = this.convertValues(source["Phases"], PhaseSettings);
 	        this.Checks = this.convertValues(source["Checks"], CheckResult);
