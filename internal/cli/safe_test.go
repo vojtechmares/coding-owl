@@ -106,6 +106,9 @@ func TestJobsShowShowsAnEscapeFromOutsideOwlAsText(t *testing.T) {
 		{"a check's name", func(d *client.JobDetails) { d.Checks[1].Name = "lint " + escape }},
 		{"a check's reason", func(d *client.JobDetails) { d.Checks[1].Reason = "could not be run: " + escape }},
 		{"a check's output", func(d *client.JobDetails) { d.Checks[1].Output = "lint is unhappy " + escape + "\n\tat line two\n" }},
+		{"a Skill's name", func(d *client.JobDetails) { d.Runs[1].Skills[0].Name = "go-review" + escape }},
+		{"a Skill's source", func(d *client.JobDetails) { d.Runs[1].Skills[0].Source = "github.com/x/go-review" + escape }},
+		{"a Skill's ref", func(d *client.JobDetails) { d.Runs[1].Skills[0].Ref = "v1.4.0" + escape }},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			d := reported()
