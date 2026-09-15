@@ -73,8 +73,8 @@ type JobServiceClient interface {
 	ReorderJob(context.Context, *connect.Request[v1.ReorderJobRequest]) (*connect.Response[v1.ReorderJobResponse], error)
 	// StartRun runs the Job at the head of the queue.
 	StartRun(context.Context, *connect.Request[v1.StartRunRequest]) (*connect.Response[v1.StartRunResponse], error)
-	// GetJob returns one Job with its Runs and the system prompt in force for
-	// it.
+	// GetJob returns one Job with its Runs and the system prompts its Agents
+	// were and will be given.
 	GetJob(context.Context, *connect.Request[v1.GetJobRequest]) (*connect.Response[v1.GetJobResponse], error)
 	// StreamRunLog sends a Run's captured output, and with follow keeps sending
 	// until the Run ends.
@@ -283,8 +283,8 @@ type JobServiceHandler interface {
 	ReorderJob(context.Context, *connect.Request[v1.ReorderJobRequest]) (*connect.Response[v1.ReorderJobResponse], error)
 	// StartRun runs the Job at the head of the queue.
 	StartRun(context.Context, *connect.Request[v1.StartRunRequest]) (*connect.Response[v1.StartRunResponse], error)
-	// GetJob returns one Job with its Runs and the system prompt in force for
-	// it.
+	// GetJob returns one Job with its Runs and the system prompts its Agents
+	// were and will be given.
 	GetJob(context.Context, *connect.Request[v1.GetJobRequest]) (*connect.Response[v1.GetJobResponse], error)
 	// StreamRunLog sends a Run's captured output, and with follow keeps sending
 	// until the Run ends.

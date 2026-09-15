@@ -603,7 +603,11 @@ type Run struct {
 	Skills []*Skill `protobuf:"bytes,11,rep,name=skills,proto3" json:"skills,omitempty"`
 	// Permissions is what this Run's Agent was allowed to do, in the tool's own
 	// rule syntax and in the order it read them (ADR-0035).
-	Permissions   []string `protobuf:"bytes,14,rep,name=permissions,proto3" json:"permissions,omitempty"`
+	Permissions []string `protobuf:"bytes,14,rep,name=permissions,proto3" json:"permissions,omitempty"`
+	// SystemPrompt is the system prompt this Run's Agent was given, as recorded
+	// when the Run started (ADR-0017). It is empty for a Run from before prompts
+	// were recorded: a recorded one always carries the contract.
+	SystemPrompt  string `protobuf:"bytes,15,opt,name=system_prompt,json=systemPrompt,proto3" json:"system_prompt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -734,6 +738,13 @@ func (x *Run) GetPermissions() []string {
 		return x.Permissions
 	}
 	return nil
+}
+
+func (x *Run) GetSystemPrompt() string {
+	if x != nil {
+		return x.SystemPrompt
+	}
+	return ""
 }
 
 type PauseRunRequest struct {
@@ -1509,9 +1520,15 @@ type GetJobResponse struct {
 	// work, for a Project that asked for one and empty for one that did not
 	// (ADR-0013, ADR-0017).
 	VerifierSystemPrompt string `protobuf:"bytes,8,opt,name=verifier_system_prompt,json=verifierSystemPrompt,proto3" json:"verifier_system_prompt,omitempty"`
-	// SystemPrompt is the unattended contract with the Project's own clauses
-	// appended, exactly as the Agent is given it (ADR-0017).
+	// SystemPrompt is the system prompt the Job's most recent Run was given, as
+	// recorded: the unattended contract with the Project's own clauses appended
+	// (ADR-0017). A Job with no Runs has the one its next Run will be given, and
+	// one whose most recent Run is from before prompts were recorded has none.
+	// Each Run carries its own.
 	SystemPrompt string `protobuf:"bytes,3,opt,name=system_prompt,json=systemPrompt,proto3" json:"system_prompt,omitempty"`
+	// NextSystemPrompt is the system prompt the Job's next Run would be given,
+	// built from the Project's clauses on its base branch as they are now.
+	NextSystemPrompt string `protobuf:"bytes,9,opt,name=next_system_prompt,json=nextSystemPrompt,proto3" json:"next_system_prompt,omitempty"`
 	// Checks is what Verification said about the Job's most recent verified Run,
 	// in the order the checks were configured (ADR-0030).
 	Checks []*CheckResult `protobuf:"bytes,5,rep,name=checks,proto3" json:"checks,omitempty"`
@@ -1582,6 +1599,13 @@ func (x *GetJobResponse) GetVerifierSystemPrompt() string {
 func (x *GetJobResponse) GetSystemPrompt() string {
 	if x != nil {
 		return x.SystemPrompt
+	}
+	return ""
+}
+
+func (x *GetJobResponse) GetNextSystemPrompt() string {
+	if x != nil {
+		return x.NextSystemPrompt
 	}
 	return ""
 }
@@ -2739,7 +2763,7 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"model_from\x18\x03 \x01(\tR\tmodelFrom\x12\x16\n" +
 	"\x06effort\x18\x04 \x01(\tR\x06effort\x12\x1f\n" +
 	"\veffort_from\x18\x05 \x01(\tR\n" +
-	"effortFrom\"\xc3\x03\n" +
+	"effortFrom\"\xe8\x03\n" +
 	"\x03Run\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\x03R\x05jobId\x12\x18\n" +
@@ -2755,7 +2779,8 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\x05stage\x18\r \x01(\tR\x05stage\x12\x1b\n" +
 	"\texit_code\x18\t \x01(\x05R\bexitCode\x12+\n" +
 	"\x06skills\x18\v \x03(\v2\x13.codingowl.v1.SkillR\x06skills\x12 \n" +
-	"\vpermissions\x18\x0e \x03(\tR\vpermissions\"\x11\n" +
+	"\vpermissions\x18\x0e \x03(\tR\vpermissions\x12#\n" +
+	"\rsystem_prompt\x18\x0f \x01(\tR\fsystemPrompt\"\x11\n" +
 	"\x0fPauseRunRequest\"|\n" +
 	"\x10PauseRunResponse\x12#\n" +
 	"\x03run\x18\x01 \x01(\v2\x11.codingowl.v1.RunR\x03run\x12%\n" +
@@ -2796,12 +2821,13 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\x03job\x18\x02 \x01(\v2\x11.codingowl.v1.JobR\x03job\x12#\n" +
 	"\x03run\x18\x03 \x01(\v2\x11.codingowl.v1.RunR\x03run\"\x1f\n" +
 	"\rGetJobRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x03R\x02id\"\xe8\x02\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\"\x96\x03\n" +
 	"\x0eGetJobResponse\x12#\n" +
 	"\x03job\x18\x01 \x01(\v2\x11.codingowl.v1.JobR\x03job\x12%\n" +
 	"\x04runs\x18\x02 \x03(\v2\x11.codingowl.v1.RunR\x04runs\x124\n" +
 	"\x16verifier_system_prompt\x18\b \x01(\tR\x14verifierSystemPrompt\x12#\n" +
-	"\rsystem_prompt\x18\x03 \x01(\tR\fsystemPrompt\x121\n" +
+	"\rsystem_prompt\x18\x03 \x01(\tR\fsystemPrompt\x12,\n" +
+	"\x12next_system_prompt\x18\t \x01(\tR\x10nextSystemPrompt\x121\n" +
 	"\x06checks\x18\x05 \x03(\v2\x19.codingowl.v1.CheckResultR\x06checks\x123\n" +
 	"\x06phases\x18\x04 \x03(\v2\x1b.codingowl.v1.PhaseSettingsR\x06phases\x12\x18\n" +
 	"\ahandoff\x18\x06 \x01(\tR\ahandoff\x12-\n" +

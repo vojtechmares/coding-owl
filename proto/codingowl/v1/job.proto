@@ -22,8 +22,8 @@ service JobService {
   rpc ReorderJob(ReorderJobRequest) returns (ReorderJobResponse) {}
   // StartRun runs the Job at the head of the queue.
   rpc StartRun(StartRunRequest) returns (StartRunResponse) {}
-  // GetJob returns one Job with its Runs and the system prompt in force for
-  // it.
+  // GetJob returns one Job with its Runs and the system prompts its Agents
+  // were and will be given.
   rpc GetJob(GetJobRequest) returns (GetJobResponse) {}
   // StreamRunLog sends a Run's captured output, and with follow keeps sending
   // until the Run ends.
@@ -197,6 +197,10 @@ message Run {
   // Permissions is what this Run's Agent was allowed to do, in the tool's own
   // rule syntax and in the order it read them (ADR-0035).
   repeated string permissions = 14;
+  // SystemPrompt is the system prompt this Run's Agent was given, as recorded
+  // when the Run started (ADR-0017). It is empty for a Run from before prompts
+  // were recorded: a recorded one always carries the contract.
+  string system_prompt = 15;
 }
 
 message PauseRunRequest {}
@@ -298,9 +302,15 @@ message GetJobResponse {
   // work, for a Project that asked for one and empty for one that did not
   // (ADR-0013, ADR-0017).
   string verifier_system_prompt = 8;
-  // SystemPrompt is the unattended contract with the Project's own clauses
-  // appended, exactly as the Agent is given it (ADR-0017).
+  // SystemPrompt is the system prompt the Job's most recent Run was given, as
+  // recorded: the unattended contract with the Project's own clauses appended
+  // (ADR-0017). A Job with no Runs has the one its next Run will be given, and
+  // one whose most recent Run is from before prompts were recorded has none.
+  // Each Run carries its own.
   string system_prompt = 3;
+  // NextSystemPrompt is the system prompt the Job's next Run would be given,
+  // built from the Project's clauses on its base branch as they are now.
+  string next_system_prompt = 9;
   // Checks is what Verification said about the Job's most recent verified Run,
   // in the order the checks were configured (ADR-0030).
   repeated CheckResult checks = 5;

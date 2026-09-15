@@ -98,6 +98,7 @@ func (s *jobService) GetJob(ctx context.Context, req *connect.Request[codingowlv
 		Job:                  toJobProto(d.Job),
 		Runs:                 make([]*codingowlv1.Run, 0, len(d.Runs)),
 		SystemPrompt:         d.SystemPrompt,
+		NextSystemPrompt:     d.NextSystemPrompt,
 		VerifierSystemPrompt: d.VerifierSystemPrompt,
 		Phases:               make([]*codingowlv1.PhaseSettings, 0, len(d.Phases)),
 		Handoff:              d.Handoff,
@@ -266,6 +267,8 @@ func toRunProto(r run.Run) *codingowlv1.Run {
 		Stage:    string(r.Stage),
 		// What the Agent was allowed to do, as recorded (ADR-0035).
 		Permissions: r.Permissions,
+		// And what it was told, as recorded (ADR-0017).
+		SystemPrompt: r.SystemPrompt,
 	}
 	if !r.Ended.IsZero() {
 		out.Ended = timestamppb.New(r.Ended)

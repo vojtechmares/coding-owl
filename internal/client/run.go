@@ -39,6 +39,10 @@ type Run struct {
 	// Permissions is what the Run's Agent was allowed to do, in the tool's
 	// own rule syntax and in the order it read them (ADR-0035).
 	Permissions []string
+	// SystemPrompt is the system prompt the Run's Agent was given, as
+	// recorded when the Run started (ADR-0017), and empty for a Run from
+	// before prompts were recorded.
+	SystemPrompt string
 	// Paused is whether the Run is frozen right now (ADR-0011).
 	Paused bool
 	// Stage is where a Run that has not ended is: starting, agent, verifying
@@ -79,9 +83,14 @@ type PhaseSettings struct {
 type JobDetails struct {
 	Job  Job
 	Runs []Run
-	// SystemPrompt is the effective system prompt for the Job, exactly as the
-	// Agent is given it.
+	// SystemPrompt is the system prompt the Job's most recent Run was given,
+	// as recorded, or the one its next Run will be given for a Job with no
+	// Runs. It is empty when the most recent Run is from before prompts were
+	// recorded (ADR-0017).
 	SystemPrompt string
+	// NextSystemPrompt is the system prompt the Job's next Run would be given,
+	// from the Project's clauses on its base branch as they are now.
+	NextSystemPrompt string
 	// VerifierSystemPrompt is the contract with the Agent that verifies the
 	// work, for a Project that asked for one and empty for one that did not
 	// (ADR-0013, ADR-0017).
@@ -129,7 +138,8 @@ func (c *Client) StartRun(ctx context.Context) (job Job, run Run, started bool, 
 	return jobFromProto(res.Msg.GetJob()), runFromProto(res.Msg.GetRun()), true, nil
 }
 
-// GetJob returns one Job with its Runs and the system prompt in force for it.
+// GetJob returns one Job with its Runs and the system prompts its Agents were
+// and will be given.
 func (c *Client) GetJob(ctx context.Context, id int64) (JobDetails, error) {
 	res, err := c.jobs.GetJob(ctx, connect.NewRequest(&codingowlv1.GetJobRequest{Id: id}))
 	if err != nil {
@@ -138,6 +148,7 @@ func (c *Client) GetJob(ctx context.Context, id int64) (JobDetails, error) {
 	d := JobDetails{
 		Job:                  jobFromProto(res.Msg.GetJob()),
 		SystemPrompt:         res.Msg.GetSystemPrompt(),
+		NextSystemPrompt:     res.Msg.GetNextSystemPrompt(),
 		VerifierSystemPrompt: res.Msg.GetVerifierSystemPrompt(),
 		Runs:                 make([]Run, 0, len(res.Msg.GetRuns())),
 		Handoff:              res.Msg.GetHandoff(),
@@ -218,6 +229,8 @@ func runFromProto(r *codingowlv1.Run) Run {
 		Stage:    r.GetStage(),
 		// What the Agent was allowed to do, as recorded (ADR-0035).
 		Permissions: r.GetPermissions(),
+		// And what it was told, as recorded (ADR-0017).
+		SystemPrompt: r.GetSystemPrompt(),
 	}
 	if r.GetEnded() != nil {
 		out.Ended = r.GetEnded().AsTime()
