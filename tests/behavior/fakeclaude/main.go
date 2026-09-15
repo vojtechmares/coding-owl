@@ -25,7 +25,8 @@
 //	                         status of its own. Only a signal the Go runtime
 //	                         does not keep for itself will do - SIGKILL,
 //	                         SIGTERM, SIGINT, SIGHUP - and the stub exits 98
-//	                         when it is still alive after sending it
+//	                         for a name that is not a signal, or when it is
+//	                         still alive after sending one
 //	OWL_FAKE_CLAUDE_STDERR   line written to standard error just before the
 //	                         stub exits or kills itself, so a scenario can see
 //	                         what an Agent said follow the reason a Run failed
