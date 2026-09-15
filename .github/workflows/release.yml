@@ -20,7 +20,7 @@ jobs:
   # A tag push carries no branch, and on.push.tags cannot be filtered by one,
   # so the branch check has to happen here. Nothing else runs until it passes.
   guard:
-    name: Check the tag is on main
+    name: Check the tag is on main and in the changelog
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -42,6 +42,18 @@ jobs:
             exit 1
           fi
           echo "$GITHUB_REF_NAME is on $RELEASE_BRANCH"
+
+      # The release notes are the changelog's section for the tag. Checked here
+      # rather than where the notes are written, which is after the desktop
+      # build and half an hour too late.
+      - name: Verify CHANGELOG.md has a section for the tag
+        run: |
+          set -euo pipefail
+          if ! ./scripts/release-notes.sh "$GITHUB_REF_NAME" > /dev/null; then
+            echo "::error::CHANGELOG.md has no section for $GITHUB_REF_NAME - it is published as the release notes, so a release needs one"
+            exit 1
+          fi
+          echo "CHANGELOG.md has a section for $GITHUB_REF_NAME"
 
   # The app can only be built on the platform it runs on, so it is a job of its
   # own and the release waits for it: one release carries both, or a user could
@@ -192,17 +204,15 @@ jobs:
 
       - name: Write the release notes
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
           SHA256: ${{ steps.build.outputs.sha256 }}
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$TAG" \
-            -f target_commitish="$(git rev-parse "HEAD^{commit}")" \
-            --jq .body > dist/notes.md
+          # The changelog's section for the version, written for people, rather
+          # than a list of commits.
+          ./scripts/release-notes.sh "$TAG" > dist/notes.md
 
           REPO_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           ARCHIVE="coding-owl_${TAG}_darwin_arm64.tar.gz"

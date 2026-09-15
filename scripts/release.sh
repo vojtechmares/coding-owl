@@ -3,11 +3,13 @@
 # Cuts a release. This script only creates and pushes a tag - the release
 # workflow on GitHub does the building, publishing and the tap.
 #
-#   ./scripts/release.sh                  next version from the commit log (svu next)
-#   ./scripts/release.sh patch            force a patch, minor or major bump
+#   ./scripts/release.sh                  next version from the commit log (svu next --v0)
+#   ./scripts/release.sh patch            force a patch or minor bump
 #   ./scripts/release.sh v0.1.0           an explicit version, no svu needed
 #
-# Versions are ZeroVer - v0.x.y - with no prereleases for now.
+# Versions are ZeroVer - v0.x.y - with no prereleases for now, and nothing at
+# or above v1.0.0 is released. CHANGELOG.md needs a section for the version:
+# it is published as the release notes.
 #
 # Flags:
 #   -n, --dry-run   work out the version, print it, change nothing
@@ -35,7 +37,7 @@ die() {
 }
 
 usage() {
-	sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,22p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while (($#)); do
@@ -86,24 +88,30 @@ need_svu() {
 case "$BUMP" in
 "" | next)
 	need_svu
-	VERSION="$(svu next)"
+	# --v0 keeps a breaking change from ending ZeroVer: it bumps the minor
+	# version instead of going to v1.0.0.
+	VERSION="$(svu next --v0)"
 	# svu next answers with the version that is already released when nothing
 	# in the log asks for a bump. An explicit version says what it wants, so
 	# this only applies to the derived one.
 	if [[ "$VERSION" == "$(git describe --tags --abbrev=0 2>/dev/null || true)" ]]; then
-		die "no commits since $VERSION ask for a new version - pass patch, minor or major to force one"
+		die "no commits since $VERSION ask for a new version - pass patch or minor to force one"
 	fi
 	;;
-patch | minor | major | prerelease)
+patch | minor | prerelease)
 	need_svu
 	VERSION="$(svu "$BUMP")"
 	;;
+major) die "a major bump ends ZeroVer - releases stay below v1.0.0" ;;
 v[0-9]* | [0-9]*) VERSION="v${BUMP#v}" ;;
-*) die "expected patch, minor, major or a version like v0.1.0, got '$BUMP'" ;;
+*) die "expected patch, minor or a version like v0.1.0, got '$BUMP'" ;;
 esac
 
 [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] ||
 	die "'$VERSION' is not a version like v0.1.0"
+# Whatever produced it - svu, which only takes --v0 on next, or an explicit
+# version.
+[[ "$VERSION" == v0.* ]] || die "$VERSION ends ZeroVer - releases stay below v1.0.0"
 
 CURRENT="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")"
 
@@ -112,6 +120,15 @@ if git rev-parse --verify --quiet "refs/tags/$VERSION" >/dev/null; then
 fi
 if [[ -n "$(git ls-remote --tags "$REMOTE" "refs/tags/$VERSION")" ]]; then
 	die "tag $VERSION already exists on $REMOTE"
+fi
+
+# The release workflow refuses a tag the changelog has no section for, but
+# only once the tag is pushed. A dry run is how the changelog gets written in
+# the first place, so there it is a note rather than a stop.
+CHANGELOG_READY=1
+"$ROOT/scripts/release-notes.sh" "$VERSION" >/dev/null 2>&1 || CHANGELOG_READY=0
+if ! ((CHANGELOG_READY || DRY_RUN)); then
+	die "CHANGELOG.md has no section for $VERSION - write one first, it becomes the release notes"
 fi
 
 echo
@@ -125,6 +142,9 @@ fi
 echo
 
 if ((DRY_RUN)); then
+	if ! ((CHANGELOG_READY)); then
+		echo "==> CHANGELOG.md has no section for $VERSION yet - the release needs one"
+	fi
 	echo "==> Dry run, stopping here"
 	exit 0
 fi

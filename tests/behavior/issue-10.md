@@ -115,6 +115,20 @@ And stderr says the tag already exists
 And it refuses before it starts tagging, rather than letting git fail
 And the remote still carries exactly one `v0.2.0`
 
+### S22 - cutting a release refuses a version the changelog does not record
+Given a clone of the repository on `main` whose `CHANGELOG.md` has no section for `0.3.0`
+When `scripts/release.sh --yes v0.3.0` runs
+Then it exits with a non-zero code
+And stderr says `CHANGELOG.md` has no section for `v0.3.0`, which the release notes are made of
+And no tag was created locally or on the remote
+
+### S23 - cutting a release refuses to leave ZeroVer
+Given a clone of the repository on `main`
+When `scripts/release.sh --yes` runs with `major`, `v1.0.0` and `2.3.4` in turn
+Then each exits with a non-zero code
+And stderr says the version ends ZeroVer
+And no tag was created locally or on the remote
+
 ### S21 - a formula that was committed but never pushed is pushed the next time
 Given a temporary tap checkout whose remote refuses the push, and a run that failed on it
 When the remote is reachable again and `scripts/bump-formula.sh` runs for the same version

@@ -475,14 +475,22 @@ func newReleaseClone(t *testing.T) *releaseClone {
 	}
 	rc.git(t, "init", "--quiet", "--initial-branch=main")
 	rc.git(t, "remote", "add", "origin", rc.bare)
-	body, err := os.ReadFile(repoScript("release.sh"))
-	if err != nil {
+	// release.sh reads the release notes with release-notes.sh, and refuses a
+	// version the changelog has no section for - so the clone records 0.2.0.
+	for _, script := range []string{"release.sh", "release-notes.sh"} {
+		body, err := os.ReadFile(repoScript(script))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rc.dir, "scripts", script), body, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	changelog := "# Changelog\n\n## [Unreleased]\n\n## [0.2.0] - 2026-09-15\n\n### Added\n\n- A release to cut.\n"
+	if err := os.WriteFile(filepath.Join(rc.dir, "CHANGELOG.md"), []byte(changelog), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(rc.dir, "scripts", "release.sh"), body, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	rc.git(t, "add", "--", "scripts/release.sh")
+	rc.git(t, "add", "--", "scripts", "CHANGELOG.md")
 	rc.git(t, "commit", "-m", "add the release script")
 	rc.git(t, "push", "--quiet", "--set-upstream", "origin", "main")
 	return rc
@@ -640,6 +648,46 @@ func TestS13ReleaseRefusesAVersionThatAlreadyExists(t *testing.T) {
 	}
 	if got := strings.Fields(rc.remoteTags(t)); len(got) != 1 {
 		t.Errorf("the remote carries %v, want exactly one v0.2.0", got)
+	}
+}
+
+func TestS22ReleaseRefusesAVersionTheChangelogDoesNotRecord(t *testing.T) {
+	rc := newReleaseClone(t)
+
+	res := rc.release(t, "--yes", "v0.3.0")
+
+	if res.code == 0 {
+		t.Fatalf("release.sh tagged a version CHANGELOG.md has no section for\nstdout:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stderr, "CHANGELOG.md") || !strings.Contains(res.stderr, "v0.3.0") {
+		t.Errorf("stderr does not say CHANGELOG.md has no section for v0.3.0:\n%s", res.stderr)
+	}
+	if tags := rc.git(t, "tag", "--list"); strings.TrimSpace(tags) != "" {
+		t.Errorf("a tag was created anyway: %s", tags)
+	}
+	if tags := rc.remoteTags(t); strings.TrimSpace(tags) != "" {
+		t.Errorf("a tag was pushed anyway: %s", tags)
+	}
+}
+
+func TestS23ReleaseRefusesToLeaveZeroVer(t *testing.T) {
+	rc := newReleaseClone(t)
+
+	for _, bump := range []string{"major", "v1.0.0", "2.3.4"} {
+		res := rc.release(t, "--yes", bump)
+
+		if res.code == 0 {
+			t.Errorf("release.sh released %s\nstdout:\n%s", bump, res.stdout)
+		}
+		if !strings.Contains(res.stderr, "ZeroVer") {
+			t.Errorf("stderr for %s does not say it ends ZeroVer:\n%s", bump, res.stderr)
+		}
+	}
+	if tags := rc.git(t, "tag", "--list"); strings.TrimSpace(tags) != "" {
+		t.Errorf("a tag was created anyway: %s", tags)
+	}
+	if tags := rc.remoteTags(t); strings.TrimSpace(tags) != "" {
+		t.Errorf("a tag was pushed anyway: %s", tags)
 	}
 }
 
