@@ -1,17 +1,19 @@
 name: website
 
-# The website reads docs, the changelog, the readme and the glossary out of the
+# The website reads the docs, the changelog and the readme out of the
 # repository at build time, so a change to any of those is a change to the
-# site. Pull requests build; pushes to main build and deploy.
+# site. Every trigger builds; only a push to main, a release tag, or a
+# maintainer running the workflow by hand deploys. The manual run is the
+# break-glass option: a site fix that cannot wait for a merge or a release.
 on:
   push:
     branches: [main]
+    tags: ["v*"]
     paths:
       - website/**
       - docs/**
       - CHANGELOG.md
       - README.md
-      - CONTEXT.md
       - .github/workflows/website.yml
   pull_request:
     paths:
@@ -19,26 +21,27 @@ on:
       - docs/**
       - CHANGELOG.md
       - README.md
-      - CONTEXT.md
       - .github/workflows/website.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: website-${{ github.ref }}
-  cancel-in-progress: true
 
 defaults:
   run:
     working-directory: website
 
 jobs:
-  website:
+  build:
+    name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # The full history, with tags, so the footer can name the latest release
+      # with `git describe`.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
@@ -81,9 +84,54 @@ jobs:
           grep -q 'Sitemap: https://codingowl.dev/sitemap-index.xml' dist/robots.txt
           grep -q '<loc>https://codingowl.dev/docs/guide</loc>' dist/sitemap-0.xml
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: website
+          path: website/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  # Deploys what the build job produced, so the site that ships is the site
+  # that passed the checks. One at a time, queued rather than cancelled: a
+  # deploy stopped halfway is worse than one that waits its turn.
+  deploy:
+    name: Deploy
+    needs: build
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+        (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: website-deploy
+      cancel-in-progress: false
+    environment:
+      name: production
+      url: https://codingowl.dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: website/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: website/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: website
+          path: website/dist
+
       - name: Deploy
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm wrangler deploy
