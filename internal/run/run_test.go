@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -95,6 +96,10 @@ func (d *fakeDriver) given() driver.Request {
 type fakeExecutor struct {
 	lines    []string
 	exitCode int
+	// killedBy is the signal the Agent is killed by rather than exiting, and
+	// stderr what it wrote to standard error before it ended.
+	killedBy os.Signal
+	stderr   string
 	// hold keeps the Agent running until it is closed or the run is cancelled.
 	hold chan struct{}
 	// started is closed once an Agent has been started.
@@ -106,7 +111,12 @@ func (*fakeExecutor) Name() string { return "fake" }
 
 func (e *fakeExecutor) Start(ctx context.Context, _ agent.Invocation) (agent.Process, error) {
 	r, w := io.Pipe()
-	p := &fakeProcess{out: r, code: e.exitCode, done: make(chan struct{})}
+	p := &fakeProcess{out: r, code: e.exitCode, killedBy: e.killedBy, stderr: e.stderr, done: make(chan struct{})}
+	if e.killedBy != nil {
+		// What Go gives a process that was killed rather than exited, which
+		// is what the host Executor has always reported as its status.
+		p.code = -1
+	}
 	e.once.Do(func() {
 		if e.started != nil {
 			close(e.started)
@@ -130,16 +140,18 @@ func (e *fakeExecutor) Start(ctx context.Context, _ agent.Invocation) (agent.Pro
 }
 
 type fakeProcess struct {
-	out  *io.PipeReader
-	code int
-	done chan struct{}
+	out      *io.PipeReader
+	code     int
+	killedBy os.Signal
+	stderr   string
+	done     chan struct{}
 }
 
 func (p *fakeProcess) Stdout() io.Reader           { return p.out }
 func (p *fakeProcess) SignalGroup(os.Signal) error { return nil }
-func (p *fakeProcess) Stderr() string              { return "" }
+func (p *fakeProcess) Stderr() string              { return p.stderr }
 func (p *fakeProcess) Wait() (int, error)          { <-p.done; return p.code, nil }
-func (p *fakeProcess) KilledBy() os.Signal         { return nil }
+func (p *fakeProcess) KilledBy() os.Signal         { return p.killedBy }
 
 // fakeVerifier answers with what a scenario scripted rather than running
 // anything.
@@ -444,6 +456,33 @@ func TestStartBlocksTheJobWhenTheAgentFails(t *testing.T) {
 	}
 }
 
+// An Agent killed by a signal nobody in Owl sent - the OOM killer, a crash,
+// somebody's kill -9 - did not exit with a status. Its Run fails like any
+// other whose Agent did not finish, with the signal named where a status
+// would have been, and records none (issue #101).
+func TestStartBlocksTheJobWithTheSignalTheAgentWasKilledBy(t *testing.T) {
+	ctx := context.Background()
+	e := &fakeExecutor{killedBy: syscall.SIGKILL, stderr: "out of memory"}
+	svc, st, _ := newFixture(t, &fakeDriver{}, e)
+	j := queueJob(t, st, "work")
+
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	awaitState(t, st, j.ID, queue.StateBlocked)
+	r := awaitEnded(t, st, j.ID)
+	if r.Outcome != string(run.OutcomeFailed) {
+		t.Errorf("outcome = %q, want failed", r.Outcome)
+	}
+	if want := "the agent was killed by SIGKILL: out of memory"; r.Error != want {
+		t.Errorf("reason = %q, want %q", r.Error, want)
+	}
+	if r.ExitCode != store.NoExitCode {
+		t.Errorf("exit status = %d, want none recorded for an agent that never exited", r.ExitCode)
+	}
+}
+
 // An Agent that says one line more than Owl reads, and then more than a pipe
 // holds, is blocked on a pipe nobody reads unless Owl drains what it stopped
 // reading. The Run must still end when the Agent does, with the over-long line
@@ -572,6 +611,30 @@ func TestCloseInterruptsARunAndReturnsTheJobToTheQueue(t *testing.T) {
 	}
 	if after.Position != 1 {
 		t.Errorf("position = %d, want the place it held while it ran", after.Position)
+	}
+}
+
+// A stopping daemon ends its Runs by signalling their Agents, so an Agent
+// that dies of the signal is how the Run was meant to end: it is not the
+// failure an Agent killed by somebody else is (issue #101, ADR-0011).
+func TestCloseInterruptsARunWhoseAgentDiesOfTheSignal(t *testing.T) {
+	ctx := context.Background()
+	started := make(chan struct{})
+	e := &fakeExecutor{hold: make(chan struct{}), started: started, killedBy: syscall.SIGTERM}
+	svc, st, _ := newFixture(t, &fakeDriver{}, e)
+	j := queueJob(t, st, "work")
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started
+
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r := lastRun(t, st, j.ID)
+	if r.Outcome != string(run.OutcomeInterrupted) || strings.Contains(r.Error, "SIGTERM") {
+		t.Errorf("run = %+v, want it interrupted by the daemon stopping rather than failed by the signal", r)
 	}
 }
 
