@@ -26,13 +26,6 @@ const docs = defineCollection({
       description: 'How Owl works, installing it, a quick start, configuration and the command overview.',
       order: 1,
     },
-    {
-      id: 'language',
-      path: 'CONTEXT.md',
-      title: 'Language',
-      description: 'The words Coding Owl uses, and the ones it avoids.',
-      order: 2,
-    },
   ]),
   schema: z.object({
     title: z.string(),

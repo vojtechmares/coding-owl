@@ -10,7 +10,6 @@ build time by the loaders in `src/loaders/repo.ts`:
 | Page | Source |
 | --- | --- |
 | `/docs/guide` | `README.md` |
-| `/docs/language` | `CONTEXT.md` |
 | `/docs/decisions/*` | `docs/adr/NNNN-*.md` |
 | `/changelog` | `CHANGELOG.md`, parsed as Keep a Changelog |
 
@@ -36,7 +35,14 @@ The Open Graph image, `public/og.png`, is committed rather than built -
 `pnpm og` regenerates it from `scripts/og.mjs` after a change to the copy or
 the logo.
 
-Deploys happen from `.github/workflows/website.yml` on every push to `main`
-that touches the site or its sources. It needs two repository secrets,
-`CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit, plus Zone: Workers Routes: Edit
-for the custom domain) and `CLOUDFLARE_ACCOUNT_ID`.
+The footer names the latest release, read at build time with `git describe`
+from the newest `v*` tag reachable from the commit being built. A checkout
+without tags says "unreleased" instead.
+
+`.github/workflows/website.yml` builds on every pull request, push to `main`
+and release tag, and deploys on the push to `main`, the tag, or a manual run
+of the workflow (the break-glass option for a fix that cannot wait). It needs
+the repository secret `CLOUDFLARE_API_TOKEN` and the repository variable
+`CLOUDFLARE_ACCOUNT_ID`. The token needs Account: Workers Scripts: Edit, and on
+the `codingowl.dev` zone, Workers Routes: Edit and DNS: Edit, for the custom
+domain.

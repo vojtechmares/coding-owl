@@ -27,7 +27,6 @@ function splitTitle(source: string): { title: string | undefined; body: string }
  */
 const REPO_URL = 'https://github.com/vojtechmares/coding-owl/blob/main';
 const PUBLISHED: Record<string, string> = {
-  'CONTEXT.md': '/docs/language',
   'CHANGELOG.md': '/changelog',
   'docs/adr/README.md': '/docs/decisions',
   'docs/adr': '/docs/decisions',
