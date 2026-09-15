@@ -47,9 +47,34 @@ Every decision behind the design is recorded in [docs/adr](docs/adr/README.md).
 ## Status
 
 Owl is early software, versioned as v0.x.y, and currently ships for macOS on
-Apple silicon only. Idle detection is implemented for macOS. Agents run as host
-processes rather than in containers, bounded by the worktree they work in, so
-treat a Job the way you would treat running the same tool yourself.
+Apple silicon only. Idle detection is implemented for macOS. Read the risks
+below before you queue work.
+
+## Risks
+
+Owl runs an Agent on your machine while nobody is watching. Treat a Job the way
+you would treat running the same tool yourself, unattended:
+
+- **There is no sandbox.** Agents run as ordinary processes under your user,
+  not in a container (ADR-0006). The worktree is where an Agent works, not a
+  wall around it: an Agent can read and write anything you can, use the
+  network, and reach whatever your user is signed in to, git remotes included.
+- **The default allowlist runs code.** A new Account's Agents may edit files
+  and run `git`, `make`, `go`, `npm`, `pnpm`, `yarn`, `npx`, `cargo` and
+  `pytest` without asking. Build tools and package runners execute whatever a
+  repository or a package tells them to, and `git` includes `git push`. The list
+  is `accounts/<name>/settings.json` under Owl's data directory; narrow it if
+  that is more than you want (ADR-0035).
+- **Verification runs the Agent's code.** The checks come from the base branch,
+  but they run against the Agent's changes, so a test the Agent wrote is a test
+  that runs.
+- **Nothing caps time or spend by default.** A Run lasts until the Agent exits
+  or you come back to the machine. `budgetUSD` in a Project's configuration
+  caps what one Run may spend, and an Account's `limits` keep Owl from starting
+  work past a share of your subscription; neither is set until you set it.
+- **The desktop app is not notarised.** It is ad-hoc signed, and the cask
+  clears macOS's quarantine flag so that Gatekeeper opens it. You are trusting
+  the GitHub release rather than Apple's check.
 
 ## Installing
 

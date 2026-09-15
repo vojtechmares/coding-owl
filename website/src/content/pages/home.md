@@ -27,9 +27,9 @@ features:
 - **Unattended by contract.** Every Run tells the agent it is running alone:
   make reasonable assumptions, write them down, commit as you go, and stop
   plainly when blocked.
-- **Capacity is respected.** Owl schedules against your subscription's rate
-  limit with a ceiling, so it never spends the headroom you need in the
-  morning.
+- **Capacity is respected.** Give an Account a ceiling and Owl schedules
+  against your subscription's rate limit under it, so it never spends the
+  headroom you need in the morning.
 
 ## When it fits
 
@@ -47,3 +47,17 @@ features:
 It is not a cloud service and it is not a chat window. Owl does not run in the
 background while you work, and it does not merge anything. Every result is a
 branch waiting for a human.
+
+## Risks
+
+- **There is no sandbox.** Agents run as your user, with your files, your
+  network and whatever you are signed in to. The worktree is where an agent
+  works, not a wall around it.
+- **The default allowlist runs code.** Build tools and package runners, without
+  asking, and `git` includes `git push`.
+- **No limits until you set them.** Nothing caps a Run's time or spend by
+  default.
+- **The desktop app is not notarised.** It is ad-hoc signed, and the cask
+  clears the quarantine flag.
+
+Read [the risks in the guide](/docs/guide#risks) before you queue work.
