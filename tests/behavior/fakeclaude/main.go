@@ -19,6 +19,17 @@
 //	                         scenario can see a working directory the agent has
 //	                         started in and not yet touched
 //	OWL_FAKE_CLAUDE_EXIT     exit status, default 0
+//	OWL_FAKE_CLAUDE_SIGNAL   signal the stub kills itself with instead of
+//	                         exiting, by name, such as SIGKILL: an Agent the
+//	                         OOM killer or somebody's kill -9 ends has no exit
+//	                         status of its own. Only a signal the Go runtime
+//	                         does not keep for itself will do - SIGKILL,
+//	                         SIGTERM, SIGINT, SIGHUP - and the stub exits 98
+//	                         when it is still alive after sending it
+//	OWL_FAKE_CLAUDE_STDERR   line written to standard error just before the
+//	                         stub exits or kills itself, so a scenario can see
+//	                         what an Agent said follow the reason a Run failed
+//	                         with
 //	OWL_FAKE_CLAUDE_WRITE    JSON object of path to contents, written into the
 //	                         working directory before the script is emitted
 //	OWL_FAKE_CLAUDE_COMMIT   when set, commits what was written
@@ -67,6 +78,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // fillLine prefixes a directive that emits one line of the given many bytes,
@@ -164,12 +177,44 @@ func main() {
 			os.Exit(91)
 		}
 	}
+	if said := os.Getenv("OWL_FAKE_CLAUDE_STDERR"); said != "" {
+		fmt.Fprintln(os.Stderr, said)
+	}
+	if name := os.Getenv("OWL_FAKE_CLAUDE_SIGNAL"); name != "" {
+		err := die(name)
+		fmt.Fprintln(os.Stderr, "fakeclaude:", err)
+		os.Exit(98)
+	}
 	code, err := strconv.Atoi(env("OWL_FAKE_CLAUDE_EXIT", "0"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fakeclaude: OWL_FAKE_CLAUDE_EXIT:", err)
 		os.Exit(92)
 	}
 	os.Exit(code)
+}
+
+// dieTimeout bounds how long the stub waits to be killed by the signal it
+// sent itself. The runtime acts on most signals on a thread of its own, so the
+// death is not instant, but it is not slow either.
+const dieTimeout = 5 * time.Second
+
+// die kills the stub with the named signal, the way the OOM killer, a crash or
+// somebody's kill -9 ends an Agent: it never returns from a signal that kills
+// it, and reports the one that did not.
+func die(name string) error {
+	sig := unix.SignalNum(name)
+	if sig == 0 {
+		return fmt.Errorf("OWL_FAKE_CLAUDE_SIGNAL: %q names no signal", name)
+	}
+	if err := syscall.Kill(os.Getpid(), sig); err != nil {
+		return fmt.Errorf("OWL_FAKE_CLAUDE_SIGNAL: %w", err)
+	}
+	// A signal the runtime keeps for itself - SIGSEGV, SIGABRT, SIGQUIT - ends
+	// the stub with an exit status rather than with the signal, and one it
+	// ignores does not end it at all. Either would pass for an Agent that
+	// exited, so the stub says so instead.
+	time.Sleep(dieTimeout)
+	return fmt.Errorf("OWL_FAKE_CLAUDE_SIGNAL: still alive %s after sending itself %s", dieTimeout, name)
 }
 
 // refuseOwlsOwnCheckout fails when the stub was started inside the repository
