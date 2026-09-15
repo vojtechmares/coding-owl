@@ -92,32 +92,92 @@ func TestJobsShowPrintsAReportWithNothingToEscapeAsItWas(t *testing.T) {
 
 // TestJobsShowShowsAnEscapeFromOutsideOwlAsText puts an escape in one value
 // of the report at a time. Wherever it is, the report reaches the terminal as
-// text, with the escape shown as the bytes it is.
+// text: the escape is shown as the bytes it is, where the value was, and a
+// document around it keeps its newlines and tabs.
 func TestJobsShowShowsAnEscapeFromOutsideOwlAsText(t *testing.T) {
 	const escape, shown = "\x1b]0;pwned\a\x1b[2K", `\x1b]0;pwned\x07\x1b[2K`
 	for _, c := range []struct {
 		what  string
 		carry func(d *client.JobDetails)
+		// shows is what the report holds where the value was.
+		shows string
 	}{
-		{"a Run's phase", func(d *client.JobDetails) { d.Runs[1].Phase = "execute" + escape }},
-		{"a Run's state", func(d *client.JobDetails) { d.Runs[1].Outcome, d.Runs[1].Stage = "", "verifying"+escape }},
-		{"a Run's log", func(d *client.JobDetails) { d.Runs[1].LogPath = "/owl/logs/" + escape + ".jsonl" }},
-		{"the plan", func(d *client.JobDetails) { d.Job.Plan = "read the tests " + escape + "\n\tthen fix them\n" }},
-		{"the handoff", func(d *client.JobDetails) { d.Handoff = "step two " + escape + "\n\tthe tab stays\n" }},
-		{"the system prompt", func(d *client.JobDetails) { d.SystemPrompt += "\n- run gofmt " + escape }},
-		{"the verifier system prompt", func(d *client.JobDetails) { d.VerifierSystemPrompt += "\n- " + escape }},
-		{"a check's name", func(d *client.JobDetails) { d.Checks[1].Name = "lint " + escape }},
-		{"a check's reason", func(d *client.JobDetails) { d.Checks[1].Reason = "could not be run: " + escape }},
-		{"a check's output", func(d *client.JobDetails) { d.Checks[1].Output = "lint is unhappy " + escape + "\n\tat line two\n" }},
-		{"a Skill's name", func(d *client.JobDetails) { d.Runs[1].Skills[0].Name = "go-review" + escape }},
-		{"a Skill's source", func(d *client.JobDetails) { d.Runs[1].Skills[0].Source = "github.com/x/go-review" + escape }},
-		{"a Skill's ref", func(d *client.JobDetails) { d.Runs[1].Skills[0].Ref = "v1.4.0" + escape }},
-		{"a Run's permissions", func(d *client.JobDetails) { d.Runs[1].Permissions[1] = "Bash(make " + escape + ":*)" }},
-		{"a phase's name", func(d *client.JobDetails) { d.Phases[1].Phase = "execute" + escape }},
-		{"a phase's model", func(d *client.JobDetails) { d.Phases[1].Model = "sonnet" + escape }},
-		{"where a phase's model came from", func(d *client.JobDetails) { d.Phases[1].ModelFrom = "project" + escape }},
-		{"a phase's effort", func(d *client.JobDetails) { d.Phases[1].Effort = "high" + escape }},
-		{"where a phase's effort came from", func(d *client.JobDetails) { d.Phases[1].EffortFrom = "job" + escape }},
+		{
+			"a Run's phase", func(d *client.JobDetails) { d.Runs[1].Phase = "execute" + escape },
+			"  execute" + shown + "  ",
+		},
+		{
+			"a Run's state", func(d *client.JobDetails) { d.Runs[1].Outcome, d.Runs[1].Stage = "", "verifying"+escape },
+			"  verifying" + shown + "  ",
+		},
+		{
+			"a Run's log", func(d *client.JobDetails) { d.Runs[1].LogPath = "/owl/logs/" + escape + ".jsonl" },
+			"  /owl/logs/" + shown + ".jsonl\n",
+		},
+		{
+			"the plan", func(d *client.JobDetails) { d.Job.Plan = "read the tests " + escape + "\n\tthen fix them\n" },
+			"\nplan:\nread the tests " + shown + "\n\tthen fix them\n\n",
+		},
+		{
+			"the handoff", func(d *client.JobDetails) { d.Handoff = "step two " + escape + "\n\tthe tab stays\n" },
+			"\nhandoff:\nstep two " + shown + "\n\tthe tab stays\n\n",
+		},
+		{
+			"the system prompt", func(d *client.JobDetails) { d.SystemPrompt += "\n- run gofmt " + escape },
+			"\n- keep\tthe háček\n- run gofmt " + shown + "\n\n",
+		},
+		{
+			"the verifier system prompt", func(d *client.JobDetails) { d.VerifierSystemPrompt += "\n- " + escape },
+			"\n- Say pass or fail.\n- " + shown + "\n",
+		},
+		{
+			"a check's name", func(d *client.JobDetails) { d.Checks[1].Name = "lint " + escape },
+			"\n- lint " + shown + ": failed (exited 1)\n",
+		},
+		{
+			"a check's reason", func(d *client.JobDetails) { d.Checks[1].Reason = "could not be run: " + escape },
+			"\n- lint: failed (could not be run: " + shown + ")\n",
+		},
+		{
+			"a check's output", func(d *client.JobDetails) { d.Checks[1].Output = "lint is unhappy " + escape + "\n\tat line two\n" },
+			"\n    lint is unhappy " + shown + "\n    \tat line two\n",
+		},
+		{
+			"a Skill's name", func(d *client.JobDetails) { d.Runs[1].Skills[0].Name = "go-review" + escape },
+			"\ngo-review" + shown + "  ",
+		},
+		{
+			"a Skill's source", func(d *client.JobDetails) { d.Runs[1].Skills[0].Source = "github.com/x/go-review" + escape },
+			"  github.com/x/go-review" + shown + "  ",
+		},
+		{
+			"a Skill's ref", func(d *client.JobDetails) { d.Runs[1].Skills[0].Ref = "v1.4.0" + escape },
+			"  v1.4.0" + shown + "  ",
+		},
+		{
+			"a Run's permissions", func(d *client.JobDetails) { d.Runs[1].Permissions[1] = "Bash(make " + escape + ":*)" },
+			"\nRUN 12: Read, Bash(make " + shown + ":*)\n",
+		},
+		{
+			"a phase's name", func(d *client.JobDetails) { d.Phases[1].Phase = "execute" + escape },
+			"\nexecute" + shown + "  ",
+		},
+		{
+			"a phase's model", func(d *client.JobDetails) { d.Phases[1].Model = "sonnet" + escape },
+			"  sonnet" + shown + "  ",
+		},
+		{
+			"where a phase's model came from", func(d *client.JobDetails) { d.Phases[1].ModelFrom = "project" + escape },
+			"  project" + shown + "  ",
+		},
+		{
+			"a phase's effort", func(d *client.JobDetails) { d.Phases[1].Effort = "high" + escape },
+			"  high" + shown + "  ",
+		},
+		{
+			"where a phase's effort came from", func(d *client.JobDetails) { d.Phases[1].EffortFrom = "job" + escape },
+			"  job" + shown + "\n",
+		},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			d := reported()
@@ -130,8 +190,8 @@ func TestJobsShowShowsAnEscapeFromOutsideOwlAsText(t *testing.T) {
 			if strings.ContainsFunc(got, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) {
 				t.Errorf("owl jobs show reaches the terminal with a control character in it:\n%q", got)
 			}
-			if !strings.Contains(got, shown) {
-				t.Errorf("owl jobs show does not show the escape as text:\n%s", got)
+			if !strings.Contains(got, c.shows) {
+				t.Errorf("owl jobs show does not show %q where the value was:\n%s", c.shows, got)
 			}
 		})
 	}

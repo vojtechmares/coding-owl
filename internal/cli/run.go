@@ -392,7 +392,8 @@ func printRunSkills(env Env, runs []client.Run) {
 		w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
 		_, _ = fmt.Fprintf(w, "RUN %d\tSOURCE\tREF\tCOMMIT\n", r.ID)
 		for _, s := range r.Skills {
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", terminalSafe(s.Name), terminalSafe(s.Source), terminalSafe(orNone(s.Ref)), short(s.Commit))
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				terminalSafe(s.Name), terminalSafe(s.Source), terminalSafe(orNone(s.Ref)), short(s.Commit))
 		}
 		_ = w.Flush()
 	}
