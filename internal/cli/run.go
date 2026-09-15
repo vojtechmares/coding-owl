@@ -346,22 +346,26 @@ func printJob(env Env, d client.JobDetails) {
 	printRunPermissions(env, d.Runs)
 	printChecks(env, d.Checks)
 	printPhases(env, d.Phases)
+	// The plan and the handoff are what an unattended Agent wrote (ADR-0026),
+	// and the system prompt carries the Project's own clauses (ADR-0017): each
+	// is read in the morning, and reaches the terminal as text, with the
+	// newlines and tabs a document is printed with.
 	if plan := strings.TrimRight(d.Job.Plan, "\n"); plan != "" {
-		_, _ = fmt.Fprintf(env.Stdout, "\nplan:\n%s\n", plan)
+		_, _ = fmt.Fprintf(env.Stdout, "\nplan:\n%s\n", terminalSafe(plan))
 	} else {
 		_, _ = fmt.Fprintf(env.Stdout, "\nplan: %s\n", noValue)
 	}
 	if handoff := strings.TrimRight(d.Handoff, "\n"); handoff != "" {
-		_, _ = fmt.Fprintf(env.Stdout, "\nhandoff:\n%s\n", handoff)
+		_, _ = fmt.Fprintf(env.Stdout, "\nhandoff:\n%s\n", terminalSafe(handoff))
 	} else {
 		_, _ = fmt.Fprintf(env.Stdout, "\nhandoff: %s\n", noValue)
 	}
-	_, _ = fmt.Fprintf(env.Stdout, "\nsystem prompt:\n%s\n", d.SystemPrompt)
+	_, _ = fmt.Fprintf(env.Stdout, "\nsystem prompt:\n%s\n", terminalSafe(d.SystemPrompt))
 	// A Project that asked for the agent Verifier gets a second Agent, with a
 	// contract of its own: nothing Owl puts in front of one is hidden
 	// (ADR-0017).
 	if d.VerifierSystemPrompt != "" {
-		_, _ = fmt.Fprintf(env.Stdout, "\nverifier system prompt:\n%s\n", d.VerifierSystemPrompt)
+		_, _ = fmt.Fprintf(env.Stdout, "\nverifier system prompt:\n%s\n", terminalSafe(d.VerifierSystemPrompt))
 	}
 }
 
