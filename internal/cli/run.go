@@ -424,8 +424,12 @@ func printPhases(env Env, phases []client.PhaseSettings) {
 	w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "PHASE\tMODEL\tFROM\tEFFORT\tFROM")
 	for _, p := range phases {
+		// A model and an effort are whatever a configuration file or owl add
+		// was given, and are reported even when they are the problem, so each
+		// setting reaches the terminal as text.
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			p.Phase, orNone(p.Model), orNone(p.ModelFrom), orNone(p.Effort), orNone(p.EffortFrom))
+			terminalSafe(p.Phase), terminalSafe(orNone(p.Model)), terminalSafe(orNone(p.ModelFrom)),
+			terminalSafe(orNone(p.Effort)), terminalSafe(orNone(p.EffortFrom)))
 	}
 	_ = w.Flush()
 }

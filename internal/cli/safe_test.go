@@ -110,6 +110,11 @@ func TestJobsShowShowsAnEscapeFromOutsideOwlAsText(t *testing.T) {
 		{"a Skill's source", func(d *client.JobDetails) { d.Runs[1].Skills[0].Source = "github.com/x/go-review" + escape }},
 		{"a Skill's ref", func(d *client.JobDetails) { d.Runs[1].Skills[0].Ref = "v1.4.0" + escape }},
 		{"a Run's permissions", func(d *client.JobDetails) { d.Runs[1].Permissions[1] = "Bash(make " + escape + ":*)" }},
+		{"a phase's name", func(d *client.JobDetails) { d.Phases[1].Phase = "execute" + escape }},
+		{"a phase's model", func(d *client.JobDetails) { d.Phases[1].Model = "sonnet" + escape }},
+		{"where a phase's model came from", func(d *client.JobDetails) { d.Phases[1].ModelFrom = "project" + escape }},
+		{"a phase's effort", func(d *client.JobDetails) { d.Phases[1].Effort = "high" + escape }},
+		{"where a phase's effort came from", func(d *client.JobDetails) { d.Phases[1].EffortFrom = "job" + escape }},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			d := reported()
