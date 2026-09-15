@@ -1,0 +1,70 @@
+---
+import { getEntry, render } from 'astro:content';
+import { Image } from 'astro:assets';
+import Base from '../layouts/Base.astro';
+import Mark from '../components/Mark.astro';
+import CopyCommand from '../components/CopyCommand';
+import { REPO } from '../lib/markdown';
+import overview from '../../../docs/desktop/overview.jpg';
+
+const page = await getEntry('pages', 'home');
+if (!page) throw new Error('src/content/pages/home.md is missing');
+const { Content } = await render(page);
+const { title, tagline, description, install } = page.data;
+---
+
+<Base title={title} description={description} wide>
+  <section class="glass relative overflow-hidden px-6 py-10 sm:px-10 sm:py-14">
+    <div
+      class="pointer-events-none absolute -top-32 -right-24 h-72 w-72 rounded-full bg-accent/20 blur-3xl"
+      aria-hidden="true"
+    ></div>
+    <div class="flex items-center gap-4">
+      <Mark size={72} />
+      <p class="text-sm font-medium tracking-wide text-ink-faint uppercase">Coding agents, while you are away</p>
+    </div>
+    <h1 class="mt-6 text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
+      {tagline}
+    </h1>
+    <p class="mt-5 max-w-xl text-lg leading-8 text-ink-dim">{description}</p>
+    <div class="mt-8 max-w-xl">
+      <CopyCommand client:load command={install} />
+    </div>
+    <div class="mt-5 flex flex-wrap gap-3 text-sm">
+      <a
+        href="/docs/guide#installing"
+        class="rounded-(--radius-control) bg-accent px-4 py-2 font-medium text-ink-on-accent no-underline transition-colors hover:bg-accent-strong"
+      >
+        Get started
+      </a>
+      <a
+        href="/docs"
+        class="rounded-(--radius-control) border border-glass-edge-strong bg-glass px-4 py-2 font-medium text-ink no-underline transition-colors hover:bg-glass-strong"
+      >
+        Read the docs
+      </a>
+      <a
+        href={REPO}
+        rel="noopener"
+        class="rounded-(--radius-control) px-4 py-2 font-medium text-ink-dim no-underline transition-colors hover:text-ink"
+      >
+        Source on GitHub
+      </a>
+    </div>
+  </section>
+
+  <figure class="glass mt-8 overflow-hidden p-2">
+    <Image
+      src={overview}
+      alt="The Coding Owl desktop app: the overview with jobs pending, one awaiting review and one blocked."
+      widths={[640, 960, 1400]}
+      sizes="(min-width: 768px) 736px, 100vw"
+      class="w-full rounded-(--radius-control)"
+      loading="eager"
+    />
+  </figure>
+
+  <article class="glass prose mt-8 px-6 py-8 sm:px-10 sm:py-10">
+    <Content />
+  </article>
+</Base>

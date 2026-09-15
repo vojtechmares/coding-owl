@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "codingowl-website",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // Every request goes through the Worker so it can pick the HTML or the
+    // Markdown representation of a page by the Accept header.
+    "run_worker_first": true,
+    "html_handling": "drop-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "routes": [{ "pattern": "codingowl.dev", "custom_domain": true }],
+  "observability": { "enabled": true }
+}

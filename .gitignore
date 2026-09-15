@@ -14,3 +14,9 @@ cmd/owl-desktop/frontend/dist/*
 !cmd/owl-desktop/frontend/dist/.gitkeep
 cmd/owl-desktop/build/bin/
 cmd/owl-desktop/frontend/package.json.md5
+
+# website: dependencies, build output, generated types and wrangler state
+website/node_modules/
+website/dist/
+website/.astro/
+website/.wrangler/

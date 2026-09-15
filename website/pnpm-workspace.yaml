@@ -1,0 +1,11 @@
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
+
+# semver@6.3.1 (a transitive dependency of @babel/core, pulled in by
+# @astrojs/react) predates npm provenance while a later-published 7.x has it,
+# so pnpm's no-downgrade trust policy flags it. It is a 2023 release that has
+# not changed since; exempt only that package.
+trustPolicyExclude:
+  - semver

@@ -1,0 +1,19 @@
+---
+interface Props {
+  type: string;
+}
+const { type } = Astro.props;
+const colours: Record<string, string> = {
+  added: 'text-added border-added/40',
+  changed: 'text-changed border-changed/40',
+  deprecated: 'text-deprecated border-deprecated/40',
+  removed: 'text-removed border-removed/40',
+  fixed: 'text-fixed border-fixed/40',
+  security: 'text-security border-security/40',
+};
+const colour = colours[type.toLowerCase()] ?? 'text-ink-dim border-glass-edge-strong';
+---
+
+<span class:list={['inline-block rounded-full border px-2.5 py-0.5 text-xs font-medium tracking-wide', colour]}>
+  {type}
+</span>
