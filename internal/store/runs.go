@@ -38,7 +38,7 @@ type Run struct {
 	Phase string
 	// SystemPrompt is the system prompt the Run's Agent was given, recorded
 	// when the Run started (ADR-0017). It is empty for a Run from before
-	// prompts were recorded, which nothing can know it for.
+	// prompts were recorded, whose prompt nobody kept.
 	SystemPrompt string
 }
 
