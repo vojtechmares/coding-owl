@@ -376,8 +376,8 @@ func printJob(env Env, d client.JobDetails) {
 // printRunSkills reports what each Run read, so that what an Agent did is
 // attributable to the instructions it had (ADR-0024). The most recent Run
 // comes first, because that is the one a reader is asking about. A Skill's
-// name, source and ref come out of a file the Project carries, so they reach
-// the terminal as text.
+// name, source and ref come out of a file the Project carries, and its commit
+// out of the lockfile beside it, so all four reach the terminal as text.
 func printRunSkills(env Env, runs []client.Run) {
 	var reported bool
 	for i := len(runs) - 1; i >= 0; i-- {
@@ -393,7 +393,7 @@ func printRunSkills(env Env, runs []client.Run) {
 		_, _ = fmt.Fprintf(w, "RUN %d\tSOURCE\tREF\tCOMMIT\n", r.ID)
 		for _, s := range r.Skills {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-				terminalSafe(s.Name), terminalSafe(s.Source), terminalSafe(orNone(s.Ref)), short(s.Commit))
+				terminalSafe(s.Name), terminalSafe(s.Source), terminalSafe(orNone(s.Ref)), terminalSafe(short(s.Commit)))
 		}
 		_ = w.Flush()
 	}

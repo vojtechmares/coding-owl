@@ -155,6 +155,12 @@ func TestJobsShowShowsAnEscapeFromOutsideOwlAsText(t *testing.T) {
 			"  v1.4.0" + shown + "  ",
 		},
 		{
+			// A commit is cut short, so the escape is one that fits in what is
+			// printed of it.
+			"a Skill's commit", func(d *client.JobDetails) { d.Runs[1].Skills[0].Commit = "\x1b]0;x\a0123456789" },
+			"  " + `\x1b]0;x\x07012345` + "\n",
+		},
+		{
 			"a Run's permissions", func(d *client.JobDetails) { d.Runs[1].Permissions[1] = "Bash(make " + escape + ":*)" },
 			"\nRUN 12: Read, Bash(make " + shown + ":*)\n",
 		},
