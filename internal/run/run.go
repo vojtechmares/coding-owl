@@ -114,6 +114,10 @@ type Run struct {
 	// Permissions is what the Run's Agent was allowed to do, in the tool's
 	// own rule syntax and in the order it read them (ADR-0035).
 	Permissions []string
+	// SystemPrompt is the system prompt the Run's Agent was given, as it was
+	// recorded when the Run started (ADR-0017), and empty for a Run from
+	// before prompts were recorded.
+	SystemPrompt string
 	// Paused is whether the Run is frozen right now. Only a Run this daemon is
 	// carrying out can be (ADR-0011).
 	Paused bool
@@ -140,12 +144,20 @@ const (
 	StageFinishing Stage = "finishing"
 )
 
-// Details is a Job with its Runs, the system prompt in force for it, and what
-// each of its phases would run at.
+// Details is a Job with its Runs, the system prompts its Agents were and will
+// be given, and what each of its phases would run at.
 type Details struct {
-	Job          queue.Job
-	Runs         []Run
+	Job  queue.Job
+	Runs []Run
+	// SystemPrompt is the system prompt the Job's most recent Run was given,
+	// as recorded, so that a client that reads nothing else shows what an
+	// Agent was actually told (ADR-0017). A Job with no Runs has the one its
+	// next Run will be given, and a Job whose most recent Run is from before
+	// prompts were recorded has none: today's is not what that Run was given.
 	SystemPrompt string
+	// NextSystemPrompt is what the Job's next Run would be given: the
+	// contract with the Project's clauses as they are on its base branch now.
+	NextSystemPrompt string
 	// VerifierSystemPrompt is Owl's standing contract with the Agent that
 	// verifies the work, for a Project that asks for one and empty for one
 	// that does not: nothing Owl puts in front of an Agent is hidden
@@ -543,8 +555,13 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 		return queue.Job{}, Run{}, false, err
 	}
 
+	// What the Agent is told is recorded with the Run rather than rebuilt
+	// when somebody asks: the Project's clauses and the contract can both
+	// have changed by then, and what matters is what this Agent was given
+	// (ADR-0017). The Driver is handed this same text.
+	systemPrompt := SystemPrompt(details.Config.UnattendedClauses)
 	r, err := s.opts.Store.StartRun(ctx, store.Run{
-		JobID: j.ID, Started: s.now().UTC(), Phase: string(phase),
+		JobID: j.ID, Started: s.now().UTC(), Phase: string(phase), SystemPrompt: systemPrompt,
 	})
 	if err != nil {
 		return queue.Job{}, Run{}, false, err
@@ -581,7 +598,7 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 
 	req := driver.Request{
 		Prompt:       prompt,
-		SystemPrompt: SystemPrompt(details.Config.UnattendedClauses),
+		SystemPrompt: systemPrompt,
 		WorkingDir:   j.Worktree,
 		BudgetUSD:    details.Config.BudgetUSD,
 		Model:        settings.Model.Value,
@@ -730,8 +747,8 @@ func (s *Service) release(jobID int64) {
 	}
 }
 
-// Show returns a Job with its Runs and the system prompt in force for it, so
-// nothing Owl injects into a Run is hidden (ADR-0017).
+// Show returns a Job with its Runs and the system prompt each of them was
+// given, so nothing Owl injects into a Run is hidden (ADR-0017).
 func (s *Service) Show(ctx context.Context, jobID int64) (Details, error) {
 	j, err := s.opts.Store.GetJob(ctx, jobID)
 	if err != nil {
@@ -797,10 +814,19 @@ func (s *Service) Show(ctx context.Context, jobID int64) (Details, error) {
 	if err != nil {
 		return Details{}, err
 	}
+	// What a Run was given is what was recorded when it started, never what
+	// the base branch and this binary would give one now: both can have
+	// changed since. Only the next Run's prompt is built afresh.
+	next := SystemPrompt(details.Config.UnattendedClauses)
+	systemPrompt := next
+	if len(runs) > 0 {
+		systemPrompt = runs[len(runs)-1].SystemPrompt
+	}
 	return Details{
 		Job:                  queue.FromStore(j),
 		Runs:                 runs,
-		SystemPrompt:         SystemPrompt(details.Config.UnattendedClauses),
+		SystemPrompt:         systemPrompt,
+		NextSystemPrompt:     next,
 		VerifierSystemPrompt: s.verifierSystemPrompt(details.Config),
 		Phases:               settings,
 		Checks:               results,
@@ -1543,5 +1569,7 @@ func toRun(r store.Run) Run {
 		ExitCode: r.ExitCode,
 		LogPath:  r.LogPath,
 		Phase:    Phase(r.Phase),
+		// What the Agent was told, as recorded (ADR-0017).
+		SystemPrompt: r.SystemPrompt,
 	}
 }
