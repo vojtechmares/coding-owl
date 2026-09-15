@@ -1,0 +1,14 @@
+# build output
+dist/
+# generated types
+.astro/
+# dependencies
+node_modules/
+# wrangler's local state
+.wrangler/
+# environment variables
+.env
+.env.*
+.dev.vars
+# macOS
+.DS_Store

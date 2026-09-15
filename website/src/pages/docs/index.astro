@@ -1,0 +1,39 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+
+const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
+const decisions = await getCollection('decisions');
+const latest = decisions.map((d) => d.data.number).reduce((a, b) => Math.max(a, b), 0);
+
+const cards = [
+  ...docs.map((d) => ({ href: `/docs/${d.id}`, title: d.data.title, description: d.data.description })),
+  {
+    href: '/docs/decisions',
+    title: 'Decisions',
+    description: `${decisions.length} architecture decision records, up to ADR-${String(latest).padStart(4, '0')}. Why Owl is built the way it is.`,
+  },
+];
+---
+
+<Base title="Documentation" description="How to install Coding Owl, the words it uses, and the decisions behind it.">
+  <h1 class="text-3xl font-semibold tracking-tight text-ink">Documentation</h1>
+  <p class="mt-3 max-w-xl text-ink-dim">
+    Everything here is read from the repository at build time, so the site says what the code says.
+  </p>
+  <ul class="mt-8 grid gap-4 sm:grid-cols-2">
+    {
+      cards.map((card) => (
+        <li>
+          <a
+            href={card.href}
+            class="glass block h-full px-5 py-5 no-underline transition-colors hover:bg-glass-strong"
+          >
+            <h2 class="text-base font-semibold text-ink">{card.title}</h2>
+            <p class="mt-1.5 text-sm leading-6 text-ink-dim">{card.description}</p>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</Base>

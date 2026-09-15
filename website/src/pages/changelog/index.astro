@@ -1,0 +1,65 @@
+---
+import { marked } from 'marked';
+import Base from '../../layouts/Base.astro';
+import ChangeBadge from '../../components/ChangeBadge.astro';
+import { changelog } from '../../lib/changelog';
+import { REPO } from '../../lib/markdown';
+
+const inline = (md: string) => marked.parseInline(md, { async: false }) as string;
+const block = (md: string) => marked.parse(md, { async: false }) as string;
+const anchor = (version: string) => version.toLowerCase().replace(/[^a-z0-9.]+/g, '-');
+---
+
+<Base title="Changelog" description="Every notable change to Coding Owl, release by release.">
+  <h1 class="text-3xl font-semibold tracking-tight text-ink">{changelog.title}</h1>
+  {changelog.intro && <div class="prose mt-3 max-w-xl text-[15px]" set:html={block(changelog.intro)} />}
+
+  <ol class="mt-10 space-y-8">
+    {
+      changelog.releases.map((release) => (
+        <li id={anchor(release.version)} class="glass scroll-mt-24 px-6 py-6 sm:px-8">
+          <header class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <h2 class="text-xl font-semibold tracking-tight text-ink">
+              {release.url ? (
+                <a href={release.url} class="no-underline hover:text-accent" rel="noopener">
+                  {release.version}
+                </a>
+              ) : (
+                release.version
+              )}
+            </h2>
+            {release.date && (
+              <time datetime={release.date} class="text-sm text-ink-faint">
+                {release.date}
+              </time>
+            )}
+            {release.yanked && <ChangeBadge type="Yanked" />}
+            <a href={`#${anchor(release.version)}`} class="ml-auto text-xs text-ink-faint no-underline hover:text-ink-dim">
+              #
+            </a>
+          </header>
+          {release.notes && <div class="prose mt-3 text-[15px]" set:html={block(release.notes)} />}
+          {release.sections.map((section) => (
+            <section class="mt-5">
+              <h3 class="sr-only">{section.type}</h3>
+              <ChangeBadge type={section.type} />
+              <ul class="prose mt-2 list-disc pl-5 text-[15px] marker:text-ink-faint">
+                {section.items.map((item) => (
+                  <li set:html={inline(item)} />
+                ))}
+              </ul>
+            </section>
+          ))}
+          {release.sections.length === 0 && !release.notes && (
+            <p class="mt-3 text-sm text-ink-faint">Nothing recorded yet.</p>
+          )}
+        </li>
+      ))
+    }
+  </ol>
+
+  <p class="mt-8 text-sm text-ink-faint">
+    Kept in <a href={`${REPO}/blob/main/CHANGELOG.md`} class="hover:text-ink-dim" rel="noopener">CHANGELOG.md</a>, in the
+    <a href="https://keepachangelog.com/en/1.1.0/" class="hover:text-ink-dim" rel="noopener">Keep a Changelog</a> format.
+  </p>
+</Base>
