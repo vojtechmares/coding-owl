@@ -49,6 +49,32 @@ func TestStartRunNumbersTheAttempts(t *testing.T) {
 	}
 }
 
+func TestStartRunRecordsTheSystemPromptTheRunIsGiven(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := queuedJob(t, s, "work", "a")
+	prompt := "You are running unattended.\n\nThis project also asks that you:\n\n- run gofmt"
+
+	started, err := s.StartRun(ctx, store.Run{JobID: j.ID, Started: time.Now().UTC(), SystemPrompt: prompt})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+
+	got, err := s.GetRun(ctx, started.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	listed, err := s.ListRuns(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	for what, r := range map[string]store.Run{"StartRun": started, "GetRun": got, "ListRuns": listed[0]} {
+		if r.SystemPrompt != prompt {
+			t.Errorf("%s reports the system prompt as %q, want the one the run was started with", what, r.SystemPrompt)
+		}
+	}
+}
+
 func TestFinishRunRecordsTheOutcome(t *testing.T) {
 	ctx := context.Background()
 	s := jobStore(t)

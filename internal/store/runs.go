@@ -36,6 +36,10 @@ type Run struct {
 	// Phase is what the Run was carrying out: planning the Job, or executing
 	// it (ADR-0026).
 	Phase string
+	// SystemPrompt is the system prompt the Run's Agent was given, recorded
+	// when the Run started (ADR-0017). It is empty for a Run from before
+	// prompts were recorded, which nothing can know it for.
+	SystemPrompt string
 }
 
 // NoExitCode is the exit status of a Run whose Agent never exited: one that
@@ -43,18 +47,19 @@ type Run struct {
 const NoExitCode = -1
 
 // runColumns is the select list every Run read shares, in scanRun's order.
-const runColumns = `id, job_id, attempt, started, ended, outcome, error, exit_code, log_path, phase`
+const runColumns = `id, job_id, attempt, started, ended, outcome, error, exit_code, log_path, phase, system_prompt`
 
 // StartRun records the beginning of an attempt at a Job, numbering it after
-// the attempts already made.
+// the attempts already made. The system prompt is recorded with it, so there
+// is no moment at which a Run exists without what its Agent is told.
 func (s *Store) StartRun(ctx context.Context, r Run) (Run, error) {
 	var out Run
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		row := tx.QueryRowContext(ctx,
-			`INSERT INTO runs (job_id, attempt, started, log_path, exit_code, phase)
-			 VALUES (?, (SELECT COUNT(*) + 1 FROM runs WHERE job_id = ?), ?, ?, ?, ?)
+			`INSERT INTO runs (job_id, attempt, started, log_path, exit_code, phase, system_prompt)
+			 VALUES (?, (SELECT COUNT(*) + 1 FROM runs WHERE job_id = ?), ?, ?, ?, ?, ?)
 			 RETURNING `+runColumns,
-			r.JobID, r.JobID, r.Started.UTC().Format(timeFormat), r.LogPath, NoExitCode, r.Phase)
+			r.JobID, r.JobID, r.Started.UTC().Format(timeFormat), r.LogPath, NoExitCode, r.Phase, r.SystemPrompt)
 		var err error
 		out, err = scanRun(row)
 		return err
@@ -385,7 +390,7 @@ func scanRun(sc scanner) (Run, error) {
 	var r Run
 	var started, ended string
 	if err := sc.Scan(&r.ID, &r.JobID, &r.Attempt, &started, &ended, &r.Outcome, &r.Error,
-		&r.ExitCode, &r.LogPath, &r.Phase); err != nil {
+		&r.ExitCode, &r.LogPath, &r.Phase, &r.SystemPrompt); err != nil {
 		return Run{}, err
 	}
 	t, err := time.Parse(timeFormat, started)

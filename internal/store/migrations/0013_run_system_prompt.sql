@@ -1,0 +1,13 @@
+-- The system prompt a Run's Agent was given (ADR-0017): the unattended contract
+-- with the Project's own clauses after it. Both can change between Runs - a
+-- Project edits its clauses on its base branch, an upgrade changes the
+-- contract - so what an Agent was told is only knowable if it is recorded when
+-- the Run starts, as what it read (ADR-0024) and what it was allowed
+-- (ADR-0035) already are.
+--
+-- It is one text per Run, so it is a column rather than a table. Every Run
+-- carries the contract, so a recorded prompt is never empty: the empty string
+-- every Run already here is given is what a Run from before prompts were
+-- recorded looks like, and it is reported as not recorded rather than
+-- rebuilt from what is in force now.
+ALTER TABLE runs ADD COLUMN system_prompt TEXT NOT NULL DEFAULT '';
