@@ -159,6 +159,35 @@ func TestStartStopsTheAgentWhenTheContextIsCancelled(t *testing.T) {
 	}
 }
 
+// Cancelling the context is Owl ending the Agent itself, and an Agent that
+// acts on the SIGTERM it is sent dies of it. That is reported like any other
+// signal: telling Owl's own endings apart is the Run's to do, not the
+// Executor's (issue #101, ADR-0034).
+func TestStartReportsTheSignalACancelledAgentDiedOf(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	// exec, so the Agent is the process that is sent SIGTERM rather than a
+	// shell waiting on it.
+	p, err := host.New().Start(ctx, agent.Invocation{Path: script(t, "echo started\nexec sleep 60\n"), Dir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	buf := make([]byte, len("started\n"))
+	if _, err := io.ReadFull(p.Stdout(), buf); err != nil {
+		t.Fatalf("reading the first line: %v", err)
+	}
+
+	cancel()
+	_, _ = io.ReadAll(p.Stdout())
+	_, err = p.Wait()
+
+	if err != nil {
+		t.Errorf("Wait on a cancelled agent = %v, want the signal reported instead", err)
+	}
+	if got := p.KilledBy(); got != syscall.SIGTERM {
+		t.Errorf("killed by %v, want %v, which the agent was stopped with", got, syscall.SIGTERM)
+	}
+}
+
 func TestStartReportsAProgramThatIsNotThere(t *testing.T) {
 	_, err := host.New().Start(context.Background(), agent.Invocation{
 		Path: filepath.Join(t.TempDir(), "nothing"), Dir: t.TempDir(),
