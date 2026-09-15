@@ -36,6 +36,7 @@ func TestTerminalSafeLeavesTextAndDocumentsAlone(t *testing.T) {
 // ASCII, and nothing that is an instruction to a terminal.
 func reported() client.JobDetails {
 	at := time.Date(2026, 9, 15, 2, 0, 0, 0, time.UTC)
+	const prompt = "You are running unattended.\n\n- Commit as you go.\n\nThis project also asks that you:\n\n- keep\tthe háček"
 	return client.JobDetails{
 		Job: client.Job{
 			ID: 7, Source: "local", SourceRef: "01K5A0000000000000000000JB", Project: "api",
@@ -48,6 +49,7 @@ func reported() client.JobDetails {
 			{
 				ID: 11, JobID: 7, Attempt: 1, Phase: "plan", Outcome: "succeeded", ExitCode: 0,
 				Started: at, Ended: at.Add(time.Minute), LogPath: "/owl/logs/11.jsonl",
+				SystemPrompt: prompt,
 			},
 			{
 				ID: 12, JobID: 7, Attempt: 2, Phase: "execute", Outcome: "succeeded", ExitCode: 0,
@@ -56,10 +58,11 @@ func reported() client.JobDetails {
 					Name: "go-review", Source: "github.com/x/go-review", Ref: "v1.4.0",
 					Commit: "0123456789abcdef0123456789abcdef01234567",
 				}},
-				Permissions: []string{"Read", "Bash(make test:*)"},
+				Permissions:  []string{"Read", "Bash(make test:*)"},
+				SystemPrompt: prompt,
 			},
 		},
-		SystemPrompt:         "You are running unattended.\n\n- Commit as you go.\n\nThis project also asks that you:\n\n- keep\tthe háček",
+		SystemPrompt:         prompt,
 		VerifierSystemPrompt: "You are reviewing somebody else's work.\n\n- Say pass or fail.",
 		Phases: []client.PhaseSettings{
 			{Phase: "plan", Model: "opus", ModelFrom: "default", Effort: "xhigh", EffortFrom: "default"},
@@ -123,7 +126,14 @@ func TestJobsShowShowsAnEscapeFromOutsideOwlAsText(t *testing.T) {
 			"\nhandoff:\nstep two " + shown + "\n\tthe tab stays\n\n",
 		},
 		{
-			"the system prompt", func(d *client.JobDetails) { d.SystemPrompt += "\n- run gofmt " + escape },
+			// What is printed is the prompt each Run was given, so that is where
+			// the escape goes.
+			"the system prompt", func(d *client.JobDetails) {
+				for i := range d.Runs {
+					d.Runs[i].SystemPrompt += "\n- run gofmt " + escape
+				}
+				d.SystemPrompt += "\n- run gofmt " + escape
+			},
 			"\n- keep\tthe háček\n- run gofmt " + shown + "\n\n",
 		},
 		{
@@ -204,8 +214,9 @@ func TestJobsShowShowsAnEscapeFromOutsideOwlAsText(t *testing.T) {
 }
 
 // reportedAsItWas is what owl jobs show printed for reported() before anything
-// in it was made terminal-safe. A report with nothing to escape prints exactly
-// that, byte for byte.
+// in it was made terminal-safe, with the system prompt headed by the Runs that
+// were given it. A report with nothing to escape prints exactly that, byte for
+// byte.
 const reportedAsItWas = `id: 7
 project: api
 state: blocked
@@ -256,7 +267,7 @@ handoff:
 step two: fix the parser
 	the tab stays
 
-system prompt:
+runs 11, 12 were given this system prompt:
 You are running unattended.
 
 - Commit as you go.

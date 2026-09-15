@@ -55,24 +55,47 @@ func wantClean(t *testing.T, out string) {
 // the order it prints them.
 var documentHeadings = []string{"plan", "handoff", "system prompt", "verifier system prompt"}
 
+// givenPromptHeading is how every heading of a system prompt ends: owl jobs
+// show heads each prompt with the Runs that were given it, or as the one the
+// next Run will be given (issue #103).
+const givenPromptHeading = " given this system prompt:"
+
+// headsDocument reports whether a line of owl jobs show is where the document
+// under heading begins.
+func headsDocument(line, heading string) bool {
+	return line == heading+":" || heading == "system prompt" && strings.HasSuffix(line, givenPromptHeading)
+}
+
 // document is what owl jobs show printed under a document's heading: every
 // line of it, blank ones included, up to the heading after it or the end of
 // the report.
 func document(t *testing.T, out, heading string) string {
 	t.Helper()
-	_, rest, ok := strings.Cut(out, "\n"+heading+":\n")
-	if !ok {
+	lines := strings.Split(out, "\n")
+	start := -1
+	for i, line := range lines {
+		if headsDocument(line, heading) {
+			start = i + 1
+			break
+		}
+	}
+	if start < 0 {
 		t.Fatalf("owl jobs show prints no %s document:\n%s", heading, out)
 	}
-	for _, next := range documentHeadings {
-		if next == heading {
+	for i := start + 1; i < len(lines); i++ {
+		if lines[i-1] != "" {
 			continue
 		}
-		if doc, _, found := strings.Cut(rest, "\n\n"+next+":"); found {
-			return doc
+		for _, next := range documentHeadings {
+			if next == heading {
+				continue
+			}
+			if strings.HasPrefix(lines[i], next+":") || next == "system prompt" && strings.HasSuffix(lines[i], givenPromptHeading) {
+				return strings.Join(lines[start:i-1], "\n")
+			}
 		}
 	}
-	return strings.TrimSuffix(rest, "\n")
+	return strings.TrimSuffix(strings.Join(lines[start:], "\n"), "\n")
 }
 
 // inDatabase writes to the daemon's database directly, for a value the daemon

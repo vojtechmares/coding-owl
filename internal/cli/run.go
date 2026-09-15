@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -281,12 +282,15 @@ the queue at the place it kept.`,
 func newJobsShowCmd(env Env) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <id>",
-		Short: "Show a Job, its Runs and the system prompt in force for it",
-		Long: `Show a Job, its Runs and the system prompt in force for it.
+		Short: "Show a Job, its Runs and the system prompt each Run was given",
+		Long: `Show a Job, its Runs and the system prompt each Run was given.
 
 The system prompt is Owl's standing unattended contract with the Project's
-own clauses after it, exactly as the Agent is given it: nothing Owl injects
-into a Run is hidden.`,
+own clauses after it: nothing Owl injects into a Run is hidden. Each Run's
+is printed as it was recorded when the Run started, so a later change to
+the clauses or the contract does not rewrite what a Run was given. A Job
+that has not run, and a pending Job whose next Run would be given something
+different, also shows what the next Run will be given.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := jobID(args[0])
@@ -305,7 +309,7 @@ into a Run is hidden.`,
 	}
 }
 
-// printJob renders owl jobs show, ending with the system prompt so that a
+// printJob renders owl jobs show, ending with the system prompts so that a
 // prompt of any length cannot push the rest of the report off the screen.
 func printJob(env Env, d client.JobDetails) {
 	for _, kv := range [][2]string{
@@ -364,13 +368,97 @@ func printJob(env Env, d client.JobDetails) {
 	} else {
 		_, _ = fmt.Fprintf(env.Stdout, "\nhandoff: %s\n", noValue)
 	}
-	_, _ = fmt.Fprintf(env.Stdout, "\nsystem prompt:\n%s\n", terminalSafe(d.SystemPrompt))
+	printSystemPrompts(env, d)
 	// A Project that asked for the agent Verifier gets a second Agent, with a
 	// contract of its own: nothing Owl puts in front of one is hidden
 	// (ADR-0017).
 	if d.VerifierSystemPrompt != "" {
 		_, _ = fmt.Fprintf(env.Stdout, "\nverifier system prompt:\n%s\n", terminalSafe(d.VerifierSystemPrompt))
 	}
+}
+
+// nextPromptHeading labels the prompt a Job's next Run will be given, which no
+// Run has been given yet.
+const nextPromptHeading = "the next run will be given this system prompt:"
+
+// printSystemPrompts reports the system prompt each Run was given, as it was
+// recorded when the Run started: what a person reading a Job needs is what its
+// Agents were told, not what the Project and this binary would tell one now
+// (ADR-0017). Runs given the same prompt share one copy of it, naming them
+// all, and the copies come in the order of the latest Run given each, so the
+// prompt the most recent Run was given is the last of them. What the next Run
+// will be given follows, where it is worth saying, labelled as the next Run's.
+func printSystemPrompts(env Env, d client.JobDetails) {
+	for _, g := range givenPrompts(d.Runs) {
+		if g.prompt == "" {
+			// A Run from before prompts were recorded: nothing knows what it
+			// was given, and today's prompt is not it.
+			_, _ = fmt.Fprintf(env.Stdout, "\nthe system prompt %s given was not recorded\n", runsWere(g.runs))
+			continue
+		}
+		_, _ = fmt.Fprintf(env.Stdout, "\n%s given this system prompt:\n%s\n", runsWere(g.runs), terminalSafe(g.prompt))
+	}
+	if next := nextPrompt(d); next != "" {
+		_, _ = fmt.Fprintf(env.Stdout, "\n%s\n%s\n", nextPromptHeading, terminalSafe(next))
+	}
+}
+
+// nextPrompt is the system prompt a Job's next Run will be given, where that
+// is worth saying, and empty where it is not. It is for a Job that has not
+// run, which has nothing else to show, and for a pending Job whose next Run
+// would be given something other than what its latest Run was, so that a
+// change that has not reached a Run yet is not hidden either. A latest Run
+// whose prompt was not recorded is not known to have been given the same.
+func nextPrompt(d client.JobDetails) string {
+	if len(d.Runs) == 0 {
+		// The daemon gives a Job with no Runs the next Run's prompt as its
+		// own, as a daemon from before prompts were recorded did too.
+		return d.SystemPrompt
+	}
+	if d.Job.State != "pending" || d.NextSystemPrompt == d.Runs[len(d.Runs)-1].SystemPrompt {
+		return ""
+	}
+	return d.NextSystemPrompt
+}
+
+// givenPrompt is one system prompt and the Runs that were given it, with where
+// the latest of them stands among the Job's Runs.
+type givenPrompt struct {
+	prompt string
+	runs   []int64
+	latest int
+}
+
+// givenPrompts groups a Job's Runs by the system prompt each was given, in the
+// order of the latest Run given each.
+func givenPrompts(runs []client.Run) []*givenPrompt {
+	var out []*givenPrompt
+	byPrompt := map[string]*givenPrompt{}
+	for i, r := range runs {
+		g, ok := byPrompt[r.SystemPrompt]
+		if !ok {
+			g = &givenPrompt{prompt: r.SystemPrompt}
+			byPrompt[r.SystemPrompt] = g
+			out = append(out, g)
+		}
+		g.runs = append(g.runs, r.ID)
+		g.latest = i
+	}
+	slices.SortStableFunc(out, func(a, b *givenPrompt) int { return a.latest - b.latest })
+	return out
+}
+
+// runsWere names Runs as the subject of a sentence: "run 7 was", or "runs 7, 9
+// were".
+func runsWere(ids []int64) string {
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		names = append(names, strconv.FormatInt(id, 10))
+	}
+	if len(ids) == 1 {
+		return "run " + names[0] + " was"
+	}
+	return "runs " + strings.Join(names, ", ") + " were"
 }
 
 // printRunSkills reports what each Run read, so that what an Agent did is
