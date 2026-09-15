@@ -19,6 +19,10 @@ serves whichever of the two the request's `Accept` header prefers, with
 `Vary: Accept` set. `curl -H 'Accept: text/markdown' https://codingowl.dev/docs`
 returns Markdown; a browser gets HTML.
 
+The build also emits `/sitemap-index.xml` (with `/robots.txt` pointing at
+it), and `/llms.txt` and `/llms-full.txt`, an index of the site and the
+Markdown of every page in one file, for language models.
+
 ```
 pnpm install
 pnpm dev              # Astro alone, HTML only, on :4321
@@ -27,6 +31,10 @@ pnpm build            # dist/
 pnpm preview:worker   # build, then the Worker with wrangler dev on :8787
 pnpm deploy           # build, then wrangler deploy
 ```
+
+The Open Graph image, `public/og.png`, is committed rather than built -
+`pnpm og` regenerates it from `scripts/og.mjs` after a change to the copy or
+the logo.
 
 Deploys happen from `.github/workflows/website.yml` on every push to `main`
 that touches the site or its sources. It needs two repository secrets,

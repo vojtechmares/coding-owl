@@ -2,17 +2,57 @@
 import '../styles/global.css';
 import Nav from '../components/Nav.astro';
 import { REPO, SITE, markdownPath } from '../lib/markdown';
+import { AUTHOR, OG_IMAGE, OG_IMAGE_ALT, absolute, schemaGraph, serialize } from '../lib/seo';
+import type { Crumb, PageType } from '../lib/seo';
 
 interface Props {
   title: string;
   description: string;
+  /** `article` for docs and decisions, `website` for everything else. */
+  type?: PageType;
+  /** Index pages: the WebPage node becomes a CollectionPage. */
+  collection?: boolean;
+  /** The breadcrumb shown on the page, without the home crumb. */
+  crumbs?: Crumb[];
+  /** Extra schema.org nodes merged into the page's graph. */
+  schema?: Record<string, unknown>[];
+  datePublished?: string;
+  dateModified?: string;
+  /** Site-relative or absolute path of the social image. */
+  image?: string;
+  noindex?: boolean;
 }
 
-const { title, description } = Astro.props;
+const {
+  title,
+  description,
+  type = 'website',
+  collection = false,
+  crumbs = [],
+  schema = [],
+  datePublished,
+  dateModified,
+  image = '/og.png',
+  noindex = false,
+} = Astro.props;
 const pathname = Astro.url.pathname;
-const canonical = new URL(pathname === '/' ? '/' : pathname.replace(/\/+$/, ''), SITE);
+const canonical = absolute(pathname);
 const markdown = new URL(markdownPath(pathname), SITE);
 const fullTitle = pathname === '/' ? title : `${title} - Coding Owl`;
+const ogImage = image === '/og.png' ? OG_IMAGE : absolute(image);
+const robots = noindex ? 'noindex, nofollow' : 'index, follow';
+const graph = schemaGraph({
+  canonical,
+  title: fullTitle,
+  description,
+  image: ogImage,
+  type,
+  collection,
+  crumbs,
+  datePublished,
+  dateModified,
+  extra: schema,
+});
 ---
 
 <!doctype html>
@@ -22,6 +62,8 @@ const fullTitle = pathname === '/' ? title : `${title} - Coding Owl`;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
+    <meta name="author" content={AUTHOR} />
+    <meta name="robots" content={robots} />
     <link rel="canonical" href={canonical} />
     <link rel="alternate" type="text/markdown" href={markdown} title="Markdown" />
     <link rel="icon" type="image/png" href="/favicon.png" />
@@ -32,13 +74,25 @@ const fullTitle = pathname === '/' ? title : `${title} - Coding Owl`;
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap"
     />
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={type} />
     <meta property="og:site_name" content="Coding Owl" />
+    <meta property="og:locale" content="en_US" />
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={OG_IMAGE_ALT} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content={OG_IMAGE_ALT} />
     <meta name="theme-color" content="#fafafa" />
     <meta name="generator" content={Astro.generator} />
+    <script type="application/ld+json" set:html={serialize(graph)} />
   </head>
   <body class="flex min-h-screen flex-col">
     <Nav />

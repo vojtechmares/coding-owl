@@ -7,6 +7,7 @@ import CopyCommand from '../components/CopyCommand';
 import Terminal from '../components/Terminal';
 import SectionHead from '../components/SectionHead.astro';
 import { REPO } from '../lib/markdown';
+import { softwareApplication } from '../lib/seo';
 import overview from '../../../docs/desktop/overview.jpg';
 
 const page = await getEntry('pages', 'home');
@@ -15,7 +16,7 @@ const { Content } = await render(page);
 const { title, eyebrow, tagline, description, install, features } = page.data;
 ---
 
-<Base title={title} description={description}>
+<Base title={title} description={description} schema={[softwareApplication(description)]}>
   <section class="relative pt-20 pb-24 text-center sm:pt-28 sm:pb-28">
     <div class="grid-backdrop -mx-6 sm:-mx-10" aria-hidden="true"></div>
     <div class="flex justify-center">

@@ -25,7 +25,12 @@ const pages = [
 const recent = decisions.slice(0, 5);
 ---
 
-<Base title="Documentation" description="How to install Coding Owl, the words it uses, and the decisions behind it.">
+<Base
+  title="Documentation"
+  description="How to install Coding Owl, the words it uses, and the decisions behind it."
+  collection
+  crumbs={[{ label: 'Docs' }]}
+>
   <PageHead
     eyebrow="Docs"
     title="Documentation."

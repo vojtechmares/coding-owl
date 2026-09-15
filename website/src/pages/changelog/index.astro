@@ -11,7 +11,7 @@ const block = (md: string) => marked.parse(md, { async: false }) as string;
 const anchor = (version: string) => version.toLowerCase().replace(/[^a-z0-9.]+/g, '-');
 ---
 
-<Base title="Changelog" description="Every notable change to Coding Owl, release by release.">
+<Base title="Changelog" description="Every notable change to Coding Owl, release by release." collection>
   <PageHead eyebrow="Changelog" title="What changed, release by release.">
     {changelog.intro && <div class="prose mt-5 max-w-xl text-[15px]" set:html={block(changelog.intro)} />}
   </PageHead>

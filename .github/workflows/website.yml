@@ -72,6 +72,15 @@ jobs:
           done < <(find dist -name '*.html')
           exit "$missing"
 
+      - name: The build emits the sitemap, robots.txt and llms.txt
+        run: |
+          set -euo pipefail
+          for f in sitemap-index.xml sitemap-0.xml robots.txt llms.txt llms-full.txt og.png; do
+            [[ -f "dist/$f" ]] || { echo "::error::dist/$f is missing"; exit 1; }
+          done
+          grep -q 'Sitemap: https://codingowl.dev/sitemap-index.xml' dist/robots.txt
+          grep -q '<loc>https://codingowl.dev/docs/guide</loc>' dist/sitemap-0.xml
+
       - name: Deploy
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
