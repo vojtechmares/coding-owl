@@ -99,6 +99,9 @@ func TestJobsShowShowsAnEscapeFromOutsideOwlAsText(t *testing.T) {
 		what  string
 		carry func(d *client.JobDetails)
 	}{
+		{"a Run's phase", func(d *client.JobDetails) { d.Runs[1].Phase = "execute" + escape }},
+		{"a Run's state", func(d *client.JobDetails) { d.Runs[1].Outcome, d.Runs[1].Stage = "", "verifying"+escape }},
+		{"a Run's log", func(d *client.JobDetails) { d.Runs[1].LogPath = "/owl/logs/" + escape + ".jsonl" }},
 		{"the plan", func(d *client.JobDetails) { d.Job.Plan = "read the tests " + escape + "\n\tthen fix them\n" }},
 		{"the handoff", func(d *client.JobDetails) { d.Handoff = "step two " + escape + "\n\tthe tab stays\n" }},
 		{"the system prompt", func(d *client.JobDetails) { d.SystemPrompt += "\n- run gofmt " + escape }},

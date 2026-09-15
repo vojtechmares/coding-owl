@@ -336,9 +336,13 @@ func printJob(env Env, d client.JobDetails) {
 		w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
 		_, _ = fmt.Fprintln(w, "RUN\tATTEMPT\tPHASE\tSTATE\tEXIT\tSTARTED\tENDED\tLOG")
 		for _, r := range d.Runs {
+			// The phase, the state and the log path are text the daemon
+			// reports rather than numbers and times this formats itself, so
+			// they reach the terminal as text like the rest of the report.
 			_, _ = fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				r.ID, r.Attempt, orNone(r.Phase), runState(r), exitStatus(r.ExitCode),
-				r.Started.UTC().Format(time.RFC3339), stamp(r.Ended), r.LogPath)
+				r.ID, r.Attempt, terminalSafe(orNone(r.Phase)), terminalSafe(runState(r)),
+				exitStatus(r.ExitCode), r.Started.UTC().Format(time.RFC3339), stamp(r.Ended),
+				terminalSafe(r.LogPath))
 		}
 		_ = w.Flush()
 	}
