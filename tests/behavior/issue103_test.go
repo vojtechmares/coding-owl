@@ -31,13 +31,17 @@ const (
 // nextPromptHeading heads the prompt the Job's next Run will be given.
 const nextPromptHeading = "the next run will be given this system prompt:"
 
-// givenPromptPhrase is how every heading of a prompt a Run was given ends,
-// whatever Runs it names.
-const givenPromptPhrase = "was given this system prompt:"
+// promptHeadingPhrase is in every heading of a system prompt, whether it names
+// the Runs that were given it - `was given` for one, `were given` for several
+// - or the next Run, which `will be given` it.
+const promptHeadingPhrase = "given this system prompt:"
 
-// The Runs a heading or a line names, in the wording the sheet quotes: `run
-// <id> was` for one Run, `runs <id>, <id> were` for several. The one Run is the
-// first group and the several the second, so namedRuns reads either.
+// unrecordedPhrase is in every line for Runs whose prompt was not recorded.
+const unrecordedPhrase = "given was not recorded"
+
+// Both patterns accept only the wording the sheet quotes: `run <id> was` for
+// one Run, and `runs <id>, <id> were` for several. The first group captures
+// the one Run and the second the several.
 var (
 	// givenPromptRE heads a prompt the named Runs were given.
 	givenPromptRE = regexp.MustCompile(`^(?:run (\d+) was|runs (\d+(?:, \d+)+) were) given this system prompt:$`)
@@ -45,10 +49,31 @@ var (
 	unrecordedPromptRE = regexp.MustCompile(`^the system prompt (?:run (\d+) was|runs (\d+(?:, \d+)+) were) given was not recorded$`)
 )
 
-// namedRuns is the Run ids a match of one of those names, whichever of its
-// wordings matched.
+// namedRuns returns the Run ids in a match of givenPromptRE or
+// unrecordedPromptRE, from whichever of the two wordings matched.
 func namedRuns(m []string) []string {
 	return strings.Split(m[1]+m[2], ", ")
+}
+
+// malformed stands in for the Runs of a line that reads like a heading, or like
+// the line for Runs whose prompt was not recorded, but is in no wording the
+// sheet quotes. The line itself is kept in their place, so that a test which
+// counts what was printed or reads the Runs it names fails on it and says what
+// it was.
+func malformed(ln string) []string {
+	return []string{"malformed: " + ln}
+}
+
+// otherPromptHeadings is every line of out that reads like the heading of a
+// system prompt, in any wording, other than the next Run's heading.
+func otherPromptHeadings(out string) []string {
+	var got []string
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ln, promptHeadingPhrase) && ln != nextPromptHeading {
+			got = append(got, ln)
+		}
+	}
+	return got
 }
 
 // printedPrompt is one system prompt owl jobs show printed: the Runs its
@@ -83,6 +108,11 @@ func printedPrompts(out string) []printedPrompt {
 		case ln == nextPromptHeading:
 			flush()
 			open = &printedPrompt{next: true}
+		case strings.Contains(ln, promptHeadingPhrase):
+			// A heading in a wording the sheet does not quote is still a
+			// heading, and it is reported as one rather than dropped.
+			flush()
+			open = &printedPrompt{runs: malformed(ln)}
 		case unrecordedPromptRE.MatchString(ln) || ln == "verifier system prompt:":
 			flush()
 		case open != nil:
@@ -100,6 +130,8 @@ func unrecordedPrompts(out string) [][]string {
 	for _, ln := range strings.Split(out, "\n") {
 		if m := unrecordedPromptRE.FindStringSubmatch(ln); m != nil {
 			got = append(got, namedRuns(m))
+		} else if strings.Contains(ln, unrecordedPhrase) {
+			got = append(got, malformed(ln))
 		}
 	}
 	return got
@@ -313,8 +345,8 @@ func TestS4PromptOfAJobWithNoRunsIsTheNextRuns(t *testing.T) {
 	if got := unrecordedPrompts(out); len(got) != 0 {
 		t.Errorf("a job with no runs reports runs %v with no recorded prompt:\n%s", got, out)
 	}
-	if strings.Contains(out, givenPromptPhrase) {
-		t.Errorf("a job with no runs says a run was given a system prompt:\n%s", out)
+	if got := otherPromptHeadings(out); len(got) != 0 {
+		t.Errorf("a job with no runs heads a system prompt as something other than the next run's: %q\n%s", got, out)
 	}
 
 	_, job := startRun(t, l)
@@ -383,8 +415,9 @@ func TestS7PromptNotRecordedIsNotSubstituted(t *testing.T) {
 	d := daemonUp(t, l)
 	runnableJob(t, l, "work")
 	runID, job := startRun(t, l)
-	if state := line(t, finished(t, l, job), "state"); state != "review" {
-		t.Fatalf("the job is %s after its run, want review", state)
+	done := finished(t, l, job)
+	if state := line(t, done, "state"); state != "review" {
+		t.Fatalf("the job is %s after its run, want review:\n%s", state, done)
 	}
 	unrecord(t, l, d, job)
 
@@ -396,8 +429,8 @@ func TestS7PromptNotRecordedIsNotSubstituted(t *testing.T) {
 	if got := printedPrompts(out); len(got) != 0 {
 		t.Errorf("owl jobs show printed %d system prompts for a job whose only run has none recorded:\n%s", len(got), out)
 	}
-	if strings.Contains(out, givenPromptPhrase) || strings.Contains(out, nextPromptHeading) {
-		t.Errorf("owl jobs show heads a prompt for a job whose only run has none recorded:\n%s", out)
+	if got := otherPromptHeadings(out); len(got) != 0 || strings.Contains(out, nextPromptHeading) {
+		t.Errorf("owl jobs show heads a prompt for a job whose only run has none recorded: %q\n%s", got, out)
 	}
 	if strings.Contains(out, run.Contract) {
 		t.Errorf("today's prompt stands in for the one that was not recorded:\n%s", out)
@@ -416,6 +449,9 @@ func TestS8PromptNotRecordedStillShowsTheNextRuns(t *testing.T) {
 	d := daemonUp(t, l)
 	plannedJob(t, l, "work")
 	planning, job := phase(t, l)
+	if state := jobState(t, l, job); state != "pending" {
+		t.Fatalf("the planned job is %s after planning, want pending", state)
+	}
 	unrecord(t, l, d, job)
 
 	out := mustOwl(t, l, "jobs", "show", job).stdout
