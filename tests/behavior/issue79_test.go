@@ -135,6 +135,16 @@ func TestS5NothingInTheRepositoryStillInvokesNpmForTheFrontend(t *testing.T) {
 			case ".git", "node_modules", "dist", "build", "bin":
 				return filepath.SkipDir
 			}
+			// Reviews are a record of the repository as it was when they were
+			// written, npm included.
+			if rel, _ := filepath.Rel(repoDir, path); rel == filepath.Join("docs", "reviews") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// Regular files only: a symlink such as .claude/skills points at a
+		// directory the walk reaches under its own name anyway.
+		if !d.Type().IsRegular() {
 			return nil
 		}
 		data, err := os.ReadFile(path)
