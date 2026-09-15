@@ -29,8 +29,8 @@ export default function CopyCommand({ command }: Props) {
   }
 
   return (
-    <div className="glass-strong flex items-center gap-3 rounded-(--radius-control) py-2.5 pr-2 pl-4 font-mono text-[13.5px] text-silver">
-      <span aria-hidden="true" className="text-ink-faint select-none">
+    <div className="panel flex items-center gap-3 py-2 pr-2 pl-3.5 font-mono text-[13px] text-ink">
+      <span aria-hidden="true" className="text-accent select-none">
         $
       </span>
       <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">{command}</code>
@@ -39,9 +39,9 @@ export default function CopyCommand({ command }: Props) {
           type="button"
           onClick={copy}
           aria-live="polite"
-          className="shrink-0 rounded-lg border border-glass-edge bg-glass px-2.5 py-1 font-sans text-xs text-ink-dim transition-colors hover:bg-glass-strong hover:text-ink"
+          className="shrink-0 rounded-(--radius-control) border border-line bg-neutral-50 px-2 py-1 text-[11px] tracking-wide text-ink-dim uppercase transition-colors hover:border-line-strong hover:text-ink"
         >
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? 'copied' : 'copy'}
         </button>
       )}
     </div>

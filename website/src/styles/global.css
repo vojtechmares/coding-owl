@@ -1,76 +1,88 @@
 @import 'tailwindcss';
 
 /*
- * The theme, in one place. The palette follows the desktop app's tokens
- * (cmd/owl-desktop/frontend/src/theme/tokens.css): liquid glass over a night
- * sky, navy blues with grey and silver details. Hues stay between 200 and 260.
+ * The theme, in one place. Light and quiet: a neutral-50 ground, white panels
+ * with hairline borders, one sky-blue accent used sparingly, and monospace for
+ * anything that is a label, a number or a command. Corners are small.
  */
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --font-mono: 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-mono: 'Geist Mono', 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
 
-  /* The sky. */
-  --color-sky-top: hsl(228 55% 7%);
-  --color-sky-mid: hsl(226 50% 12%);
-  --color-sky-bottom: hsl(222 48% 18%);
+  /* Ground and surfaces. */
+  --color-ground: var(--color-neutral-50);
+  --color-surface: #ffffff;
+  --color-surface-tint: var(--color-sky-50);
+  --color-line: var(--color-neutral-200);
+  --color-line-strong: var(--color-neutral-300);
+  --color-grid: color-mix(in oklab, var(--color-neutral-400) 22%, transparent);
 
-  /* Glass. */
-  --color-glass: hsl(222 40% 55% / 0.1);
-  --color-glass-strong: hsl(222 40% 60% / 0.16);
-  --color-glass-edge: hsl(215 60% 85% / 0.18);
-  --color-glass-edge-strong: hsl(215 70% 88% / 0.32);
-  --color-glass-highlight: hsl(210 80% 92% / 0.12);
+  /* Text. */
+  --color-ink: var(--color-neutral-900);
+  --color-ink-dim: var(--color-neutral-600);
+  --color-ink-faint: var(--color-neutral-500);
+  --color-ink-on-accent: #ffffff;
 
-  /* Text: silver, grey, faint. */
-  --color-ink: hsl(215 40% 94%);
-  --color-ink-dim: hsl(215 25% 72%);
-  --color-ink-faint: hsl(216 20% 55%);
-  --color-ink-on-accent: hsl(220 60% 8%);
-  --color-silver: hsl(215 22% 82%);
-
-  /* The accent: one bright blue. */
-  --color-accent: hsl(208 92% 66%);
-  --color-accent-strong: hsl(206 95% 58%);
-  --color-accent-soft: hsl(208 90% 66% / 0.18);
-  --color-accent-ring: hsl(208 90% 66% / 0.45);
+  /* The accent: one light blue. */
+  --color-accent: var(--color-sky-600);
+  --color-accent-strong: var(--color-sky-700);
+  --color-accent-soft: var(--color-sky-50);
+  --color-accent-tint: var(--color-sky-100);
+  --color-accent-ring: color-mix(in oklab, var(--color-sky-500) 45%, transparent);
 
   /* Code. */
-  --color-code-bg: hsl(228 50% 6% / 0.55);
-  --color-code-edge: hsl(220 40% 70% / 0.12);
+  --color-code-bg: var(--color-neutral-100);
+  --color-code-edge: var(--color-neutral-200);
 
-  /* Changelog change types, kept inside the family. */
-  --color-added: hsl(200 95% 62%);
-  --color-changed: hsl(212 90% 70%);
-  --color-fixed: hsl(204 60% 55%);
-  --color-removed: hsl(256 80% 74%);
-  --color-deprecated: hsl(232 70% 76%);
-  --color-security: hsl(250 85% 78%);
+  /* Changelog change types, muted. */
+  --color-added: var(--color-sky-700);
+  --color-added-bg: var(--color-sky-50);
+  --color-changed: var(--color-indigo-700);
+  --color-changed-bg: var(--color-indigo-50);
+  --color-fixed: var(--color-teal-700);
+  --color-fixed-bg: var(--color-teal-50);
+  --color-removed: var(--color-rose-700);
+  --color-removed-bg: var(--color-rose-50);
+  --color-deprecated: var(--color-amber-700);
+  --color-deprecated-bg: var(--color-amber-50);
+  --color-security: var(--color-violet-700);
+  --color-security-bg: var(--color-violet-50);
 
-  --radius-panel: 18px;
-  --radius-control: 10px;
-
-  --blur-panel: 22px;
-  --blur-bar: 30px;
+  --radius-panel: 6px;
+  --radius-control: 4px;
 }
 
 @layer base {
   html {
-    color-scheme: dark;
+    color-scheme: light;
     scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
   body {
-    @apply font-sans text-ink bg-sky-top min-h-screen;
+    @apply font-sans text-ink bg-ground min-h-screen;
+    position: relative;
+  }
+
+  /* A faint engineering grid behind the top of the page, fading out. */
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 42rem;
+    pointer-events: none;
+    z-index: -1;
     background-image:
-      radial-gradient(60rem 40rem at 15% -10%, hsl(212 80% 45% / 0.28), transparent 60%),
-      radial-gradient(50rem 36rem at 95% 10%, hsl(250 70% 50% / 0.18), transparent 60%),
-      linear-gradient(180deg, var(--color-sky-top) 0%, var(--color-sky-mid) 45%, var(--color-sky-bottom) 100%);
-    background-attachment: fixed;
+      linear-gradient(to right, var(--color-grid) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--color-grid) 1px, transparent 1px);
+    background-size: 32px 32px;
+    mask-image: linear-gradient(to bottom, black 0%, black 20%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 0%, black 20%, transparent 100%);
   }
 
   ::selection {
-    background: var(--color-accent-soft);
+    background: var(--color-accent-tint);
   }
 
   a {
@@ -80,72 +92,78 @@
   :focus-visible {
     outline: 2px solid var(--color-accent-ring);
     outline-offset: 2px;
-    border-radius: 6px;
+    border-radius: 2px;
   }
 }
 
-@utility glass {
-  background: var(--color-glass);
-  border: 1px solid var(--color-glass-edge);
+/* A white panel with a hairline border. */
+@utility panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-panel);
-  box-shadow:
-    inset 0 1px 0 var(--color-glass-highlight),
-    0 20px 60px hsl(230 60% 3% / 0.45);
-  backdrop-filter: blur(var(--blur-panel));
-  -webkit-backdrop-filter: blur(var(--blur-panel));
 }
 
-@utility glass-strong {
-  background: var(--color-glass-strong);
-  border: 1px solid var(--color-glass-edge-strong);
-  border-radius: var(--radius-panel);
-  box-shadow:
-    inset 0 1px 0 var(--color-glass-highlight),
-    0 20px 60px hsl(230 60% 3% / 0.45);
-  backdrop-filter: blur(var(--blur-panel));
-  -webkit-backdrop-filter: blur(var(--blur-panel));
+/* The sticky bar at the top. */
+@utility bar {
+  background: color-mix(in oklab, var(--color-surface) 88%, transparent);
+  border: 1px solid var(--color-line);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
-@utility glass-bar {
-  background: hsl(226 50% 10% / 0.65);
-  border: 1px solid var(--color-glass-edge);
-  box-shadow: inset 0 1px 0 var(--color-glass-highlight);
-  backdrop-filter: blur(var(--blur-bar));
-  -webkit-backdrop-filter: blur(var(--blur-bar));
+/* Uppercase, tracked, monospace: the label of a machine. */
+@utility label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
 }
 
-/* Long-form reading. Kept narrow on purpose. */
+/* A small square status dot, the colour set by the current text colour. */
+@utility dot {
+  display: inline-block;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  background: currentColor;
+  border-radius: 1px;
+  vertical-align: 0.1em;
+}
+
+/* Long-form reading, capped at a comfortable measure. */
 .prose {
   @apply text-ink-dim leading-7;
-  font-size: 1.0125rem;
+  font-size: 1rem;
+  max-width: 72ch;
 }
 .prose > :first-child { margin-top: 0; }
 .prose > :last-child { margin-bottom: 0; }
 .prose p { @apply my-4; }
 .prose h1 { @apply text-ink text-3xl font-semibold tracking-tight mt-10 mb-4; }
-.prose h2 { @apply text-ink text-xl font-semibold tracking-tight mt-10 mb-3; }
+.prose h2 {
+  @apply text-ink text-lg font-semibold tracking-tight mt-10 mb-3 pt-6 border-t border-line;
+}
 .prose h3 { @apply text-ink text-base font-semibold mt-8 mb-2; }
 .prose h2 a, .prose h3 a { @apply no-underline text-inherit; }
 .prose strong { @apply text-ink font-semibold; }
-.prose em { @apply text-silver; }
 .prose a { @apply text-accent underline decoration-accent/40 hover:decoration-accent; }
 .prose ul { @apply my-4 pl-5 list-disc marker:text-ink-faint; }
 .prose ol { @apply my-4 pl-5 list-decimal marker:text-ink-faint; }
 .prose li { @apply my-1.5; }
 .prose li > p { @apply my-1.5; }
 .prose blockquote {
-  @apply my-5 pl-4 border-l-2 border-glass-edge-strong text-ink-faint;
+  @apply my-5 pl-4 border-l-2 border-line-strong text-ink-faint;
 }
-.prose hr { @apply my-8 border-glass-edge; }
+.prose hr { @apply my-8 border-line; }
 .prose code {
-  @apply font-mono text-[0.9em] text-silver rounded-md px-1.5 py-0.5;
+  @apply font-mono text-[0.875em] text-ink rounded-(--radius-control) px-1.5 py-0.5;
   background: var(--color-code-bg);
   border: 1px solid var(--color-code-edge);
 }
 .prose pre {
-  @apply my-5 p-4 overflow-x-auto rounded-(--radius-control) text-sm leading-6;
-  background: var(--color-code-bg) !important;
-  border: 1px solid var(--color-code-edge);
+  @apply my-5 p-4 overflow-x-auto rounded-(--radius-panel) text-[13px] leading-6;
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-line);
 }
 .prose pre code {
   @apply p-0 border-0 bg-transparent text-inherit;
@@ -154,7 +172,7 @@
   @apply my-5 w-full text-sm border-collapse;
 }
 .prose th {
-  @apply text-left font-semibold text-ink-faint uppercase tracking-wider text-xs pb-2 border-b border-glass-edge;
+  @apply label text-left pb-2 border-b border-line;
 }
-.prose td { @apply py-2 pr-4 border-b border-glass-edge/60 align-top; }
-.prose img { @apply rounded-(--radius-control) border border-glass-edge; }
+.prose td { @apply py-2 pr-4 border-b border-line align-top; }
+.prose img { @apply rounded-(--radius-panel) border border-line; }

@@ -4,16 +4,22 @@ interface Props {
 }
 const { type } = Astro.props;
 const colours: Record<string, string> = {
-  added: 'text-added border-added/40',
-  changed: 'text-changed border-changed/40',
-  deprecated: 'text-deprecated border-deprecated/40',
-  removed: 'text-removed border-removed/40',
-  fixed: 'text-fixed border-fixed/40',
-  security: 'text-security border-security/40',
+  added: 'text-added bg-added-bg',
+  changed: 'text-changed bg-changed-bg',
+  deprecated: 'text-deprecated bg-deprecated-bg',
+  removed: 'text-removed bg-removed-bg',
+  fixed: 'text-fixed bg-fixed-bg',
+  security: 'text-security bg-security-bg',
 };
-const colour = colours[type.toLowerCase()] ?? 'text-ink-dim border-glass-edge-strong';
+const colour = colours[type.toLowerCase()] ?? 'text-ink-dim bg-neutral-100';
 ---
 
-<span class:list={['inline-block rounded-full border px-2.5 py-0.5 text-xs font-medium tracking-wide', colour]}>
+<span
+  class:list={[
+    'inline-flex items-center gap-1.5 rounded-(--radius-control) px-2 py-0.5 font-mono text-[11px] tracking-wide uppercase',
+    colour,
+  ]}
+>
+  <span class="dot" aria-hidden="true"></span>
   {type}
 </span>

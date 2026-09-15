@@ -16,46 +16,53 @@ const { Content } = await render(d);
 const pad = (n: number) => String(n).padStart(4, '0');
 const num = pad(d.data.number);
 const meta: [string, string][] = [
-  ['Status', d.data.status],
-  ['Date', d.data.date],
+  ['status', d.data.status],
+  ['date', d.data.date],
 ];
-if (d.data.supersedes) meta.push(['Supersedes', d.data.supersedes]);
-if (d.data.amended) meta.push(['Amended', d.data.amended]);
+if (d.data.supersedes) meta.push(['supersedes', d.data.supersedes]);
+if (d.data.amended) meta.push(['amended', d.data.amended]);
 ---
 
 <Base title={`ADR-${num}: ${d.data.title}`} description={`Architecture decision record ${num}: ${d.data.title}.`}>
-  <nav class="text-sm text-ink-faint" aria-label="Breadcrumb">
-    <a href="/docs" class="no-underline hover:text-ink-dim">Docs</a>
+  <nav class="label" aria-label="Breadcrumb">
+    <a href="/docs" class="no-underline hover:text-ink">docs</a>
     <span class="mx-1.5" aria-hidden="true">/</span>
-    <a href="/docs/decisions" class="no-underline hover:text-ink-dim">Decisions</a>
+    <a href="/docs/decisions" class="no-underline hover:text-ink">decisions</a>
     <span class="mx-1.5" aria-hidden="true">/</span>
-    <span class="text-ink-dim">ADR-{num}</span>
+    <span class="text-ink-dim">{num}</span>
   </nav>
-  <p class="mt-3 font-mono text-sm text-ink-faint">ADR-{num}</p>
-  <h1 class="mt-1 text-3xl font-semibold tracking-tight text-ink">{d.data.title}</h1>
-  <dl class="mt-5 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[auto_1fr]">
-    {
-      meta.map(([k, v]) => (
-        <>
-          <dt class="text-ink-faint">{k}</dt>
-          <dd class="text-ink-dim">{v}</dd>
-        </>
-      ))
-    }
-  </dl>
-  <article class="glass prose mt-8 px-6 py-8 sm:px-8">
-    <Content />
-  </article>
-  <p class="mt-6 text-sm text-ink-faint">
-    Source: <a href={`${REPO}/blob/main/${d.data.source}`} class="hover:text-ink-dim" rel="noopener">{d.data.source}</a>
-  </p>
-  <nav class="mt-8 flex justify-between gap-4 text-sm" aria-label="Neighbouring decisions">
+  <p class="mt-3 font-mono text-sm text-accent">ADR-{num}</p>
+  <h1 class="mt-1 max-w-3xl text-3xl font-semibold tracking-tight text-ink">{d.data.title}</h1>
+  <div class="mt-10 grid gap-10 lg:grid-cols-[1fr_12rem]">
+    <article class="prose order-2 lg:order-1">
+      <Content />
+    </article>
+    <aside class="order-1 lg:order-2 lg:sticky lg:top-20 lg:self-start">
+      <dl class="panel divide-y divide-line text-[13px]">
+        {
+          meta.map(([k, v]) => (
+            <div class="px-3.5 py-2.5">
+              <dt class="label">{k}</dt>
+              <dd class="mt-1 text-ink-dim">{v}</dd>
+            </div>
+          ))
+        }
+        <div class="px-3.5 py-2.5">
+          <dt class="label">source</dt>
+          <dd class="mt-1 font-mono text-xs break-all text-ink-dim">
+            <a href={`${REPO}/blob/main/${d.data.source}`} class="hover:text-ink" rel="noopener">{d.data.source}</a>
+          </dd>
+        </div>
+      </dl>
+    </aside>
+  </div>
+  <nav class="mt-12 grid gap-3 sm:grid-cols-2" aria-label="Neighbouring decisions">
     {
       prev ? (
-        <a href={`/docs/decisions/${prev.id}`} class="glass max-w-[48%] px-4 py-3 no-underline hover:bg-glass-strong">
-          <span class="block text-xs text-ink-faint">Previous</span>
-          <span class="text-ink-dim">
-            ADR-{pad(prev.data.number)}: {prev.data.title}
+        <a href={`/docs/decisions/${prev.id}`} class="panel px-4 py-3 no-underline hover:border-line-strong">
+          <span class="label">← previous</span>
+          <span class="mt-1 block text-sm text-ink-dim">
+            <span class="font-mono text-xs">{pad(prev.data.number)}</span> {prev.data.title}
           </span>
         </a>
       ) : (
@@ -64,13 +71,10 @@ if (d.data.amended) meta.push(['Amended', d.data.amended]);
     }
     {
       next && (
-        <a
-          href={`/docs/decisions/${next.id}`}
-          class="glass max-w-[48%] px-4 py-3 text-right no-underline hover:bg-glass-strong"
-        >
-          <span class="block text-xs text-ink-faint">Next</span>
-          <span class="text-ink-dim">
-            ADR-{pad(next.data.number)}: {next.data.title}
+        <a href={`/docs/decisions/${next.id}`} class="panel px-4 py-3 text-right no-underline hover:border-line-strong">
+          <span class="label">next →</span>
+          <span class="mt-1 block text-sm text-ink-dim">
+            <span class="font-mono text-xs">{pad(next.data.number)}</span> {next.data.title}
           </span>
         </a>
       )
