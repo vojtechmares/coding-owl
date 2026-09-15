@@ -218,6 +218,19 @@ func (p *process) Wait() (int, error) {
 	return -1, err
 }
 
+// KilledBy is the signal the Agent was killed by, read from the status it was
+// waited for with, and nil for one that exited or has not been waited for.
+func (p *process) KilledBy() os.Signal {
+	if !p.reaped.Load() || p.cmd.ProcessState == nil {
+		return nil
+	}
+	status, ok := p.cmd.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok || !status.Signaled() {
+		return nil
+	}
+	return status.Signal()
+}
+
 // Stderr is what the Agent wrote to standard error, up to the limit above.
 func (p *process) Stderr() string { return p.stderr.String() }
 

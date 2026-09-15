@@ -68,6 +68,29 @@ func TestStartReportsANonZeroExitAsAStatusNotAnError(t *testing.T) {
 	if code != 3 {
 		t.Errorf("exit status = %d, want 3", code)
 	}
+	if sig := p.KilledBy(); sig != nil {
+		t.Errorf("an agent that exited 3 is reported killed by %v", sig)
+	}
+}
+
+// An Agent the OOM killer, a crash or somebody's kill -9 ends did not exit
+// with a status, and the signal it was killed by is the only account of it
+// there is (issue #101).
+func TestStartReportsTheSignalAnAgentWasKilledBy(t *testing.T) {
+	p, err := host.New().Start(context.Background(), agent.Invocation{Path: script(t, "kill -KILL $$\n"), Dir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	_, _ = io.ReadAll(p.Stdout())
+
+	_, err = p.Wait()
+
+	if err != nil {
+		t.Errorf("Wait on a killed agent = %v, want the signal reported instead", err)
+	}
+	if got := p.KilledBy(); got != syscall.SIGKILL {
+		t.Errorf("killed by %v, want %v", got, syscall.SIGKILL)
+	}
 }
 
 func TestStartRunsInTheInvocationsDirectoryAndEnvironment(t *testing.T) {

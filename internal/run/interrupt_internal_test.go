@@ -22,6 +22,7 @@ type stubProcess struct{}
 func (stubProcess) Stdout() io.Reader           { return strings.NewReader("") }
 func (stubProcess) SignalGroup(os.Signal) error { return nil }
 func (stubProcess) Wait() (int, error)          { return 0, nil }
+func (stubProcess) KilledBy() os.Signal         { return nil }
 func (stubProcess) Stderr() string              { return "" }
 
 // interruptFixture is a Service with nothing but what pausing and resuming

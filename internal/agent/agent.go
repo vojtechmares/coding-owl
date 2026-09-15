@@ -62,8 +62,15 @@ type Process interface {
 	SignalGroup(sig os.Signal) error
 	// Wait blocks until the Agent exits and returns its exit status. The
 	// error is for a process that could not be waited on at all, never for a
-	// non-zero status.
+	// non-zero status. An Agent killed by a signal did not exit with a status
+	// at all, so what Wait returns for one means nothing: KilledBy says what
+	// happened to it instead.
 	Wait() (int, error)
+	// KilledBy is the signal the Agent was killed by, and nil for an Agent
+	// that exited. It is not a verdict on who sent it: the signals Owl ends
+	// a Run with are reported here too (ADR-0011, ADR-0034). It is only
+	// known once Wait has returned.
+	KilledBy() os.Signal
 	// Stderr is whatever the Agent wrote to standard error, kept for the
 	// message a failed Run is reported with. It is bounded, and only complete
 	// once Wait has returned.

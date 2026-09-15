@@ -158,6 +158,8 @@ func (p *fakeProcess) Wait() (int, error) {
 	return p.code, p.err
 }
 
+func (*fakeProcess) KilledBy() os.Signal { return nil }
+
 func (*fakeProcess) Stderr() string { return "" }
 
 // review runs one verification over a temporary worktree and returns what it
