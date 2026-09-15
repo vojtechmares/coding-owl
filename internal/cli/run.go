@@ -377,7 +377,8 @@ func printJob(env Env, d client.JobDetails) {
 // attributable to the instructions it had (ADR-0024). The most recent Run
 // comes first, because that is the one a reader is asking about. A Skill's
 // name, source and ref come out of a file the Project carries, and its commit
-// out of the lockfile beside it, so all four reach the terminal as text.
+// is whatever the lockfile recorded or its ref resolved to, as the daemon
+// recorded it; so all four reach the terminal as text.
 func printRunSkills(env Env, runs []client.Run) {
 	var reported bool
 	for i := len(runs) - 1; i >= 0; i-- {
