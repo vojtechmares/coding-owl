@@ -396,7 +396,8 @@ func printRunSkills(env Env, runs []client.Run) {
 
 // printRunPermissions reports what each Run's Agent was allowed to do, so that
 // what it did is attributable to what it was granted (ADR-0035). The most
-// recent Run comes first, as for what it read.
+// recent Run comes first, as for what it read. The rules are the Account's
+// and the Project's own files, so they reach the terminal as text too.
 func printRunPermissions(env Env, runs []client.Run) {
 	var reported bool
 	for i := len(runs) - 1; i >= 0; i-- {
@@ -408,7 +409,7 @@ func printRunPermissions(env Env, runs []client.Run) {
 			_, _ = fmt.Fprintln(env.Stdout, "\npermissions:")
 			reported = true
 		}
-		_, _ = fmt.Fprintf(env.Stdout, "RUN %d: %s\n", r.ID, strings.Join(r.Permissions, ", "))
+		_, _ = fmt.Fprintf(env.Stdout, "RUN %d: %s\n", r.ID, terminalSafe(strings.Join(r.Permissions, ", ")))
 	}
 }
 
