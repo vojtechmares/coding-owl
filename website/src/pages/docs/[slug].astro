@@ -1,6 +1,7 @@
 ---
 import { getCollection, render } from 'astro:content';
 import Base from '../../layouts/Base.astro';
+import PageHead from '../../components/PageHead.astro';
 import { REPO } from '../../lib/markdown';
 
 export async function getStaticPaths() {
@@ -14,25 +15,19 @@ const toc = headings.filter((h) => h.depth === 2);
 ---
 
 <Base title={doc.data.title} description={doc.data.description}>
-  <nav class="label" aria-label="Breadcrumb">
-    <a href="/docs" class="no-underline hover:text-ink">docs</a>
-    <span class="mx-1.5" aria-hidden="true">/</span>
-    <span class="text-ink-dim">{doc.id}</span>
-  </nav>
-  <h1 class="mt-2 text-3xl font-semibold tracking-tight text-ink">{doc.data.title}</h1>
-  <p class="mt-2 max-w-xl text-ink-dim">{doc.data.description}</p>
-  <div class="mt-10 grid gap-10 lg:grid-cols-[1fr_12rem]">
+  <PageHead crumbs={[{ href: '/docs', label: 'Docs' }, { label: doc.data.title }]} title={doc.data.title} lead={doc.data.description} />
+  <div class="grid gap-12 border-t border-line pt-12 lg:grid-cols-[1fr_14rem] lg:gap-20">
     <article class="prose order-2 lg:order-1">
       <Content />
     </article>
     {
       toc.length > 1 && (
-        <aside class="order-1 lg:order-2 lg:sticky lg:top-20 lg:self-start">
-          <p class="label mb-2">on this page</p>
-          <ol class="space-y-1.5 border-l border-line text-[13px]">
+        <aside class="order-1 lg:order-2 lg:sticky lg:top-10 lg:self-start">
+          <p class="eyebrow mb-4">On this page</p>
+          <ol class="space-y-2.5 text-sm">
             {toc.map((h) => (
               <li>
-                <a href={`#${h.slug}`} class="-ml-px block border-l border-transparent pl-3 text-ink-dim no-underline hover:border-accent hover:text-ink">
+                <a href={`#${h.slug}`} class="block text-ink-dim no-underline hover:text-ink">
                   {h.text}
                 </a>
               </li>
@@ -42,7 +37,7 @@ const toc = headings.filter((h) => h.depth === 2);
       )
     }
   </div>
-  <p class="mt-10 font-mono text-xs text-ink-faint">
-    source: <a href={`${REPO}/blob/main/${doc.data.source}`} class="hover:text-ink" rel="noopener">{doc.data.source}</a>
+  <p class="mt-16 text-sm text-ink-faint">
+    Source: <a href={`${REPO}/blob/main/${doc.data.source}`} class="hover:text-ink" rel="noopener">{doc.data.source}</a>
   </p>
 </Base>

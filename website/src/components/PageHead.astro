@@ -1,0 +1,37 @@
+---
+/* The top of an inner page: breadcrumb, title, lead, rule. */
+interface Crumb {
+  href?: string;
+  label: string;
+}
+interface Props {
+  crumbs?: Crumb[];
+  eyebrow?: string;
+  title: string;
+  lead?: string;
+}
+const { crumbs = [], eyebrow, title, lead } = Astro.props;
+---
+
+<header class="pt-10 pb-10 sm:pt-14">
+  {
+    crumbs.length > 0 && (
+      <nav class="mb-8 text-sm text-ink-faint" aria-label="Breadcrumb">
+        {crumbs.map((c, i) => (
+          <>
+            {i > 0 && <span class="mx-2 text-line-strong" aria-hidden="true">/</span>}
+            {c.href ? (
+              <a href={c.href} class="no-underline hover:text-ink">{c.label}</a>
+            ) : (
+              <span class="text-ink-dim">{c.label}</span>
+            )}
+          </>
+        ))}
+      </nav>
+    )
+  }
+  {eyebrow && <p class="eyebrow mb-4">{eyebrow}</p>}
+  <h1 class="max-w-3xl text-4xl font-semibold tracking-tight text-ink sm:text-5xl sm:leading-[1.08]">{title}</h1>
+  {lead && <p class="mt-5 max-w-xl text-lg leading-8 text-ink-dim">{lead}</p>}
+  <slot />
+</header>

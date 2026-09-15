@@ -1,54 +1,48 @@
 ---
 import { getCollection } from 'astro:content';
 import Base from '../../../layouts/Base.astro';
+import PageHead from '../../../components/PageHead.astro';
 
 const decisions = (await getCollection('decisions')).sort((a, b) => b.data.number - a.data.number);
 const pad = (n: number) => String(n).padStart(4, '0');
 const statusClass = (status: string) =>
   status.startsWith('Accepted') ? 'text-added' : status.startsWith('Superseded') ? 'text-ink-faint' : 'text-changed';
-const shortStatus = (status: string) => status.split(/[;,]/)[0].trim().toLowerCase();
+const shortStatus = (status: string) => status.split(/[;,]/)[0].trim();
 ---
 
 <Base
   title="Architecture decision records"
   description="One record per decision, numbered in the order they were accepted. Why Coding Owl is built the way it is."
 >
-  <nav class="label" aria-label="Breadcrumb">
-    <a href="/docs" class="no-underline hover:text-ink">docs</a>
-    <span class="mx-1.5" aria-hidden="true">/</span>
-    <span class="text-ink-dim">decisions</span>
-  </nav>
-  <h1 class="mt-2 text-3xl font-semibold tracking-tight text-ink">Architecture decision records</h1>
-  <p class="mt-3 max-w-xl text-ink-dim">
-    One record per decision, numbered in the order decisions were accepted. Numbers are never reused and records
-    are never deleted; a decision that stops being true is marked superseded and stays where it is.
-  </p>
-  <div class="panel mt-8 overflow-hidden">
-    <div class="grid grid-cols-[3.5rem_1fr_auto] gap-4 border-b border-line bg-neutral-50 px-4 py-2 sm:grid-cols-[3.5rem_1fr_6rem_7rem]">
-      <span class="label">adr</span>
-      <span class="label">title</span>
-      <span class="label hidden sm:inline">date</span>
-      <span class="label">status</span>
-    </div>
-    <ol class="divide-y divide-line">
-      {
-        decisions.map((d) => (
-          <li>
-            <a
-              href={`/docs/decisions/${d.id}`}
-              class="grid grid-cols-[3.5rem_1fr_auto] items-baseline gap-4 px-4 py-3 no-underline transition-colors hover:bg-neutral-50 sm:grid-cols-[3.5rem_1fr_6rem_7rem]"
-            >
-              <span class="font-mono text-xs text-ink-faint">{pad(d.data.number)}</span>
-              <span class="min-w-0 text-[15px] text-ink">{d.data.title}</span>
-              <span class="hidden font-mono text-xs text-ink-faint sm:inline">{d.data.date}</span>
-              <span class:list={['inline-flex items-center gap-1.5 font-mono text-[11px]', statusClass(d.data.status)]} title={d.data.status}>
-                <span class="dot" aria-hidden="true" />
-                {shortStatus(d.data.status)}
-              </span>
-            </a>
-          </li>
-        ))
-      }
-    </ol>
+  <PageHead
+    crumbs={[{ href: '/docs', label: 'Docs' }, { label: 'Decisions' }]}
+    title="Architecture decision records."
+    lead="One record per decision, numbered in the order decisions were accepted. Numbers are never reused and records are never deleted; a decision that stops being true is marked superseded and stays where it is."
+  />
+  <div class="hidden grid-cols-[4rem_1fr_7rem_8rem] gap-x-8 border-b border-line pb-3 sm:grid">
+    <span class="eyebrow">ADR</span>
+    <span class="eyebrow">Title</span>
+    <span class="eyebrow">Date</span>
+    <span class="eyebrow">Status</span>
   </div>
+  <ol class="divide-y divide-line border-t border-line sm:border-t-0">
+    {
+      decisions.map((d) => (
+        <li>
+          <a
+            href={`/docs/decisions/${d.id}`}
+            class="group grid gap-x-8 gap-y-1 py-4 no-underline sm:grid-cols-[4rem_1fr_7rem_8rem] sm:items-baseline"
+          >
+            <span class="font-mono text-xs text-ink-faint">{pad(d.data.number)}</span>
+            <span class="text-[15px] text-ink group-hover:text-accent">{d.data.title}</span>
+            <span class="text-sm text-ink-faint">{d.data.date}</span>
+            <span class:list={['inline-flex items-center gap-2 text-sm', statusClass(d.data.status)]} title={d.data.status}>
+              <span class="dot" aria-hidden="true" />
+              {shortStatus(d.data.status)}
+            </span>
+          </a>
+        </li>
+      ))
+    }
+  </ol>
 </Base>

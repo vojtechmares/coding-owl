@@ -1,9 +1,10 @@
 @import 'tailwindcss';
 
 /*
- * The theme, in one place. Light and quiet: a neutral-50 ground, white panels
- * with hairline borders, one sky-blue accent used sparingly, and monospace for
- * anything that is a label, a number or a command. Corners are small.
+ * The theme, in one place. Light, quiet and roomy: a neutral-50 ground, white
+ * where a surface is needed, hairline rules to divide, one sky-blue accent
+ * used sparingly. Text is sans; monospace is kept for eyebrows, numbers and
+ * code. Corners are small.
  */
 @theme {
   --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -12,10 +13,9 @@
   /* Ground and surfaces. */
   --color-ground: var(--color-neutral-50);
   --color-surface: #ffffff;
-  --color-surface-tint: var(--color-sky-50);
   --color-line: var(--color-neutral-200);
   --color-line-strong: var(--color-neutral-300);
-  --color-grid: color-mix(in oklab, var(--color-sky-300) 45%, transparent);
+  --color-grid: color-mix(in oklab, var(--color-sky-300) 40%, transparent);
 
   /* Text. */
   --color-ink: var(--color-neutral-900);
@@ -62,23 +62,6 @@
 
   body {
     @apply font-sans text-ink bg-ground min-h-screen;
-    position: relative;
-  }
-
-  /* A faint engineering grid behind the top of the page, fading out. */
-  body::before {
-    content: '';
-    position: absolute;
-    inset: 0 0 auto 0;
-    height: 42rem;
-    pointer-events: none;
-    z-index: -1;
-    background-image:
-      linear-gradient(to right, var(--color-grid) 1px, transparent 1px),
-      linear-gradient(to bottom, var(--color-grid) 1px, transparent 1px);
-    background-size: 32px 32px;
-    mask-image: linear-gradient(to bottom, black 0%, black 20%, transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black 0%, black 20%, transparent 100%);
   }
 
   ::selection {
@@ -103,19 +86,11 @@
   border-radius: var(--radius-panel);
 }
 
-/* The sticky bar at the top. */
-@utility bar {
-  background: color-mix(in oklab, var(--color-surface) 88%, transparent);
-  border: 1px solid var(--color-line);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-/* Uppercase, tracked, monospace: the label of a machine. */
-@utility label {
+/* Uppercase, tracked, monospace: an eyebrow over a title. */
+@utility eyebrow {
   font-family: var(--font-mono);
   font-size: 0.6875rem;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--color-ink-faint);
 }
@@ -130,31 +105,68 @@
   vertical-align: 0.1em;
 }
 
+/* A faint engineering grid behind the hero, fading downwards. */
+@utility grid-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background-image:
+    linear-gradient(to right, var(--color-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-grid) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse 70% 80% at 50% 0%, black 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 80% at 50% 0%, black 30%, transparent 100%);
+}
+
+/* Buttons. */
+@utility btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.125rem;
+  border-radius: var(--radius-control);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color 120ms, border-color 120ms, color 120ms;
+}
+@utility btn-primary {
+  background: var(--color-accent);
+  color: var(--color-ink-on-accent);
+  border: 1px solid var(--color-accent);
+}
+.btn-primary:hover { background: var(--color-accent-strong); border-color: var(--color-accent-strong); }
+@utility btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line-strong);
+}
+.btn-secondary:hover { border-color: var(--color-ink-faint); }
+
 /* Long-form reading, capped at a comfortable measure. */
 .prose {
   @apply text-ink-dim leading-7;
-  font-size: 1rem;
-  max-width: 72ch;
+  font-size: 1.0625rem;
+  max-width: 68ch;
 }
 .prose > :first-child { margin-top: 0; }
 .prose > :last-child { margin-bottom: 0; }
-.prose p { @apply my-4; }
-.prose h1 { @apply text-ink text-3xl font-semibold tracking-tight mt-10 mb-4; }
-.prose h2 {
-  @apply text-ink text-lg font-semibold tracking-tight mt-10 mb-3 pt-6 border-t border-line;
-}
-.prose h3 { @apply text-ink text-base font-semibold mt-8 mb-2; }
+.prose p { @apply my-5; }
+.prose h1 { @apply text-ink text-3xl font-semibold tracking-tight mt-12 mb-5; }
+.prose h2 { @apply text-ink text-2xl font-semibold tracking-tight mt-16 mb-5; }
+.prose h3 { @apply text-ink text-lg font-semibold mt-10 mb-3; }
 .prose h2 a, .prose h3 a { @apply no-underline text-inherit; }
 .prose strong { @apply text-ink font-semibold; }
 .prose a { @apply text-accent underline decoration-accent/40 hover:decoration-accent; }
-.prose ul { @apply my-4 pl-5 list-disc marker:text-ink-faint; }
-.prose ol { @apply my-4 pl-5 list-decimal marker:text-ink-faint; }
-.prose li { @apply my-1.5; }
-.prose li > p { @apply my-1.5; }
+.prose ul { @apply my-5 pl-5 list-disc marker:text-ink-faint; }
+.prose ol { @apply my-5 pl-5 list-decimal marker:text-ink-faint; }
+.prose li { @apply my-2; }
+.prose li > p { @apply my-2; }
 .prose blockquote {
-  @apply my-5 pl-4 border-l-2 border-line-strong text-ink-faint;
+  @apply my-6 pl-5 border-l-2 border-line-strong text-ink-faint;
 }
-.prose hr { @apply my-8 border-line; }
+.prose hr { @apply my-12 border-line; }
 .prose code {
   @apply font-mono text-[0.875em] text-ink rounded-(--radius-control) px-1.5 py-0.5;
   background: var(--color-code-bg);
@@ -163,17 +175,17 @@
 /* The highlighter sets the block's own background and foreground as a pair;
    only the frame is ours, so the two can never drift apart. */
 .prose pre {
-  @apply my-5 p-4 overflow-x-auto rounded-(--radius-panel) text-[13px] leading-6;
+  @apply my-6 p-5 overflow-x-auto rounded-(--radius-panel) text-[13.5px] leading-6;
   border: 1px solid var(--color-line);
 }
 .prose pre code {
   @apply p-0 border-0 bg-transparent text-inherit;
 }
 .prose table {
-  @apply my-5 w-full text-sm border-collapse;
+  @apply my-6 w-full text-[15px] border-collapse;
 }
 .prose th {
-  @apply label text-left pb-2 border-b border-line;
+  @apply eyebrow text-left pb-3 border-b border-line;
 }
-.prose td { @apply py-2 pr-4 border-b border-line align-top; }
+.prose td { @apply py-3 pr-4 border-b border-line align-top; }
 .prose img { @apply rounded-(--radius-panel) border border-line; }

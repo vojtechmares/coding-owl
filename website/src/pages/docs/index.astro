@@ -1,12 +1,14 @@
 ---
 import { getCollection } from 'astro:content';
 import Base from '../../layouts/Base.astro';
+import PageHead from '../../components/PageHead.astro';
+import SectionHead from '../../components/SectionHead.astro';
 
 const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
-const decisions = await getCollection('decisions');
-const latest = decisions.map((d) => d.data.number).reduce((a, b) => Math.max(a, b), 0);
+const decisions = (await getCollection('decisions')).sort((a, b) => b.data.number - a.data.number);
+const pad = (n: number) => String(n).padStart(4, '0');
 
-const cards = [
+const pages = [
   ...docs.map((d) => ({
     href: `/docs/${d.id}`,
     title: d.data.title,
@@ -16,29 +18,61 @@ const cards = [
   {
     href: '/docs/decisions',
     title: 'Decisions',
-    description: `${decisions.length} architecture decision records, up to ADR-${String(latest).padStart(4, '0')}. Why Owl is built the way it is.`,
+    description: `All ${decisions.length} architecture decision records, one per decision, oldest first.`,
     source: 'docs/adr/',
   },
 ];
+const recent = decisions.slice(0, 5);
 ---
 
 <Base title="Documentation" description="How to install Coding Owl, the words it uses, and the decisions behind it.">
-  <p class="label">docs</p>
-  <h1 class="mt-2 text-3xl font-semibold tracking-tight text-ink">Documentation</h1>
-  <p class="mt-3 max-w-xl text-ink-dim">
-    Everything here is read from the repository at build time, so the site says what the code says.
-  </p>
-  <ul class="mt-8 grid gap-3 sm:grid-cols-3">
-    {
-      cards.map((card) => (
-        <li>
-          <a href={card.href} class="panel flex h-full flex-col px-4 py-4 no-underline transition-colors hover:border-line-strong">
-            <h2 class="text-base font-semibold text-ink">{card.title}</h2>
-            <p class="mt-1.5 flex-1 text-sm leading-6 text-ink-dim">{card.description}</p>
-            <p class="mt-4 font-mono text-[11px] text-ink-faint">{card.source}</p>
-          </a>
-        </li>
-      ))
-    }
-  </ul>
+  <PageHead
+    eyebrow="Docs"
+    title="Documentation."
+    lead="Everything here is read from the repository at build time, so the site says what the code says."
+  />
+
+  <section>
+    <SectionHead title="Pages" subtitle="Three places to start, each lifted from one file in the repository." />
+    <ol class="divide-y divide-line">
+      {
+        pages.map((p, i) => (
+          <li>
+            <a
+              href={p.href}
+              class="group grid gap-x-8 gap-y-1 py-6 no-underline sm:grid-cols-[3rem_14rem_1fr_auto] sm:items-baseline"
+            >
+              <span class="font-mono text-xs text-ink-faint">{String(i + 1).padStart(2, '0')}</span>
+              <span class="text-lg font-semibold text-ink group-hover:text-accent">{p.title}</span>
+              <span class="text-[15px] leading-7 text-ink-dim">{p.description}</span>
+              <span class="hidden font-mono text-xs text-ink-faint sm:inline">{p.source}</span>
+            </a>
+          </li>
+        ))
+      }
+    </ol>
+  </section>
+
+  <section class="mt-24">
+    <SectionHead title="Recent decisions" subtitle="The last five architecture decision records." />
+    <ol class="divide-y divide-line">
+      {
+        recent.map((d) => (
+          <li>
+            <a
+              href={`/docs/decisions/${d.id}`}
+              class="group grid gap-x-8 gap-y-1 py-4 no-underline sm:grid-cols-[3rem_1fr_7rem] sm:items-baseline"
+            >
+              <span class="font-mono text-xs text-ink-faint">{pad(d.data.number)}</span>
+              <span class="text-[15px] text-ink group-hover:text-accent">{d.data.title}</span>
+              <span class="text-sm text-ink-faint sm:text-right">{d.data.date}</span>
+            </a>
+          </li>
+        ))
+      }
+    </ol>
+    <a href="/docs/decisions" class="mt-6 inline-block text-[15px] text-accent no-underline hover:underline">
+      All decisions →
+    </a>
+  </section>
 </Base>
