@@ -1,7 +1,12 @@
 name: ci
 
+# Pull requests as well as pushes, so a contribution from a fork is checked
+# too - a fork's pushes run in the fork, not here. The pull_request event gives
+# a fork's run no secrets and a read-only token, and this workflow needs
+# neither.
 on:
   push:
+  pull_request:
 
 permissions:
   contents: read
