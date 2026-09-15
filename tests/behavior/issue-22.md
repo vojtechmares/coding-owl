@@ -9,8 +9,8 @@ The app is **ad-hoc signed and not notarised**, which the maintainer decided on
 this issue: no Apple Developer Program membership is needed, and the acceptance
 criterion about Gatekeeper is met by a `postflight_steps` block that clears
 `com.apple.quarantine` rather than by notarisation. The cask declares
-`depends_on formula: "coding-owl"` (ADR-0010), so there is exactly one daemon
-per machine.
+`depends_on formula: "vojtechmares/tap/coding-owl"` (ADR-0010), so there is
+exactly one daemon per machine.
 
 The scripts are what carry the behavior, so the scenarios drive the scripts
 directly, with the tap and the git remote standing in as temporary repositories
@@ -57,7 +57,7 @@ And it installs `Coding Owl.app`
 
 ### S6 - the cask brings the daemon with it and says what it runs on
 Given the cask of S5
-Then it declares `depends_on formula: "coding-owl"`
+Then it declares `depends_on formula: "vojtechmares/tap/coding-owl"`
 And it declares `depends_on arch: :arm64`
 And its caveats say the app is ad-hoc signed rather than notarised, and that the cask clears the quarantine flag
 

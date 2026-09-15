@@ -18,7 +18,7 @@ them is not a free choice.
 - Formula **`coding-owl`** - the `owl` binary plus the daemon service, started
   with `brew services start coding-owl`.
 - Cask **`coding-owl-desktop`** - the Wails app.
-- The cask declares `depends_on formula: "coding-owl"`.
+- The cask declares `depends_on formula: "vojtechmares/tap/coding-owl"`.
 
 MVP releases publish binaries as GitHub Release assets. A dedicated download
 CDN at `releases.codingowl.dev` and a plugin registry at

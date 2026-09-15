@@ -52,6 +52,13 @@ VERSION="${VERSION#v}"
 # option rather than as a name.
 [[ "$TAP_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
 	die "TAP_REPO must be owner/name, got '$TAP_REPO'"
+# The cask names its formula by tap, so a coding-owl in some other tap the user
+# has cannot stand in for it. brew calls vojtechmares/homebrew-tap
+# vojtechmares/tap; strip and rejoin rather than substitute, because bash 3.2
+# keeps the backslash of an escaped "/" in a replacement string.
+[[ "${TAP_REPO##*/}" == homebrew-?* ]] ||
+	die "TAP_REPO must name a homebrew-* repository, got '$TAP_REPO'"
+TAP="${TAP_REPO%%/*}/${TAP_REPO##*/homebrew-}"
 
 ZIP="CodingOwl-${VERSION}-arm64.zip"
 URL="https://github.com/$REPO/releases/download/v$VERSION/$ZIP"
@@ -106,7 +113,7 @@ cask "coding-owl-desktop" do
   depends_on arch: :arm64
   # The app is a view over the daemon the formula ships, so the two are one
   # installation and there is exactly one daemon per machine (ADR-0010).
-  depends_on formula: "coding-owl"
+  depends_on formula: "$TAP/coding-owl"
   depends_on macos: :ventura
 
   app "Coding Owl.app"

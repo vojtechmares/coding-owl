@@ -221,7 +221,7 @@ func TestS6CaskBringsTheDaemonWithItAndSaysWhatItRunsOn(t *testing.T) {
 	cask := renderedCask(t)
 
 	// One daemon per machine (ADR-0010).
-	if !strings.Contains(cask, `depends_on formula: "coding-owl"`) {
+	if !strings.Contains(cask, `depends_on formula: "vojtechmares/tap/coding-owl"`) {
 		t.Errorf("the cask does not bring the formula with it:\n%s", cask)
 	}
 	if !strings.Contains(cask, "depends_on arch: :arm64") {
