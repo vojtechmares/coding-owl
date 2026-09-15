@@ -175,8 +175,7 @@ func TestS7AnAgentThatExitsNonZeroIsReportedAsBefore(t *testing.T) {
 	if row.outcome != "failed" || row.exit != "3" {
 		t.Errorf("run = %+v, want it failed with exit status 3", row)
 	}
-	reason := line(t, out, "reason")
-	if !strings.HasPrefix(reason, "the agent exited with status 3") || !strings.HasSuffix(reason, lastWords) {
-		t.Errorf("reason = %q, want the exit status 3 followed by what the agent wrote to standard error", reason)
+	if reason, want := line(t, out, "reason"), "the agent exited with status 3: "+lastWords; reason != want {
+		t.Errorf("reason = %q, want %q", reason, want)
 	}
 }
