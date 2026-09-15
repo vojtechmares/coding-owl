@@ -103,6 +103,9 @@ func TestJobsShowShowsAnEscapeFromOutsideOwlAsText(t *testing.T) {
 		{"the handoff", func(d *client.JobDetails) { d.Handoff = "step two " + escape + "\n\tthe tab stays\n" }},
 		{"the system prompt", func(d *client.JobDetails) { d.SystemPrompt += "\n- run gofmt " + escape }},
 		{"the verifier system prompt", func(d *client.JobDetails) { d.VerifierSystemPrompt += "\n- " + escape }},
+		{"a check's name", func(d *client.JobDetails) { d.Checks[1].Name = "lint " + escape }},
+		{"a check's reason", func(d *client.JobDetails) { d.Checks[1].Reason = "could not be run: " + escape }},
+		{"a check's output", func(d *client.JobDetails) { d.Checks[1].Output = "lint is unhappy " + escape + "\n\tat line two\n" }},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			d := reported()
