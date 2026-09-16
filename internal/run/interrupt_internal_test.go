@@ -117,7 +117,7 @@ func TestTheGraceWindowDoesNotEndARunSomebodyContinuedFirst(t *testing.T) {
 		close(start)
 		wg.Wait()
 
-		if _, ended := s.interrupted(runID); resumed && ended {
+		if _, ended, _ := s.interrupted(runID); resumed && ended {
 			t.Fatalf("round %d: owl resume continued run %d and the grace window ended it anyway", round, runID)
 		}
 	}

@@ -619,7 +619,7 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 	// The Job has been carried since it was claimed; the goroutine takes it
 	// on from here.
 	s.wg.Add(1)
-	go s.carryOut(j, r, phase, req, b, details)
+	go s.carryOut(j, r, settings, req, b, details)
 
 	return queue.FromStore(j), toRun(r), true, nil
 }
@@ -945,7 +945,8 @@ func (s *Service) sendFile(path string, send func(Line) error) (int64, error) {
 }
 
 // carryOut runs the Agent and records what became of the Job.
-func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Request, b *broker, details project.Details) {
+func (s *Service) carryOut(j store.Job, r store.Run, settings Settings, req driver.Request, b *broker, details project.Details) {
+	phase := settings.Phase
 	defer s.wg.Done()
 	// The Job stops being carried only once everything about it is written
 	// down, so that nothing can see it between its Run ending and the Job
@@ -955,7 +956,7 @@ func (s *Service) carryOut(j store.Job, r store.Run, phase Phase, req driver.Req
 	// ever became something to reach: the note is taken when the Run starts,
 	// so it is dropped where the Run ends rather than where the Agent does.
 	defer s.disown(r.ID)
-	outcome, reason, code := s.execute(r, j.Account, req, b)
+	outcome, reason, code := s.execute(r, j.Account, settings, req, b)
 	s.closeBroker(r.ID)
 	defer s.setStage(r.ID, "")
 
@@ -1430,7 +1431,7 @@ func (s *Service) global() (config.Global, error) {
 
 // execute starts the Agent, captures its output and reports how it ended, with
 // the status it exited with when it got far enough to have one.
-func (s *Service) execute(r store.Run, account string, req driver.Request, b *broker) (Outcome, string, int) {
+func (s *Service) execute(r store.Run, account string, settings Settings, req driver.Request, b *broker) (Outcome, string, int) {
 	if err := mkdirPrivate(filepath.Dir(r.LogPath)); err != nil {
 		return OutcomeFailed, fmt.Sprintf("preparing the run's log: %v", err), store.NoExitCode
 	}
@@ -1466,11 +1467,20 @@ func (s *Service) execute(r store.Run, account string, req driver.Request, b *br
 	forget := s.track(r.ID, r.JobID, proc)
 	defer forget()
 
+	// And from here it is bounded. Started after track, because a limit ends a
+	// Run through the same machinery the grace window does and there has to be
+	// something for it to reach (ADR-0036).
+	lim := s.watchLimits(r.ID, settings)
+	defer lim.stop()
+
 	sc := bufio.NewScanner(proc.Stdout())
 	sc.Buffer(make([]byte, 0, 64<<10), maxLine)
 	var writeErr error
 	for sc.Scan() {
 		line := sc.Text()
+		// Before the line is written anywhere: what the silence limit measures
+		// is the Agent still saying things, not Owl still recording them.
+		lim.heard()
 		if _, err := f.WriteString(line + "\n"); err != nil && writeErr == nil {
 			// The log is the Run's evidence, so losing it is a failure of the
 			// Run rather than a line in the daemon's own log.
@@ -1489,8 +1499,14 @@ func (s *Service) execute(r store.Run, account string, req driver.Request, b *br
 	code, waitErr := proc.Wait()
 	killedBy := proc.KilledBy()
 
-	why, ended := s.interrupted(r.ID)
+	why, ended, fails := s.interrupted(r.ID)
 	switch {
+	// A Run this daemon ended because it passed one of its limits is the one
+	// ending that is the Run's own failure: it spends an attempt, so a Job
+	// that does it every time exhausts rather than being queued again for ever
+	// (ADR-0036).
+	case ended && fails:
+		return OutcomeFailed, why, store.NoExitCode
 	// This daemon ends a Run by stopping its Agent, so the Agent's death is
 	// how the Run was meant to end rather than a failure of its own - whatever
 	// signal it finally died of (ADR-0011, ADR-0034).

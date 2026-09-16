@@ -492,12 +492,18 @@ func (x *CheckResult) GetVerifier() string {
 // came from: the defaults, the daemon's configuration, the Project's, or the
 // Job itself (ADR-0028).
 type PhaseSettings struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Phase         string                 `protobuf:"bytes,1,opt,name=phase,proto3" json:"phase,omitempty"`
-	Model         string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
-	ModelFrom     string                 `protobuf:"bytes,3,opt,name=model_from,json=modelFrom,proto3" json:"model_from,omitempty"`
-	Effort        string                 `protobuf:"bytes,4,opt,name=effort,proto3" json:"effort,omitempty"`
-	EffortFrom    string                 `protobuf:"bytes,5,opt,name=effort_from,json=effortFrom,proto3" json:"effort_from,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Phase      string                 `protobuf:"bytes,1,opt,name=phase,proto3" json:"phase,omitempty"`
+	Model      string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	ModelFrom  string                 `protobuf:"bytes,3,opt,name=model_from,json=modelFrom,proto3" json:"model_from,omitempty"`
+	Effort     string                 `protobuf:"bytes,4,opt,name=effort,proto3" json:"effort,omitempty"`
+	EffortFrom string                 `protobuf:"bytes,5,opt,name=effort_from,json=effortFrom,proto3" json:"effort_from,omitempty"`
+	// How long this phase's Agent may run, and how long it may go without
+	// saying anything, each with the level it came from (ADR-0036).
+	Timeout       *durationpb.Duration `protobuf:"bytes,6,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	TimeoutFrom   string               `protobuf:"bytes,7,opt,name=timeout_from,json=timeoutFrom,proto3" json:"timeout_from,omitempty"`
+	Stall         *durationpb.Duration `protobuf:"bytes,8,opt,name=stall,proto3" json:"stall,omitempty"`
+	StallFrom     string               `protobuf:"bytes,9,opt,name=stall_from,json=stallFrom,proto3" json:"stall_from,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -563,6 +569,34 @@ func (x *PhaseSettings) GetEffort() string {
 func (x *PhaseSettings) GetEffortFrom() string {
 	if x != nil {
 		return x.EffortFrom
+	}
+	return ""
+}
+
+func (x *PhaseSettings) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
+	}
+	return nil
+}
+
+func (x *PhaseSettings) GetTimeoutFrom() string {
+	if x != nil {
+		return x.TimeoutFrom
+	}
+	return ""
+}
+
+func (x *PhaseSettings) GetStall() *durationpb.Duration {
+	if x != nil {
+		return x.Stall
+	}
+	return nil
+}
+
+func (x *PhaseSettings) GetStallFrom() string {
+	if x != nil {
+		return x.StallFrom
 	}
 	return ""
 }
@@ -2755,7 +2789,7 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\texit_code\x18\x04 \x01(\x05R\bexitCode\x12\x16\n" +
 	"\x06output\x18\x05 \x01(\tR\x06output\x12\x16\n" +
 	"\x06reason\x18\x06 \x01(\tR\x06reason\x12\x1a\n" +
-	"\bverifier\x18\a \x01(\tR\bverifier\"\x93\x01\n" +
+	"\bverifier\x18\a \x01(\tR\bverifier\"\xbb\x02\n" +
 	"\rPhaseSettings\x12\x14\n" +
 	"\x05phase\x18\x01 \x01(\tR\x05phase\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x1d\n" +
@@ -2763,7 +2797,12 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"model_from\x18\x03 \x01(\tR\tmodelFrom\x12\x16\n" +
 	"\x06effort\x18\x04 \x01(\tR\x06effort\x12\x1f\n" +
 	"\veffort_from\x18\x05 \x01(\tR\n" +
-	"effortFrom\"\xe8\x03\n" +
+	"effortFrom\x123\n" +
+	"\atimeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\atimeout\x12!\n" +
+	"\ftimeout_from\x18\a \x01(\tR\vtimeoutFrom\x12/\n" +
+	"\x05stall\x18\b \x01(\v2\x19.google.protobuf.DurationR\x05stall\x12\x1d\n" +
+	"\n" +
+	"stall_from\x18\t \x01(\tR\tstallFrom\"\xe8\x03\n" +
 	"\x03Run\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\x03R\x05jobId\x12\x18\n" +
@@ -3000,85 +3039,87 @@ var file_codingowl_v1_job_proto_goTypes = []any{
 	(*UsageWindow)(nil),           // 39: codingowl.v1.UsageWindow
 	(*Machine)(nil),               // 40: codingowl.v1.Machine
 	(*timestamppb.Timestamp)(nil), // 41: google.protobuf.Timestamp
-	(*Skill)(nil),                 // 42: codingowl.v1.Skill
-	(*Unfinished)(nil),            // 43: codingowl.v1.Unfinished
-	(*durationpb.Duration)(nil),   // 44: google.protobuf.Duration
+	(*durationpb.Duration)(nil),   // 42: google.protobuf.Duration
+	(*Skill)(nil),                 // 43: codingowl.v1.Skill
+	(*Unfinished)(nil),            // 44: codingowl.v1.Unfinished
 }
 var file_codingowl_v1_job_proto_depIdxs = []int32{
 	0,  // 0: codingowl.v1.Job.state:type_name -> codingowl.v1.JobState
 	41, // 1: codingowl.v1.Job.created:type_name -> google.protobuf.Timestamp
-	41, // 2: codingowl.v1.Run.started:type_name -> google.protobuf.Timestamp
-	41, // 3: codingowl.v1.Run.ended:type_name -> google.protobuf.Timestamp
-	2,  // 4: codingowl.v1.Run.outcome:type_name -> codingowl.v1.RunOutcome
-	42, // 5: codingowl.v1.Run.skills:type_name -> codingowl.v1.Skill
-	6,  // 6: codingowl.v1.PauseRunResponse.run:type_name -> codingowl.v1.Run
-	6,  // 7: codingowl.v1.PauseRunResponse.runs:type_name -> codingowl.v1.Run
-	6,  // 8: codingowl.v1.ResumeRunResponse.run:type_name -> codingowl.v1.Run
-	6,  // 9: codingowl.v1.ResumeRunResponse.runs:type_name -> codingowl.v1.Run
-	1,  // 10: codingowl.v1.AddJobRequest.plan_mode:type_name -> codingowl.v1.PlanMode
-	3,  // 11: codingowl.v1.AddJobResponse.job:type_name -> codingowl.v1.Job
-	3,  // 12: codingowl.v1.ListJobsResponse.jobs:type_name -> codingowl.v1.Job
-	3,  // 13: codingowl.v1.CancelJobResponse.job:type_name -> codingowl.v1.Job
-	3,  // 14: codingowl.v1.ReorderJobResponse.job:type_name -> codingowl.v1.Job
-	3,  // 15: codingowl.v1.StartRunResponse.job:type_name -> codingowl.v1.Job
-	6,  // 16: codingowl.v1.StartRunResponse.run:type_name -> codingowl.v1.Run
-	3,  // 17: codingowl.v1.GetJobResponse.job:type_name -> codingowl.v1.Job
-	6,  // 18: codingowl.v1.GetJobResponse.runs:type_name -> codingowl.v1.Run
-	4,  // 19: codingowl.v1.GetJobResponse.checks:type_name -> codingowl.v1.CheckResult
-	5,  // 20: codingowl.v1.GetJobResponse.phases:type_name -> codingowl.v1.PhaseSettings
-	23, // 21: codingowl.v1.GetJobResponse.diff:type_name -> codingowl.v1.DiffSummary
-	24, // 22: codingowl.v1.DiffSummary.files:type_name -> codingowl.v1.DiffFile
-	3,  // 23: codingowl.v1.AcceptJobResponse.job:type_name -> codingowl.v1.Job
-	3,  // 24: codingowl.v1.DropJobResponse.job:type_name -> codingowl.v1.Job
-	3,  // 25: codingowl.v1.ExtendJobResponse.job:type_name -> codingowl.v1.Job
-	0,  // 26: codingowl.v1.JobStateCount.state:type_name -> codingowl.v1.JobState
-	6,  // 27: codingowl.v1.RunInProgress.run:type_name -> codingowl.v1.Run
-	3,  // 28: codingowl.v1.RunInProgress.job:type_name -> codingowl.v1.Job
-	3,  // 29: codingowl.v1.PassedOverJob.job:type_name -> codingowl.v1.Job
-	35, // 30: codingowl.v1.GetOverviewResponse.running:type_name -> codingowl.v1.RunInProgress
-	34, // 31: codingowl.v1.GetOverviewResponse.counts:type_name -> codingowl.v1.JobStateCount
-	3,  // 32: codingowl.v1.GetOverviewResponse.awaiting:type_name -> codingowl.v1.Job
-	3,  // 33: codingowl.v1.GetOverviewResponse.blocked:type_name -> codingowl.v1.Job
-	3,  // 34: codingowl.v1.GetOverviewResponse.exhausted:type_name -> codingowl.v1.Job
-	43, // 35: codingowl.v1.GetOverviewResponse.unfinished:type_name -> codingowl.v1.Unfinished
-	40, // 36: codingowl.v1.GetOverviewResponse.machine:type_name -> codingowl.v1.Machine
-	38, // 37: codingowl.v1.GetOverviewResponse.accounts:type_name -> codingowl.v1.AccountCeiling
-	36, // 38: codingowl.v1.GetOverviewResponse.passed_over:type_name -> codingowl.v1.PassedOverJob
-	39, // 39: codingowl.v1.AccountCeiling.windows:type_name -> codingowl.v1.UsageWindow
-	41, // 40: codingowl.v1.AccountCeiling.until:type_name -> google.protobuf.Timestamp
-	41, // 41: codingowl.v1.UsageWindow.resets:type_name -> google.protobuf.Timestamp
-	44, // 42: codingowl.v1.Machine.since:type_name -> google.protobuf.Duration
-	11, // 43: codingowl.v1.JobService.AddJob:input_type -> codingowl.v1.AddJobRequest
-	13, // 44: codingowl.v1.JobService.ListJobs:input_type -> codingowl.v1.ListJobsRequest
-	15, // 45: codingowl.v1.JobService.CancelJob:input_type -> codingowl.v1.CancelJobRequest
-	17, // 46: codingowl.v1.JobService.ReorderJob:input_type -> codingowl.v1.ReorderJobRequest
-	19, // 47: codingowl.v1.JobService.StartRun:input_type -> codingowl.v1.StartRunRequest
-	21, // 48: codingowl.v1.JobService.GetJob:input_type -> codingowl.v1.GetJobRequest
-	25, // 49: codingowl.v1.JobService.StreamRunLog:input_type -> codingowl.v1.StreamRunLogRequest
-	27, // 50: codingowl.v1.JobService.AcceptJob:input_type -> codingowl.v1.AcceptJobRequest
-	29, // 51: codingowl.v1.JobService.DropJob:input_type -> codingowl.v1.DropJobRequest
-	33, // 52: codingowl.v1.JobService.GetOverview:input_type -> codingowl.v1.GetOverviewRequest
-	31, // 53: codingowl.v1.JobService.ExtendJob:input_type -> codingowl.v1.ExtendJobRequest
-	7,  // 54: codingowl.v1.JobService.PauseRun:input_type -> codingowl.v1.PauseRunRequest
-	9,  // 55: codingowl.v1.JobService.ResumeRun:input_type -> codingowl.v1.ResumeRunRequest
-	12, // 56: codingowl.v1.JobService.AddJob:output_type -> codingowl.v1.AddJobResponse
-	14, // 57: codingowl.v1.JobService.ListJobs:output_type -> codingowl.v1.ListJobsResponse
-	16, // 58: codingowl.v1.JobService.CancelJob:output_type -> codingowl.v1.CancelJobResponse
-	18, // 59: codingowl.v1.JobService.ReorderJob:output_type -> codingowl.v1.ReorderJobResponse
-	20, // 60: codingowl.v1.JobService.StartRun:output_type -> codingowl.v1.StartRunResponse
-	22, // 61: codingowl.v1.JobService.GetJob:output_type -> codingowl.v1.GetJobResponse
-	26, // 62: codingowl.v1.JobService.StreamRunLog:output_type -> codingowl.v1.StreamRunLogResponse
-	28, // 63: codingowl.v1.JobService.AcceptJob:output_type -> codingowl.v1.AcceptJobResponse
-	30, // 64: codingowl.v1.JobService.DropJob:output_type -> codingowl.v1.DropJobResponse
-	37, // 65: codingowl.v1.JobService.GetOverview:output_type -> codingowl.v1.GetOverviewResponse
-	32, // 66: codingowl.v1.JobService.ExtendJob:output_type -> codingowl.v1.ExtendJobResponse
-	8,  // 67: codingowl.v1.JobService.PauseRun:output_type -> codingowl.v1.PauseRunResponse
-	10, // 68: codingowl.v1.JobService.ResumeRun:output_type -> codingowl.v1.ResumeRunResponse
-	56, // [56:69] is the sub-list for method output_type
-	43, // [43:56] is the sub-list for method input_type
-	43, // [43:43] is the sub-list for extension type_name
-	43, // [43:43] is the sub-list for extension extendee
-	0,  // [0:43] is the sub-list for field type_name
+	42, // 2: codingowl.v1.PhaseSettings.timeout:type_name -> google.protobuf.Duration
+	42, // 3: codingowl.v1.PhaseSettings.stall:type_name -> google.protobuf.Duration
+	41, // 4: codingowl.v1.Run.started:type_name -> google.protobuf.Timestamp
+	41, // 5: codingowl.v1.Run.ended:type_name -> google.protobuf.Timestamp
+	2,  // 6: codingowl.v1.Run.outcome:type_name -> codingowl.v1.RunOutcome
+	43, // 7: codingowl.v1.Run.skills:type_name -> codingowl.v1.Skill
+	6,  // 8: codingowl.v1.PauseRunResponse.run:type_name -> codingowl.v1.Run
+	6,  // 9: codingowl.v1.PauseRunResponse.runs:type_name -> codingowl.v1.Run
+	6,  // 10: codingowl.v1.ResumeRunResponse.run:type_name -> codingowl.v1.Run
+	6,  // 11: codingowl.v1.ResumeRunResponse.runs:type_name -> codingowl.v1.Run
+	1,  // 12: codingowl.v1.AddJobRequest.plan_mode:type_name -> codingowl.v1.PlanMode
+	3,  // 13: codingowl.v1.AddJobResponse.job:type_name -> codingowl.v1.Job
+	3,  // 14: codingowl.v1.ListJobsResponse.jobs:type_name -> codingowl.v1.Job
+	3,  // 15: codingowl.v1.CancelJobResponse.job:type_name -> codingowl.v1.Job
+	3,  // 16: codingowl.v1.ReorderJobResponse.job:type_name -> codingowl.v1.Job
+	3,  // 17: codingowl.v1.StartRunResponse.job:type_name -> codingowl.v1.Job
+	6,  // 18: codingowl.v1.StartRunResponse.run:type_name -> codingowl.v1.Run
+	3,  // 19: codingowl.v1.GetJobResponse.job:type_name -> codingowl.v1.Job
+	6,  // 20: codingowl.v1.GetJobResponse.runs:type_name -> codingowl.v1.Run
+	4,  // 21: codingowl.v1.GetJobResponse.checks:type_name -> codingowl.v1.CheckResult
+	5,  // 22: codingowl.v1.GetJobResponse.phases:type_name -> codingowl.v1.PhaseSettings
+	23, // 23: codingowl.v1.GetJobResponse.diff:type_name -> codingowl.v1.DiffSummary
+	24, // 24: codingowl.v1.DiffSummary.files:type_name -> codingowl.v1.DiffFile
+	3,  // 25: codingowl.v1.AcceptJobResponse.job:type_name -> codingowl.v1.Job
+	3,  // 26: codingowl.v1.DropJobResponse.job:type_name -> codingowl.v1.Job
+	3,  // 27: codingowl.v1.ExtendJobResponse.job:type_name -> codingowl.v1.Job
+	0,  // 28: codingowl.v1.JobStateCount.state:type_name -> codingowl.v1.JobState
+	6,  // 29: codingowl.v1.RunInProgress.run:type_name -> codingowl.v1.Run
+	3,  // 30: codingowl.v1.RunInProgress.job:type_name -> codingowl.v1.Job
+	3,  // 31: codingowl.v1.PassedOverJob.job:type_name -> codingowl.v1.Job
+	35, // 32: codingowl.v1.GetOverviewResponse.running:type_name -> codingowl.v1.RunInProgress
+	34, // 33: codingowl.v1.GetOverviewResponse.counts:type_name -> codingowl.v1.JobStateCount
+	3,  // 34: codingowl.v1.GetOverviewResponse.awaiting:type_name -> codingowl.v1.Job
+	3,  // 35: codingowl.v1.GetOverviewResponse.blocked:type_name -> codingowl.v1.Job
+	3,  // 36: codingowl.v1.GetOverviewResponse.exhausted:type_name -> codingowl.v1.Job
+	44, // 37: codingowl.v1.GetOverviewResponse.unfinished:type_name -> codingowl.v1.Unfinished
+	40, // 38: codingowl.v1.GetOverviewResponse.machine:type_name -> codingowl.v1.Machine
+	38, // 39: codingowl.v1.GetOverviewResponse.accounts:type_name -> codingowl.v1.AccountCeiling
+	36, // 40: codingowl.v1.GetOverviewResponse.passed_over:type_name -> codingowl.v1.PassedOverJob
+	39, // 41: codingowl.v1.AccountCeiling.windows:type_name -> codingowl.v1.UsageWindow
+	41, // 42: codingowl.v1.AccountCeiling.until:type_name -> google.protobuf.Timestamp
+	41, // 43: codingowl.v1.UsageWindow.resets:type_name -> google.protobuf.Timestamp
+	42, // 44: codingowl.v1.Machine.since:type_name -> google.protobuf.Duration
+	11, // 45: codingowl.v1.JobService.AddJob:input_type -> codingowl.v1.AddJobRequest
+	13, // 46: codingowl.v1.JobService.ListJobs:input_type -> codingowl.v1.ListJobsRequest
+	15, // 47: codingowl.v1.JobService.CancelJob:input_type -> codingowl.v1.CancelJobRequest
+	17, // 48: codingowl.v1.JobService.ReorderJob:input_type -> codingowl.v1.ReorderJobRequest
+	19, // 49: codingowl.v1.JobService.StartRun:input_type -> codingowl.v1.StartRunRequest
+	21, // 50: codingowl.v1.JobService.GetJob:input_type -> codingowl.v1.GetJobRequest
+	25, // 51: codingowl.v1.JobService.StreamRunLog:input_type -> codingowl.v1.StreamRunLogRequest
+	27, // 52: codingowl.v1.JobService.AcceptJob:input_type -> codingowl.v1.AcceptJobRequest
+	29, // 53: codingowl.v1.JobService.DropJob:input_type -> codingowl.v1.DropJobRequest
+	33, // 54: codingowl.v1.JobService.GetOverview:input_type -> codingowl.v1.GetOverviewRequest
+	31, // 55: codingowl.v1.JobService.ExtendJob:input_type -> codingowl.v1.ExtendJobRequest
+	7,  // 56: codingowl.v1.JobService.PauseRun:input_type -> codingowl.v1.PauseRunRequest
+	9,  // 57: codingowl.v1.JobService.ResumeRun:input_type -> codingowl.v1.ResumeRunRequest
+	12, // 58: codingowl.v1.JobService.AddJob:output_type -> codingowl.v1.AddJobResponse
+	14, // 59: codingowl.v1.JobService.ListJobs:output_type -> codingowl.v1.ListJobsResponse
+	16, // 60: codingowl.v1.JobService.CancelJob:output_type -> codingowl.v1.CancelJobResponse
+	18, // 61: codingowl.v1.JobService.ReorderJob:output_type -> codingowl.v1.ReorderJobResponse
+	20, // 62: codingowl.v1.JobService.StartRun:output_type -> codingowl.v1.StartRunResponse
+	22, // 63: codingowl.v1.JobService.GetJob:output_type -> codingowl.v1.GetJobResponse
+	26, // 64: codingowl.v1.JobService.StreamRunLog:output_type -> codingowl.v1.StreamRunLogResponse
+	28, // 65: codingowl.v1.JobService.AcceptJob:output_type -> codingowl.v1.AcceptJobResponse
+	30, // 66: codingowl.v1.JobService.DropJob:output_type -> codingowl.v1.DropJobResponse
+	37, // 67: codingowl.v1.JobService.GetOverview:output_type -> codingowl.v1.GetOverviewResponse
+	32, // 68: codingowl.v1.JobService.ExtendJob:output_type -> codingowl.v1.ExtendJobResponse
+	8,  // 69: codingowl.v1.JobService.PauseRun:output_type -> codingowl.v1.PauseRunResponse
+	10, // 70: codingowl.v1.JobService.ResumeRun:output_type -> codingowl.v1.ResumeRunResponse
+	58, // [58:71] is the sub-list for method output_type
+	45, // [45:58] is the sub-list for method input_type
+	45, // [45:45] is the sub-list for extension type_name
+	45, // [45:45] is the sub-list for extension extendee
+	0,  // [0:45] is the sub-list for field type_name
 }
 
 func init() { file_codingowl_v1_job_proto_init() }

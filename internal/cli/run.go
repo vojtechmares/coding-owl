@@ -507,25 +507,45 @@ func printRunPermissions(env Env, runs []client.Run) {
 	}
 }
 
-// printPhases reports what each phase of the Job would run at, and where each
-// setting came from, so a surprising value can be traced to the file that set
-// it (ADR-0028).
+// printPhases reports what each phase of the Job would run at and what bounds
+// it, and where each setting came from, so a surprising value can be traced to
+// the file that set it (ADR-0028, ADR-0036).
 func printPhases(env Env, phases []client.PhaseSettings) {
 	if len(phases) == 0 {
 		return
 	}
 	_, _ = fmt.Fprintln(env.Stdout, "\nphases:")
 	w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "PHASE\tMODEL\tFROM\tEFFORT\tFROM")
+	_, _ = fmt.Fprintln(w, "PHASE\tMODEL\tFROM\tEFFORT\tFROM\tTIMEOUT\tFROM\tSTALL\tFROM")
 	for _, p := range phases {
 		// A model and an effort are whatever a configuration file or owl add
 		// was given, and are reported even when they are the problem, so each
-		// setting reaches the terminal as text.
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+		// setting reaches the terminal as text. The limits are durations Owl
+		// parsed rather than text anyone wrote, so they need no such care.
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			terminalSafe(p.Phase), terminalSafe(orNone(p.Model)), terminalSafe(orNone(p.ModelFrom)),
-			terminalSafe(orNone(p.Effort)), terminalSafe(orNone(p.EffortFrom)))
+			terminalSafe(orNone(p.Effort)), terminalSafe(orNone(p.EffortFrom)),
+			limit(p.Timeout), terminalSafe(orNone(p.TimeoutFrom)),
+			limit(p.Stall), terminalSafe(orNone(p.StallFrom)))
 	}
 	_ = w.Flush()
+}
+
+// limit says a phase's bound the way the file that set it does, so that what
+// owl jobs show prints can be matched against the configuration: `4h`, not
+// `4h0m0s`.
+func limit(d time.Duration) string {
+	if d <= 0 {
+		return noValue
+	}
+	s := d.String()
+	if strings.HasSuffix(s, "h0m0s") {
+		return strings.TrimSuffix(s, "0m0s")
+	}
+	if strings.HasSuffix(s, "m0s") {
+		return strings.TrimSuffix(s, "0s")
+	}
+	return s
 }
 
 // whyHere is why the Job is where it is: what the Job itself records - a setup

@@ -65,8 +65,14 @@ func reported() client.JobDetails {
 		SystemPrompt:         prompt,
 		VerifierSystemPrompt: "You are reviewing somebody else's work.\n\n- Say pass or fail.",
 		Phases: []client.PhaseSettings{
-			{Phase: "plan", Model: "opus", ModelFrom: "default", Effort: "xhigh", EffortFrom: "default"},
-			{Phase: "execute", Model: "sonnet", ModelFrom: "project", Effort: "high", EffortFrom: "job"},
+			{
+				Phase: "plan", Model: "opus", ModelFrom: "default", Effort: "xhigh", EffortFrom: "default",
+				Timeout: time.Hour, TimeoutFrom: "default", Stall: 15 * time.Minute, StallFrom: "default",
+			},
+			{
+				Phase: "execute", Model: "sonnet", ModelFrom: "project", Effort: "high", EffortFrom: "job",
+				Timeout: 90 * time.Minute, TimeoutFrom: "project", Stall: 15 * time.Minute, StallFrom: "default",
+			},
 		},
 		Checks: []client.CheckResult{
 			{Name: "build", Command: "make", Passed: true, Output: "ok\n", Verifier: "command"},
@@ -192,7 +198,15 @@ func TestJobsShowShowsAnEscapeFromOutsideOwlAsText(t *testing.T) {
 		},
 		{
 			"where a phase's effort came from", func(d *client.JobDetails) { d.Phases[1].EffortFrom = "job" + escape },
-			"  job" + shown + "\n",
+			"  job" + shown + "  ",
+		},
+		{
+			"where a phase's timeout came from", func(d *client.JobDetails) { d.Phases[1].TimeoutFrom = "project" + escape },
+			"  project" + shown + "  ",
+		},
+		{
+			"where a phase's stall limit came from", func(d *client.JobDetails) { d.Phases[1].StallFrom = "default" + escape },
+			"  default" + shown + "\n",
 		},
 	} {
 		t.Run(c.what, func(t *testing.T) {
@@ -253,9 +267,9 @@ checks:
     looks right
 
 phases:
-PHASE    MODEL   FROM     EFFORT  FROM
-plan     opus    default  xhigh   default
-execute  sonnet  project  high    job
+PHASE    MODEL   FROM     EFFORT  FROM     TIMEOUT  FROM     STALL  FROM
+plan     opus    default  xhigh   default  1h       default  15m    default
+execute  sonnet  project  high    job      1h30m    project  15m    default
 
 plan:
 step one: read the tests

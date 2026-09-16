@@ -159,6 +159,46 @@ func TestParseReadsPhases(t *testing.T) {
 	}
 }
 
+// A phase's limits are durations, and a Project that sets one gets exactly
+// what it wrote (ADR-0036).
+func TestParseReadsPhaseLimits(t *testing.T) {
+	cfg, err := config.Parse("main:.coding-owl.yaml", []byte(
+		"apiVersion: codingowl.dev/v1\nphases:\n  execute:\n    timeout: 90m\n    stall: 10s\n"))
+
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	got := cfg.Phases[config.PhaseExecute]
+	if got.Timeout != 90*time.Minute {
+		t.Errorf("timeout = %s, want 90m", got.Timeout)
+	}
+	if got.Stall != 10*time.Second {
+		t.Errorf("stall = %s, want 10s", got.Stall)
+	}
+	// A phase that says nothing leaves both at zero, so that a narrower level
+	// can still be the one that decides.
+	if plan := cfg.Phases[config.PhasePlan]; plan.Timeout != 0 || plan.Stall != 0 {
+		t.Errorf("plan phase = %+v, want nothing said about its limits", plan)
+	}
+}
+
+// A limit nobody can read is what a limit exists to prevent, so it is refused
+// by name rather than silently left at the default (ADR-0036).
+func TestParseRefusesAnUnreadableOrEmptyPhaseLimit(t *testing.T) {
+	for name, body := range map[string]string{
+		"not a duration": "apiVersion: codingowl.dev/v1\nphases:\n  execute:\n    timeout: soon\n",
+		"zero timeout":   "apiVersion: codingowl.dev/v1\nphases:\n  execute:\n    timeout: 0s\n",
+		"negative stall": "apiVersion: codingowl.dev/v1\nphases:\n  execute:\n    stall: -5m\n",
+		"bare number":    "apiVersion: codingowl.dev/v1\nphases:\n  execute:\n    stall: 30\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := config.Parse("f", []byte(body)); err == nil {
+				t.Errorf("Parse(%q) = nil, want an error", body)
+			}
+		})
+	}
+}
+
 func TestParseRefusesAPhaseNobodyRuns(t *testing.T) {
 	for name, body := range map[string]string{
 		"unknown phase": "apiVersion: codingowl.dev/v1\nphases:\n  review:\n    model: opus\n",

@@ -68,10 +68,13 @@ you would treat running the same tool yourself, unattended:
 - **Verification runs the Agent's code.** The checks come from the base branch,
   but they run against the Agent's changes, so a test the Agent wrote is a test
   that runs.
-- **Nothing caps time or spend by default.** A Run lasts until the Agent exits
-  or you come back to the machine. `budgetUSD` in a Project's configuration
-  caps what one Run may spend, and an Account's `limits` keep Owl from starting
-  work past a share of your subscription; neither is set until you set it.
+- **Time is capped by default; spend is not.** A Run ends when the Agent exits,
+  when you come back to the machine, or when it passes one of its phase's
+  limits - four hours of work or fifteen minutes of silence, by default, and
+  configurable per phase. Spend is a separate question: `budgetUSD` in a
+  Project's configuration caps what one Run may spend and an Account's `limits`
+  keep Owl from starting work past a share of your subscription, but neither is
+  set until you set it.
 - **The desktop app is not notarised.** It is ad-hoc signed, and the cask
   clears macOS's quarantine flag so that Gatekeeper opens it. You are trusting
   the GitHub release rather than Apple's check.
@@ -197,12 +200,15 @@ checks:                  # shell commands; all run, every failure is reported
     expect: empty_output # default expectation is exit zero
 verification:
   agent: true            # additionally have a fresh Agent review the diff
-phases:                  # model and effort per phase
+phases:                  # model, effort and limits per phase
   plan:
     model: opus
     effort: xhigh
+    timeout: 1h          # the longest this phase's Agent may run at all
+    stall: 15m           # the longest it may go without saying anything
   execute:
     model: sonnet
+    timeout: 4h
 allowedTools:            # what an unattended Agent may do without asking
   - Bash(go test:*)
 skills:                  # reusable instructions fetched and pinned by Owl
@@ -292,6 +298,11 @@ Screenshots live in [docs/desktop](docs/desktop).
   say so when genuinely blocked, never guess at anything destructive.
   `owl jobs show` prints the effective system prompt so nothing is hidden.
 - An Agent that ignores a request to stop is killed.
+- Every Run ends. A phase's Agent is bounded both by how long it may run at all
+  and by how long it may go without saying anything, so one that wedges on an
+  untouched machine cannot hold the queue until morning. Passing either limit
+  is the Job's own failure and spends one of its attempts, so a Job that does
+  it every time is reported rather than retried for ever.
 - Garbage collection never deletes uncommitted work. Anything that looks
   unfinished is reported under `owl status` for you to decide.
 
