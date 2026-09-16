@@ -1,4 +1,4 @@
-# Issue #9: Desktop bootstrap: Wails and React, pure view over the shared client, liquid-glass theme, parity with the core loop
+# Issue #9: Desktop bootstrap: Wails and React, pure view over the shared client, a theme in one tokens file, parity with the core loop
 
 The desktop app is a client of the daemon like the CLI (ADR-0009). Its Go side
 is the `internal/desktop` package: the struct the app binds to the frontend,
@@ -81,9 +81,11 @@ And starting with an empty queue reports that nothing was started, with no error
 ### S10 - the theme is one tokens file that everything consumes
 Given the frontend sources under `cmd/owl-desktop/frontend/src`
 When they are scanned
-Then `theme/tokens.css` exists and declares colour, blur, radius and spacing custom properties
-And no other source file contains a colour literal (hex, `rgb(`, `hsl(`)
-And the palette in the tokens file is night-sky and navy blues: every hue is between 200 and 260 degrees or grey
+Then `theme/tokens.css` exists and declares colour, radius, spacing and font custom properties
+And no other source file contains a colour literal (hex, `rgb(`, `hsl(`, `oklch(`)
+And the only hex literal in the tokens file is white; every other colour is `oklch()`, so its chroma and hue can be read
+And the greys outnumber the coloured values: the design is greys with a little colour, not the other way round
+And every coloured value is muted (chroma at most 0.26) and belongs to one of the three families the palette spends colour from - sky for what is in motion, rose for what went wrong, teal for what came out right
 
 ### S11 - the app builds
 Given the Wails CLI, Node and pnpm, and `OWL_DESKTOP_BUILD=1`

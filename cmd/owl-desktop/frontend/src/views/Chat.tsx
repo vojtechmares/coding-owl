@@ -30,8 +30,11 @@ const line = (argv: string[]): string =>
 
 // What a person may answer about a command the chat wants to run. Nothing runs
 // until one of these is chosen, and refusing runs nothing at all (ADR-0022).
-const DECISIONS: { decision: CommandDecision; label: string }[] = [
-  { decision: "once", label: "Allow once" },
+// Only the narrowest answer is the suggested one: standing consent for a whole
+// conversation is a bigger thing to give than one command, and should not be
+// the button the eye lands on.
+const DECISIONS: { decision: CommandDecision; label: string; suggested?: boolean }[] = [
+  { decision: "once", label: "Allow once", suggested: true },
   { decision: "conversation", label: "Allow for this conversation" },
   { decision: "refuse", label: "Refuse" },
 ];
@@ -163,7 +166,7 @@ export function Chat() {
           </Button>
         </div>
       </div>
-      {models.error ? <Banner>{models.error}</Banner> : null}
+      {models.error ? <Banner alert>{models.error}</Banner> : null}
       {note ? <Banner>{note}</Banner> : null}
       {offered.length === 0 ? (
         <Panel>
@@ -217,10 +220,10 @@ export function Chat() {
                     The chat would like to run <code>{line(c.argv)}</code> in <code>{c.directory}</code>.
                   </div>
                   <div className="actions">
-                    {DECISIONS.map(({ decision, label }) => (
+                    {DECISIONS.map(({ decision, label, suggested }) => (
                       <Button
                         key={decision}
-                        kind={decision === "refuse" ? undefined : "primary"}
+                        kind={suggested ? "primary" : undefined}
                         onClick={() => void answerCommand(c, decision)}
                       >
                         {label}

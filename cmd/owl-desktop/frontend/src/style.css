@@ -1,4 +1,4 @@
-/* Base styles and the glass primitives. Every colour is a token from
+/* Base styles and the shared primitives. Every colour is a token from
    theme/tokens.css; nothing here names one. */
 
 *,
@@ -17,20 +17,22 @@ body,
 body {
   font-family: var(--font-ui);
   font-size: var(--text-base);
-  color: var(--color-text);
-  background:
-    radial-gradient(60% 50% at 15% 0%, var(--color-sky-glow), transparent 70%),
-    radial-gradient(50% 45% at 90% 100%, var(--color-sky-glow-2), transparent 70%),
-    linear-gradient(180deg, var(--color-sky-top), var(--color-sky-mid) 55%, var(--color-sky-bottom));
-  background-attachment: fixed;
+  line-height: 1.5;
+  color: var(--color-ink);
+  background: var(--color-ground);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   user-select: none;
   overflow: hidden;
 }
 
+::selection {
+  background: var(--color-accent-soft);
+}
+
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--color-scrollbar);
@@ -38,12 +40,42 @@ body {
   border: 3px solid transparent;
   background-clip: padding-box;
 }
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar-hover);
+  background-clip: padding-box;
+}
 
 a {
   color: var(--color-accent);
+  text-underline-offset: 0.2em;
 }
 
-/* Layout: a draggable title strip, a sidebar, and a content column. */
+/* The outline follows whatever radius the element already has, so it reads as
+   part of the control rather than a box drawn round it. */
+:focus-visible {
+  outline: 2px solid var(--color-accent-ring);
+  outline-offset: 1px;
+}
+
+/* An eyebrow: uppercase, tracked, monospace. Panel titles, table headers and
+   field labels are the same thing said in different places, so they look the
+   same everywhere. */
+.eyebrow,
+.panel > h2,
+th,
+.tile .label,
+.detail-head .k {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
+/* Layout: a draggable title strip, a sidebar, and a content column. The strip
+   is transparent and sits over nothing - the shell is inset below it, so no
+   content ever scrolls underneath. */
 
 .titlebar {
   position: fixed;
@@ -64,110 +96,112 @@ a {
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-3) var(--space-4);
-  backdrop-filter: blur(var(--blur-bar));
-  -webkit-backdrop-filter: blur(var(--blur-bar));
-  background: var(--color-glass);
-  border-right: 1px solid var(--color-glass-edge);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border-right: 1px solid var(--color-line);
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-2) var(--space-3);
+  padding: var(--space-2);
   font-size: var(--text-lg);
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.01em;
 }
 
-.brand .owl {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-control);
-  background: var(--color-accent-soft);
-  border: 1px solid var(--color-accent-ring);
-  color: var(--color-accent);
-  font-size: var(--text-base);
+.brand img {
+  width: 22px;
+  height: 22px;
+  border-radius: 22%;
+  flex: none;
 }
 
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .nav button {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: var(--space-2);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  padding: 5px var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--color-text-dim);
+  color: var(--color-ink-dim);
   font: inherit;
   text-align: left;
   cursor: default;
+  transition: background-color 100ms, color 100ms;
 }
 
 .nav button:hover {
   background: var(--color-row-hover);
-  color: var(--color-text);
+  color: var(--color-ink);
 }
 
+/* The view being read: a white chip on the ground, the same white as the
+   panels it opens. */
 .nav button.active {
-  background: var(--color-row-selected);
-  border-color: var(--color-accent-ring);
-  color: var(--color-text);
+  background: var(--color-surface);
+  border-color: var(--color-line);
+  color: var(--color-ink);
+  font-weight: 500;
 }
 
 .nav .count {
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--color-text-faint);
+  color: var(--color-ink-faint);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .sidebar .spacer {
   flex: 1;
 }
 
+/* Whether the daemon is answering. It is the one thing in the window that is
+   about the app rather than the work, so it sits apart at the foot. */
 .daemon {
-  padding: var(--space-3);
-  border-radius: var(--radius-control);
-  background: var(--color-glass);
-  border: 1px solid var(--color-glass-edge);
+  padding: var(--space-2) var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-line);
   font-size: var(--text-sm);
-  color: var(--color-text-dim);
+  color: var(--color-ink-dim);
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 2px;
   user-select: text;
 }
 
 .daemon .dot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-pill);
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
   background: var(--color-state-active);
-  box-shadow: 0 0 10px var(--color-state-active);
   margin-right: var(--space-2);
+  vertical-align: 0.1em;
+}
+
+.daemon.down {
+  color: var(--color-alert);
 }
 
 .daemon.down .dot {
-  background: var(--color-warn);
-  box-shadow: 0 0 10px var(--color-warn);
+  background: var(--color-alert);
 }
 
 .daemon .socket {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--color-text-faint);
+  color: var(--color-ink-faint);
   word-break: break-all;
 }
 
@@ -178,76 +212,103 @@ a {
   padding: var(--space-4) var(--space-5) var(--space-6);
 }
 
-/* Glass panels. */
+/* Panels: white, a hairline, and no shadow. */
 
 .panel {
-  position: relative;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-panel);
-  background: var(--color-glass);
-  border: 1px solid var(--color-glass-edge);
-  box-shadow:
-    inset 0 1px 0 var(--color-glass-highlight),
-    0 18px 40px var(--color-glass-shadow);
-  backdrop-filter: blur(var(--blur-panel));
-  -webkit-backdrop-filter: blur(var(--blur-panel));
-  padding: var(--space-4) var(--space-5);
-  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  /* A table with more columns than will fit scrolls inside its own panel.
+     Without this the whole window scrolls sideways and the sidebar goes with
+     it, which is how a wide Jobs list used to drag the page off screen. */
+  overflow-x: auto;
 }
 
-.panel h2 {
+/* A panel's title is a step darker than the eyebrows inside it, so a table's
+   headers do not read as titles of their own. */
+.panel > h2 {
   margin: 0 0 var(--space-3);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-faint);
+  color: var(--color-ink-dim);
+}
+
+.panel > p {
+  margin: 0 0 var(--space-3);
+}
+
+/* Anything following a table is a note about it, and needs air: a table's last
+   row keeps no bottom border, so without this the note sits on the row. */
+.panel > table ~ p,
+.panel > table ~ div,
+.panel > * > table ~ p,
+.panel > * > table ~ div {
+  margin: var(--space-3) 0 0;
 }
 
 .page-title {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  margin: var(--space-2) 0 var(--space-4);
+  margin: var(--space-1) 0 var(--space-4);
+  min-height: 28px;
 }
 
 .page-title h1 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   margin: 0;
   font-size: var(--text-xl);
   font-weight: 600;
+  letter-spacing: -0.015em;
 }
 
 .page-title .actions {
   display: flex;
+  align-items: center;
   gap: var(--space-2);
 }
 
-/* Stat tiles. */
+/* Stat tiles: numbers on the panel itself, divided by rules rather than boxed
+   a second time inside a box. */
 
 .tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-4);
 }
 
 .tile {
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-control);
-  background: var(--color-glass-strong);
-  border: 1px solid var(--color-glass-edge);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--color-line);
 }
 
-.tile .label {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-faint);
+.tile:first-child {
+  padding-left: 0;
+  border-left: none;
 }
 
 .tile .value {
   font-size: var(--text-xl);
-  font-weight: 600;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* A tile whose value is a state rather than a number: the word carries the
+   line, so it is set nearer the size of the numbers beside it. */
+.tile .value .pill {
+  font-size: var(--text-base);
+}
+
+.tile .value .pill::before {
+  width: 7px;
+  height: 7px;
 }
 
 /* Tables. */
@@ -260,25 +321,61 @@ table {
 
 th {
   text-align: left;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-faint);
-  padding: var(--space-1) var(--space-2) var(--space-2);
-  border-bottom: 1px solid var(--color-glass-edge);
+  padding: 0 var(--space-3) var(--space-2) 0;
+  border-bottom: 1px solid var(--color-line);
+  white-space: nowrap;
+}
+
+th:last-child {
+  padding-right: 0;
 }
 
 td {
-  padding: var(--space-2);
-  border-bottom: 1px solid var(--color-glass-edge);
+  padding: var(--space-2) var(--space-3) var(--space-2) 0;
+  border-bottom: 1px solid var(--color-line);
   vertical-align: top;
+}
+
+td:last-child {
+  padding-right: 0;
 }
 
 tr:last-child td {
   border-bottom: none;
 }
 
+/* Columns that are short by nature: let them set their own width rather than
+   wrapping a branch name or a date down two lines. */
+td.tight,
+th.tight {
+  white-space: nowrap;
+}
+
+/* The two columns that hold a sentence: the prompt, and why a Job is where it
+   is. Everything else in a Jobs row is short and fixed, so these two take what
+   is left and cut what does not fit, rather than each claiming a width of its
+   own and pushing the last columns off the panel. A zero max-width is what
+   lets a table cell do that: it stops the cell asking for its content's width,
+   so the percentages divide the space that remains. The whole line is in the
+   tooltip either way. */
+.prompt,
+td.reason {
+  max-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prompt {
+  width: 62%;
+}
+
+td.reason {
+  width: 38%;
+}
+
+/* A row that opens something. The hover has to reach the panel's edge, which
+   the cell padding does not, so the background goes on the cells. */
 tr.row:hover td {
   background: var(--color-row-hover);
 }
@@ -295,96 +392,119 @@ td.mono,
 
 td.dim,
 .dim {
-  color: var(--color-text-dim);
+  color: var(--color-ink-dim);
 }
 
 td.faint,
 .faint {
-  color: var(--color-text-faint);
-}
-
-.prompt {
-  max-width: 48ch;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--color-ink-faint);
 }
 
 .empty {
-  color: var(--color-text-faint);
-  padding: var(--space-3) 0;
+  color: var(--color-ink-faint);
+  padding: var(--space-1) 0;
 }
 
-/* Pills. */
+/* States: a square dot and a word, not a badge. The dot carries the colour,
+   which is the only place in the app colour means anything. */
 
 .pill {
-  display: inline-block;
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  background: var(--color-state-bg);
-  color: var(--color-state-pending);
-  border: 1px solid transparent;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--color-ink-dim);
+}
+
+.pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 1px;
+  background: currentColor;
 }
 
 .pill.pending { color: var(--color-state-pending); }
-.pill.active { color: var(--color-state-active); border-color: var(--color-state-active); }
-.pill.review { color: var(--color-state-review); border-color: var(--color-state-review); }
+.pill.active { color: var(--color-state-active); }
+.pill.review { color: var(--color-state-review); font-weight: 500; }
 .pill.done { color: var(--color-state-done); }
-.pill.blocked { color: var(--color-state-blocked); border-color: var(--color-state-blocked); }
+.pill.blocked { color: var(--color-state-blocked); }
 .pill.cancelled { color: var(--color-state-cancelled); }
 .pill.exhausted { color: var(--color-state-exhausted); }
+
 /* A Skill is pinned unless it was declared to move on its own (ADR-0024). */
 .pill.pinned { color: var(--color-state-done); }
-.pill.tracking { color: var(--color-state-active); border-color: var(--color-state-active); }
-.pill.paused { color: var(--color-state-paused); border-color: var(--color-state-paused); border-style: dashed; }
+.pill.tracking { color: var(--color-state-active); }
+
+/* Paused: at rest, but not finished. A hollow dot says so without a colour. */
+.pill.paused { color: var(--color-state-paused); }
+.pill.paused::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
 /* A window an Account has spent past what Owl will work into (ADR-0020). */
-td.over { color: var(--color-state-blocked); }
+td.over { color: var(--color-alert); }
 
 /* Whether Owl may work at all: the machine is idle, in use, or unread. */
-.pill.idle { color: var(--color-state-active); border-color: var(--color-state-active); }
-.pill.busy { color: var(--color-state-paused); border-color: var(--color-state-paused); }
-.pill.unknown { color: var(--color-state-cancelled); }
-.pill.pass { color: var(--color-pass); background: var(--color-pass-bg); }
-.pill.fail { color: var(--color-fail); background: var(--color-fail-bg); }
+.pill.idle { color: var(--color-state-active); }
+.pill.busy { color: var(--color-state-paused); }
+.pill.busy::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.pill.unknown { color: var(--color-ink-faint); }
+.pill.pass { color: var(--color-pass); }
+.pill.fail { color: var(--color-fail); }
 
 /* Buttons. */
 
 button.btn {
-  padding: var(--space-1) var(--space-3);
+  padding: 4px var(--space-3);
   border-radius: var(--radius-control);
-  border: 1px solid var(--color-button-edge);
-  background: var(--color-button);
-  color: var(--color-text);
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-surface);
+  color: var(--color-ink);
   font: inherit;
   font-size: var(--text-sm);
+  font-weight: 500;
+  white-space: nowrap;
   cursor: default;
+  transition: background-color 100ms, border-color 100ms, color 100ms;
 }
 
 button.btn:hover:not(:disabled) {
-  background: var(--color-button-hover);
+  border-color: var(--color-ink-faint);
 }
 
 button.btn:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
 }
 
 button.btn.primary {
   background: var(--color-accent);
-  border-color: var(--color-accent-strong);
-  color: var(--color-text-on-accent);
-  font-weight: 600;
+  border-color: var(--color-accent);
+  color: var(--color-ink-on-accent);
 }
 
 button.btn.primary:hover:not(:disabled) {
   background: var(--color-accent-strong);
+  border-color: var(--color-accent-strong);
 }
 
+/* Dropping work is not undoable, so it is the one control that says so in
+   colour - in the text, not a filled red button that begs to be pressed. */
 button.btn.danger {
-  background: var(--color-danger-button);
-  border-color: var(--color-danger-edge);
+  color: var(--color-alert);
+}
+
+button.btn.danger:hover:not(:disabled) {
+  border-color: var(--color-alert);
+  background: var(--color-alert-soft);
 }
 
 .btn-row {
@@ -393,40 +513,47 @@ button.btn.danger {
   flex-wrap: wrap;
 }
 
-/* Banners. */
+/* Banners: what just happened, and what is wrong. A note is quiet; only an
+   alert takes colour. */
 
 .banner {
   padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-control);
-  background: var(--color-warn-bg);
-  border: 1px solid var(--color-warn-edge);
-  color: var(--color-warn);
-  margin-bottom: var(--space-4);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-left: 2px solid var(--color-ink-faint);
+  color: var(--color-ink-dim);
+  margin-bottom: var(--space-3);
   user-select: text;
 }
 
+.banner.alert {
+  background: var(--color-alert-soft);
+  border-color: color-mix(in oklab, var(--color-alert) 20%, transparent);
+  border-left-color: var(--color-alert);
+  color: var(--color-alert);
+}
+
 .banner .mono {
-  color: var(--color-text-dim);
+  color: var(--color-ink);
+}
+
+.banner.alert .mono {
+  color: inherit;
 }
 
 /* Detail view. */
 
 .detail-head {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--space-2) var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--space-3) var(--space-4);
   user-select: text;
 }
 
-.detail-head .k {
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-faint);
-}
-
 .detail-head .v {
-  word-break: break-all;
+  margin-top: 2px;
+  word-break: break-word;
 }
 
 .detail-head .wide {
@@ -435,36 +562,43 @@ button.btn.danger {
 
 .tabs {
   display: flex;
-  gap: var(--space-1);
-  margin-bottom: var(--space-3);
-  border-bottom: 1px solid var(--color-glass-edge);
+  gap: var(--space-4);
+  margin: 0 0 var(--space-4);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .tabs button {
-  padding: var(--space-2) var(--space-3);
+  padding: 0 0 var(--space-2);
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: 1px solid transparent;
+  margin-bottom: -1px;
   background: transparent;
-  color: var(--color-text-dim);
+  color: var(--color-ink-faint);
   font: inherit;
   font-size: var(--text-sm);
+  font-weight: 500;
   cursor: default;
 }
 
+.tabs button:hover {
+  color: var(--color-ink-dim);
+}
+
 .tabs button.active {
-  color: var(--color-text);
-  border-bottom-color: var(--color-accent);
+  color: var(--color-ink);
+  border-bottom-color: var(--color-ink);
 }
 
 pre.code {
   margin: 0;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-3);
   border-radius: var(--radius-control);
   background: var(--color-code-bg);
   border: 1px solid var(--color-code-edge);
+  color: var(--color-ink);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  line-height: 1.5;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
   user-select: text;
@@ -477,19 +611,37 @@ pre.code.log {
   white-space: pre;
 }
 
+code {
+  font-family: var(--font-mono);
+  font-size: 0.925em;
+  background: var(--color-code-bg);
+  border: 1px solid var(--color-code-edge);
+  border-radius: var(--radius-control);
+  padding: 1px 4px;
+}
+
 .check {
+  padding-bottom: var(--space-3);
   margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.check:last-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
 }
 
 .check .name {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-1);
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
 }
 
 .check .cmd {
-  color: var(--color-text-faint);
+  color: var(--color-ink-faint);
 }
 
 .diff-add {
@@ -504,19 +656,19 @@ pre.code.log {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
   font-size: var(--text-sm);
-  color: var(--color-text-dim);
+  color: var(--color-ink-dim);
 }
 
 select {
   font: inherit;
   font-size: var(--text-sm);
-  color: var(--color-text);
-  background: var(--color-button);
-  border: 1px solid var(--color-button-edge);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-control);
-  padding: 2px var(--space-2);
+  padding: 3px var(--space-2);
 }
 
 .back {
@@ -538,7 +690,7 @@ select {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 1px;
 }
 
 .conversations button {
@@ -551,32 +703,56 @@ select {
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--color-text);
+  color: var(--color-ink);
   font: inherit;
-  cursor: pointer;
+  font-size: var(--text-sm);
+  cursor: default;
 }
 
-.conversations button:hover,
+.conversations button:hover {
+  background: var(--color-row-hover);
+}
+
 .conversations button.active {
-  background: var(--color-row-selected);
-  border-color: var(--color-button-edge);
+  background: var(--color-accent-soft);
+  color: var(--color-ink);
+}
+
+.conversations .dim {
+  font-size: var(--text-xs);
 }
 
 .messages {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   max-height: 60vh;
   overflow-y: auto;
 }
 
+/* What was said: who said it is the label, so a turn needs no bubble. A model
+   writes prose, so it is set in the reading face - the <pre> is there to keep
+   the line breaks it wrote, not to make it a listing. */
 .message pre.code {
-  margin: 0;
-  white-space: pre-wrap;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--color-line);
+  border-radius: 0;
+  padding: 0 0 0 var(--space-3);
+  max-height: none;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: 1.55;
+  color: var(--color-ink-dim);
+}
+
+/* What the person asked stands out from the answer to it. */
+.message.user pre.code {
+  color: var(--color-ink);
 }
 
 .message.user pre.code {
-  background: var(--color-row-selected);
+  border-left-color: var(--color-ink);
 }
 
 /* A command the chat ran, and one it is waiting to be allowed to run. The one
@@ -585,7 +761,7 @@ select {
 .message.command {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
   font-size: var(--text-sm);
 }
 
@@ -594,10 +770,10 @@ select {
 }
 
 .message.command.asking {
-  padding: var(--space-2);
-  border: 1px solid var(--color-button-edge);
-  border-radius: var(--radius-control);
-  background: var(--color-row-selected);
+  padding: var(--space-3);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface-sunk);
 }
 
 .message.command.asking .actions {
@@ -610,7 +786,9 @@ select {
   display: flex;
   gap: var(--space-2);
   align-items: flex-end;
-  margin-top: var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-line);
 }
 
 .ask textarea {
@@ -619,9 +797,13 @@ select {
   resize: vertical;
   font: inherit;
   font-size: var(--text-sm);
-  color: var(--color-text);
-  background: var(--color-button);
-  border: 1px solid var(--color-button-edge);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-control);
   padding: var(--space-2);
+}
+
+.ask textarea::placeholder {
+  color: var(--color-ink-faint);
 }

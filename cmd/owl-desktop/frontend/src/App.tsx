@@ -2,6 +2,7 @@
 // view at a time. State lives in the daemon; the app only shows it.
 
 import { useState } from "react";
+import mark from "./assets/mark.png";
 import { api, usePoll } from "./lib/api";
 import { Overview } from "./views/Overview";
 import { Projects } from "./views/Projects";
@@ -50,7 +51,7 @@ export default function App() {
       <div className="shell">
         <aside className="sidebar">
           <div className="brand">
-            <span className="owl">◉</span>
+            <img src={mark} alt="" />
             Coding Owl
           </div>
           <nav className="nav">
@@ -71,13 +72,14 @@ export default function App() {
               <span className="dot" />
               {down ? "Daemon not running" : `Daemon ${st.version}`}
             </div>
-            {down ? null : <div className="faint">up {st.uptime}</div>}
-            <div className="socket">{st?.socketPath ?? ""}</div>
+            {/* The socket only matters when nothing is answering on it. While
+                the daemon is up, its path is a thing to read past. */}
+            {down ? <div className="socket">{st?.socketPath ?? ""}</div> : <div className="faint">up {st.uptime}</div>}
           </div>
         </aside>
         <main className="content">
           {down ? (
-            <div className="banner">
+            <div className="banner alert">
               The daemon is not answering. Start it with <span className="mono">owl daemon run</span>, or install it as
               a service with <span className="mono">owl daemon install</span>.
               {st?.error ? (

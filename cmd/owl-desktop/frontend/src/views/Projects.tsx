@@ -10,7 +10,7 @@ export function Projects() {
       <div className="page-title">
         <h1>Projects</h1>
       </div>
-      {error ? <Banner>{error}</Banner> : null}
+      {error ? <Banner alert>{error}</Banner> : null}
       <Panel>
         {!data || data.length === 0 ? (
           <Empty>No Project registered. Register one with owl project add.</Empty>

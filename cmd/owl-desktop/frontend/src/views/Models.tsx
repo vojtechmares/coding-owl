@@ -17,7 +17,7 @@ export function Models() {
       <div className="page-title">
         <h1>Models</h1>
       </div>
-      {models.error ? <Banner>{errorText(models.error)}</Banner> : null}
+      {models.error ? <Banner alert>{errorText(models.error)}</Banner> : null}
       <Panel>
         {rows.length === 0 ? (
           <Empty>Nothing to show yet. The daemon reports the models its Driver serves.</Empty>

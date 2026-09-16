@@ -493,9 +493,19 @@ func TestS13FollowingAgainReplacesTheEarlierFollow(t *testing.T) {
 
 var (
 	hexColour  = regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`)
-	funcColour = regexp.MustCompile(`\b(rgba?|hsla?)\(`)
-	hslDecl    = regexp.MustCompile(`hsla?\(\s*(\d+(?:\.\d+)?)`)
+	funcColour = regexp.MustCompile(`\b(rgba?|hsla?|oklch)\(`)
+	oklchDecl  = regexp.MustCompile(`oklch\(\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)`)
 )
+
+// The hue families the palette is allowed to spend colour from, and what each
+// one is for (ADR-0009, amended): the site's sky blue, plus the two the
+// changelog already uses for something going wrong and something coming out
+// right. Anything else is grey.
+var hueFamilies = map[string][2]float64{
+	"sky":  {230, 245},
+	"rose": {5, 25},
+	"teal": {175, 195},
+}
 
 func TestS10ThemeIsOneTokensFile(t *testing.T) {
 	src := filepath.Join(repoDir, "cmd", "owl-desktop", "frontend", "src")
@@ -503,19 +513,48 @@ func TestS10ThemeIsOneTokensFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no tokens file: %v", err)
 	}
-	for _, want := range []string{"--color-", "--blur-", "--radius-", "--space-"} {
+	for _, want := range []string{"--color-", "--radius-", "--space-", "--font-"} {
 		if !strings.Contains(string(tokens), want) {
 			t.Errorf("tokens.css declares no %s* custom properties", want)
 		}
 	}
-	if hexColour.Match(tokens) {
-		t.Errorf("tokens.css uses hex colours; write them as hsl() so the hue can be checked")
-	}
-	for _, m := range hslDecl.FindAllStringSubmatch(string(tokens), -1) {
-		hue, _ := strconv.ParseFloat(m[1], 64)
-		if hue != 0 && (hue < 200 || hue > 260) {
-			t.Errorf("tokens.css has hue %v; the palette is night-sky and navy blues (200 to 260) or grey", hue)
+	// White is worth a hex literal; everything else is oklch, so that its
+	// chroma and hue can be read here.
+	for _, m := range hexColour.FindAllString(string(tokens), -1) {
+		if strings.ToLower(m) != "#ffffff" && strings.ToLower(m) != "#fff" {
+			t.Errorf("tokens.css has the hex colour %s; write it as oklch() so its chroma and hue can be checked", m)
 		}
+	}
+
+	// The design is greys with a little colour, not the other way round: if
+	// everything is coloured, a coloured thing on screen says nothing.
+	greys, coloured := 0, 0
+	for _, m := range oklchDecl.FindAllStringSubmatch(string(tokens), -1) {
+		chroma, _ := strconv.ParseFloat(m[2], 64)
+		hue, _ := strconv.ParseFloat(m[3], 64)
+		if chroma == 0 {
+			greys++
+			continue
+		}
+		coloured++
+		if chroma > 0.26 {
+			t.Errorf("tokens.css has an oklch chroma of %v; the palette is muted", chroma)
+		}
+		named := false
+		for _, span := range hueFamilies {
+			if hue >= span[0] && hue <= span[1] {
+				named = true
+			}
+		}
+		if !named {
+			t.Errorf("tokens.css has hue %v, which is none of the families the palette spends colour from: %v", hue, hueFamilies)
+		}
+	}
+	if greys == 0 {
+		t.Errorf("tokens.css declares no greys; the ground, the rules and the text are all grey")
+	}
+	if coloured >= greys {
+		t.Errorf("tokens.css has %d coloured values against %d greys; the design is greys with a little colour, not the other way round", coloured, greys)
 	}
 
 	err = filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {

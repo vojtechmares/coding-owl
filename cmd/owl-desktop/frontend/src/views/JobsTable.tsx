@@ -22,34 +22,38 @@ export function JobsTable({
     <table>
       <thead>
         <tr>
-          {position ? <th>#</th> : null}
-          <th>Job</th>
-          <th>Project</th>
-          <th>State</th>
+          {position ? <th className="tight">#</th> : null}
+          <th className="tight">Job</th>
+          <th className="tight">Project</th>
+          <th className="tight">State</th>
           <th>Prompt</th>
           {reason ? <th>Reason</th> : null}
-          <th>Branch</th>
-          <th>Attempts</th>
-          <th>Created</th>
+          <th className="tight">Branch</th>
+          <th className="tight">Attempts</th>
+          <th className="tight">Created</th>
           {actions ? <th /> : null}
         </tr>
       </thead>
       <tbody>
         {jobs.map((j) => (
           <tr key={j.ID} className="row" onClick={() => onOpen(j.ID)}>
-            {position ? <td className="mono">{j.Position}</td> : null}
-            <td className="mono">{j.ID}</td>
-            <td>{j.Project}</td>
-            <td>
+            {position ? <td className="mono tight">{j.Position}</td> : null}
+            <td className="mono tight">{j.ID}</td>
+            <td className="tight">{j.Project}</td>
+            <td className="tight">
               <StatePill state={j.State} />
             </td>
             <td className="prompt" title={j.Prompt}>
               {j.Prompt}
             </td>
-            {reason ? <td className="dim">{j.Reason}</td> : null}
-            <td className="mono dim">{j.Branch || "-"}</td>
-            <td className="dim">{j.TTL} left</td>
-            <td className="dim">{ago(j.Created)}</td>
+            {reason ? (
+              <td className="dim reason" title={j.Reason}>
+                {j.Reason}
+              </td>
+            ) : null}
+            <td className="mono dim tight">{j.Branch || "-"}</td>
+            <td className="dim tight">{j.TTL} left</td>
+            <td className="dim tight">{ago(j.Created)}</td>
             {actions ? <td onClick={(e) => e.stopPropagation()}>{actions(j)}</td> : null}
           </tr>
         ))}

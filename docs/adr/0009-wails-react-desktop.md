@@ -18,7 +18,21 @@ The GUI is a **pure view**. Every action it can perform exists as a daemon RPC
 that the CLI can also call; `internal/daemon` remains the single source of
 truth. The app is a client of the daemon like any other.
 
-Visual direction: liquid glass, night-sky and navy blues.
+Visual direction: the same design as codingowl.dev. A neutral-50 ground, white
+where a surface is needed, hairline rules to divide, Geist for text and Geist
+Mono for anything mechanical, and one sky blue spent sparingly. Colour says one
+of four things and nothing else - blue is in motion, near-black is waiting for
+you, rose is something that went wrong, grey is at rest - so a coloured thing
+on screen always means something.
+
+> **Amended 2026-09-17 (#36).** This originally read "liquid glass, night-sky
+> and navy blues", and the app shipped that way in #9. The design review found
+> the glass fought the content: a dashboard is mostly small text in dense
+> tables, and blur, translucency and saturated navy all work against reading
+> it. The site had already moved to the quieter design; the app follows it, so
+> there is one look to maintain rather than two. The theme is two files -
+> `frontend/src/theme/tokens.css` for the values and `frontend/src/style.css`
+> for what uses them - so the next change is as small as this one was.
 
 > **Superseded by ADR-0029.** This ADR originally fixed a day-one feature set
 > for the app. There is no longer one: the core loop ships first in the daemon,
