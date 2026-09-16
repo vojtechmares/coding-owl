@@ -91,7 +91,7 @@ export function Overview({
           </Button>
         </div>
       </div>
-      {error ? <Banner>{error}</Banner> : null}
+      {error ? <Banner alert>{error}</Banner> : null}
       {note ? <Banner>{note}</Banner> : null}
 
       <Panel title="Machine">

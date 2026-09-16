@@ -60,8 +60,8 @@ export function Skills() {
           </Button>
         </div>
       </div>
-      {projects.error ? <Banner>{projects.error}</Banner> : null}
-      {skills.error ? <Banner>{skills.error}</Banner> : null}
+      {projects.error ? <Banner alert>{projects.error}</Banner> : null}
+      {skills.error ? <Banner alert>{skills.error}</Banner> : null}
       {note ? <Banner>{note}</Banner> : null}
       <Panel>
         {!project ? (

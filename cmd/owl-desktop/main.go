@@ -70,17 +70,20 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		// The night sky behind the glass, for the instant before the
-		// frontend paints its own.
-		BackgroundColour: &options.RGBA{R: 7, G: 12, B: 30, A: 1},
+		// The ground the app paints on, for the instant before the frontend
+		// paints it itself. Keep it the same as --color-ground in
+		// frontend/src/theme/tokens.css, or the window flashes on open.
+		BackgroundColour: &options.RGBA{R: 250, G: 250, B: 250, A: 1},
 		OnStartup:        em.ready,
 		OnShutdown:       func(context.Context) { app.Shutdown() },
 		Bind:             []any{app},
 		Mac: &mac.Options{
-			TitleBar:             mac.TitleBarHiddenInset(),
-			Appearance:           mac.NSAppearanceNameDarkAqua,
-			WebviewIsTransparent: true,
-			WindowIsTranslucent:  true,
+			TitleBar: mac.TitleBarHiddenInset(),
+			// Light, and opaque: the theme is a flat ground with hairline
+			// rules, so there is nothing for translucency to do but muddy it.
+			Appearance:           mac.NSAppearanceNameAqua,
+			WebviewIsTransparent: false,
+			WindowIsTranslucent:  false,
 			About: &mac.AboutInfo{
 				Title:   "Coding Owl " + version.Version,
 				Message: "Runs coding agents on your machine while it is otherwise idle.",

@@ -28,8 +28,11 @@ export function Tile({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-export function Banner({ children }: { children: ReactNode }) {
-  return <div className="banner">{children}</div>;
+// A banner is either a note about what just happened or an alert about what is
+// wrong. Only the alert takes colour, so that when the app is red something
+// actually is.
+export function Banner({ children, alert }: { children: ReactNode; alert?: boolean }) {
+  return <div className={`banner ${alert ? "alert" : ""}`}>{children}</div>;
 }
 
 export function Empty({ children }: { children: ReactNode }) {
