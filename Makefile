@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X github.com/vojtechmares/coding-owl/internal/version.Version=$(VERSION)
 
-.PHONY: build test lint generate desktop
+.PHONY: build test lint generate desktop desktop-fake
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/owl ./cmd/owl
@@ -13,6 +13,16 @@ build:
 desktop:
 	cd cmd/owl-desktop && wails build -clean -ldflags "$(LDFLAGS)"
 	@touch cmd/owl-desktop/frontend/dist/.gitkeep
+
+# The same app over made-up state, for looking at the design without queueing
+# real work (#36). VITE_FAKE puts a stand-in where the Wails bindings look for
+# the daemon; without it the fake is not in the bundle at all. The build is
+# left where `make desktop` leaves its own, so run that again before shipping
+# anything from bin/.
+desktop-fake:
+	cd cmd/owl-desktop && VITE_FAKE=1 wails build -clean -ldflags "$(LDFLAGS)"
+	@touch cmd/owl-desktop/frontend/dist/.gitkeep
+	@echo "Built with fake data. open cmd/owl-desktop/build/bin/owl-desktop.app"
 
 test:
 	go test ./...
