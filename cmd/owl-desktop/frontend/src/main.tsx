@@ -1,8 +1,14 @@
 import React, { type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { install as installFake } from "./lib/fake";
 import "./theme/tokens.css";
 import "./style.css";
+
+// A window with no daemon behind it, for looking at the design (#36). The flag
+// is a constant at build time, so an ordinary build drops both the branch and
+// the module it calls.
+if (import.meta.env.VITE_FAKE) installFake();
 
 // Boundary shows what went wrong instead of an empty window: a desktop app
 // has no console a user would open.
@@ -18,7 +24,7 @@ class Boundary extends React.Component<{ children: ReactNode }, { error?: string
     if (this.state.error) {
       return (
         <div className="content">
-          <div className="banner">
+          <div className="banner alert">
             The app hit an error it could not recover from.
             <pre className="code">{this.state.error}</pre>
           </div>
