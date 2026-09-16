@@ -30,6 +30,12 @@ All notable changes to Coding Owl are recorded here. The format follows
   something sensible, are set per phase, and `owl jobs show` prints what is in
   force and where it came from.
 
+### Changed
+
+- A Job's default TTL is 3 rather than 10, so a Job that goes wrong is reported
+  on the third night rather than the tenth. `--ttl` at enqueue and
+  `owl jobs extend` are unchanged.
+
 ### Fixed
 
 - The daemon makes its socket under a private umask and tightens its

@@ -36,11 +36,16 @@ const (
 	StateExhausted State = "exhausted"
 )
 
-// DefaultTTL is how many Runs a Job may take when nobody says otherwise. It is
-// generous on purpose: under ADR-0011 a Run the user interrupts by opening
-// their laptop costs an attempt exactly as a failure does, so a Job that makes
-// real progress every night still has room (ADR-0025).
-const DefaultTTL = 10
+// DefaultTTL is how many Runs a Job may take when nobody says otherwise.
+//
+// It is small because a Job that is going wrong should be reported early
+// rather than spend a week of nights proving it: with a Run now bounded by its
+// phase's limits (ADR-0036), a Job that wedges every time exhausts in three
+// nights instead of ten. The cost is the tension ADR-0025 records - under
+// ADR-0011 a Run the user interrupts by opening their laptop costs an attempt
+// exactly as a failure does - and the answers to that are `--ttl` at enqueue
+// and `owl jobs extend`.
+const DefaultTTL = 3
 
 // Source is a producer of Jobs (ADR-0008). The local queue is the first
 // implementation; later ones read a forge or a schedule and feed this same
