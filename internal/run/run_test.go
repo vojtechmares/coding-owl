@@ -106,6 +106,10 @@ type fakeExecutor struct {
 	diesOf os.Signal
 	// hold keeps the Agent running until it is closed or the run is cancelled.
 	hold chan struct{}
+	// repeat is a line a held Agent keeps writing every `every`, so that a
+	// scenario can have one that is busy rather than silent.
+	repeat string
+	every  time.Duration
 	// started is closed once an Agent has been started.
 	started chan struct{}
 	once    sync.Once
@@ -134,12 +138,31 @@ func (e *fakeExecutor) Start(ctx context.Context, _ agent.Invocation) (agent.Pro
 			_, _ = io.WriteString(w, ln+"\n")
 		}
 		if e.hold != nil {
-			select {
-			case <-e.hold:
-			case <-ctx.Done():
-				p.code = 130
-			case <-p.killed:
-				p.code, p.killedBy = -1, p.diesOf
+			// A held Agent that repeats keeps talking while it waits, so that
+			// what ends it can only be the limit on how long it may run at
+			// all and never the one on how long it may stay quiet.
+			var talk <-chan time.Time
+			if e.repeat != "" {
+				t := time.NewTicker(e.every)
+				defer t.Stop()
+				talk = t.C
+			}
+		waiting:
+			for {
+				select {
+				case <-talk:
+					if _, err := io.WriteString(w, e.repeat+"\n"); err != nil {
+						break waiting
+					}
+				case <-e.hold:
+					break waiting
+				case <-ctx.Done():
+					p.code = 130
+					break waiting
+				case <-p.killed:
+					p.code, p.killedBy = -1, p.diesOf
+					break waiting
+				}
 			}
 		}
 		_ = w.Close()
@@ -2023,5 +2046,94 @@ func TestAWindowIsKeptEvenWhenTheAccountIsFullOfReadingsThatAreOver(t *testing.T
 	}
 	if len(got) != 1 || got[0].Window != "five_hour" {
 		t.Fatalf("ListAccountUsage = %+v, want the window this run reported and nothing that is over", got)
+	}
+}
+
+// A Run that says nothing for longer than its phase's stall limit is one that
+// has stopped rather than one that is working, and an idle machine has no user
+// coming back to end it. Owl ends it itself, and because passing a limit is
+// the Run's own doing rather than something that happened to it, it is a
+// failure that spends an attempt (ADR-0036).
+func TestASilentRunIsEndedByItsStallLimitAndSpendsAnAttempt(t *testing.T) {
+	ctx := context.Background()
+	started := make(chan struct{})
+	e := &fakeExecutor{hold: make(chan struct{}), started: started, diesOf: syscall.SIGKILL}
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, e, &fakeVerifier{},
+		"apiVersion: codingowl.dev/v1\nphases:\n  execute:\n    stall: 10ms\n")
+	j := queueJobWithAttempts(t, st, "work", 2)
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started
+
+	r := awaitEnded(t, st, j.ID)
+
+	if r.Outcome != string(run.OutcomeFailed) {
+		t.Errorf("outcome = %q, want failed: a run that passed a limit is the job's own failure", r.Outcome)
+	}
+	if !strings.Contains(r.Error, "said nothing for 10ms") {
+		t.Errorf("reason = %q, want it to name the silence and the limit that ended it", r.Error)
+	}
+	after, err := st.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if after.TTL != 1 {
+		t.Errorf("the job has %d attempts left, want 1: passing a limit spends one", after.TTL)
+	}
+}
+
+// The total limit is the one that catches an Agent working busily towards
+// nothing, which no amount of listening for silence ever will: it talks the
+// whole time (ADR-0036).
+func TestARunThatNeverFinishesIsEndedByItsTimeout(t *testing.T) {
+	ctx := context.Background()
+	started := make(chan struct{})
+	e := &fakeExecutor{
+		hold: make(chan struct{}), started: started, diesOf: syscall.SIGKILL,
+		// Never silent: something arrives far more often than the stall limit,
+		// so only the total limit can be what ends this Run.
+		repeat: "still going", every: time.Millisecond,
+	}
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, e, &fakeVerifier{},
+		"apiVersion: codingowl.dev/v1\nphases:\n  execute:\n    timeout: 80ms\n    stall: 10s\n")
+	j := queueJobWithAttempts(t, st, "work", 2)
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started
+
+	r := awaitEnded(t, st, j.ID)
+
+	if r.Outcome != string(run.OutcomeFailed) {
+		t.Errorf("outcome = %q, want failed", r.Outcome)
+	}
+	if !strings.Contains(r.Error, "ran for 80ms without finishing") {
+		t.Errorf("reason = %q, want it to name the timeout that ended it", r.Error)
+	}
+}
+
+// A Run the user interrupts is not the Job's failure, and the limits must not
+// turn it into one: a daemon stopping mid-Run still returns the Job to the
+// queue with its attempt intact (ADR-0011).
+func TestADaemonStoppingStillInterruptsRatherThanFailingUnderLimits(t *testing.T) {
+	ctx := context.Background()
+	started := make(chan struct{})
+	e := &fakeExecutor{hold: make(chan struct{}), started: started, killedBy: syscall.SIGTERM}
+	svc, st, _, _ := newVerifiedFixture(t, &fakeDriver{}, e, &fakeVerifier{},
+		"apiVersion: codingowl.dev/v1\nphases:\n  execute:\n    timeout: 1h\n    stall: 1h\n")
+	j := queueJob(t, st, "work")
+	if _, _, _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	<-started
+
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r := lastRun(t, st, j.ID)
+	if r.Outcome != string(run.OutcomeInterrupted) {
+		t.Errorf("outcome = %q, want interrupted: the limits did not end this run", r.Outcome)
 	}
 }

@@ -77,6 +77,13 @@ type PhaseSettings struct {
 	ModelFrom  string
 	Effort     string
 	EffortFrom string
+	// Timeout is how long this phase's Agent may run, and Stall how long it
+	// may go without saying anything, each with the level it came from
+	// (ADR-0036).
+	Timeout     time.Duration
+	TimeoutFrom string
+	Stall       time.Duration
+	StallFrom   string
 }
 
 // JobDetails is what owl jobs show reports.
@@ -178,11 +185,15 @@ func (c *Client) GetJob(ctx context.Context, id int64) (JobDetails, error) {
 	}
 	for _, p := range res.Msg.GetPhases() {
 		d.Phases = append(d.Phases, PhaseSettings{
-			Phase:      p.GetPhase(),
-			Model:      p.GetModel(),
-			ModelFrom:  p.GetModelFrom(),
-			Effort:     p.GetEffort(),
-			EffortFrom: p.GetEffortFrom(),
+			Phase:       p.GetPhase(),
+			Model:       p.GetModel(),
+			ModelFrom:   p.GetModelFrom(),
+			Effort:      p.GetEffort(),
+			EffortFrom:  p.GetEffortFrom(),
+			Timeout:     p.GetTimeout().AsDuration(),
+			TimeoutFrom: p.GetTimeoutFrom(),
+			Stall:       p.GetStall().AsDuration(),
+			StallFrom:   p.GetStallFrom(),
 		})
 	}
 	return d, nil

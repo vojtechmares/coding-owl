@@ -128,11 +128,15 @@ func (s *jobService) GetJob(ctx context.Context, req *connect.Request[codingowlv
 	}
 	for _, p := range d.Phases {
 		res.Phases = append(res.Phases, &codingowlv1.PhaseSettings{
-			Phase:      string(p.Phase),
-			Model:      p.Model.Value,
-			ModelFrom:  p.Model.From,
-			Effort:     p.Effort.Value,
-			EffortFrom: p.Effort.From,
+			Phase:       string(p.Phase),
+			Model:       p.Model.Value,
+			ModelFrom:   p.Model.From,
+			Effort:      p.Effort.Value,
+			EffortFrom:  p.Effort.From,
+			Timeout:     durationpb.New(p.Timeout.Value),
+			TimeoutFrom: p.Timeout.From,
+			Stall:       durationpb.New(p.Stall.Value),
+			StallFrom:   p.Stall.From,
 		})
 	}
 	return connect.NewResponse(res), nil

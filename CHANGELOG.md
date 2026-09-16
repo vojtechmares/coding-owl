@@ -24,6 +24,11 @@ All notable changes to Coding Owl are recorded here. The format follows
 - A chat in the desktop app that can look at the repository, with the user's
   say-so.
 - Skills declared per Project, fetched and placed for each Run.
+- Every Run is bounded: each phase has a limit on how long its Agent may run
+  and on how long it may go without saying anything, so an Agent that wedges
+  on an untouched machine cannot hold the queue until morning. Both default to
+  something sensible, are set per phase, and `owl jobs show` prints what is in
+  force and where it came from.
 
 ### Fixed
 

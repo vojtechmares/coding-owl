@@ -52,6 +52,12 @@ type live struct {
 	// the Agent's death an interruption rather than a failure. Empty for a Run
 	// nothing is ending.
 	endedWhy string
+	// endedFails makes that ending the Run's own failure instead, which spends
+	// an attempt. A Run that passed a limit is the one case: the grace window
+	// and the ceiling are things that happened to a Run, but a Run that will
+	// not finish or will not speak is the Run, and a Job that does it every
+	// time has to exhaust rather than repeat for ever (ADR-0036, ADR-0025).
+	endedFails bool
 }
 
 // track records a Run as reachable, and returns the function that forgets it.
@@ -70,15 +76,16 @@ func (s *Service) track(runID, jobID int64, proc agent.Process) func() {
 	}
 }
 
-// interrupted is why this daemon ended the Run, and whether it did.
-func (s *Service) interrupted(runID int64) (string, bool) {
+// interrupted is why this daemon ended the Run, whether it did, and whether
+// that ending is the Run's own failure rather than an interruption.
+func (s *Service) interrupted(runID int64) (why string, ended, fails bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	l, ok := s.live[runID]
 	if !ok || l.endedWhy == "" {
-		return "", false
+		return "", false, false
 	}
-	return l.endedWhy, true
+	return l.endedWhy, true, l.endedFails
 }
 
 // Pause freezes every Run in flight and everything their Agents started, and
@@ -363,13 +370,33 @@ func (s *Service) expire(runID int64) {
 // end stops the Agent of a Run this daemon is ending on purpose, and records
 // why: what it says is what the Run ends with, and the Job goes back in the
 // queue rather than being blamed for it.
-func (s *Service) end(runID int64, why string) { s.endIf(runID, why, nil) }
+func (s *Service) end(runID int64, why string) { s.endWith(runID, why, false, nil) }
+
+// endFailing is end for a Run that passed one of its own limits, which is the
+// Run's failure rather than something that happened to it: it spends an
+// attempt, so that a Job which passes the limit every time exhausts instead of
+// being queued again for ever (ADR-0036).
+//
+// A Run something else is already ending keeps that ending and its reason: the
+// daemon stopping and the grace window are not the Job's fault, and whichever
+// got there first is the truthful account of why the Agent died.
+func (s *Service) endFailing(runID int64, why string) { s.endWith(runID, why, true, nil) }
 
 // endIf is end for a caller that ends the Run only while something is still
 // true of it. The condition is read under the same hold of the lock that
 // records the ending, so nothing can change between the two. It reports
 // whether this call is the one ending the Run.
 func (s *Service) endIf(runID int64, why string, only func(*live) bool) bool {
+	return s.endWith(runID, why, false, only)
+}
+
+// endWith is what end, endIf and endFailing are: whether the ending counts as
+// the Run's own failure is recorded under the same hold of the lock that
+// records the ending itself. Setting it afterwards would leave a window in
+// which the Run has ended but does not yet say how, and the goroutine reading
+// its outcome could take an ending it will spend an attempt for as one it will
+// not.
+func (s *Service) endWith(runID int64, why string, fails bool, only func(*live) bool) bool {
 	s.mu.Lock()
 	l, ok := s.live[runID]
 	if !ok || l.endedWhy != "" || (only != nil && !only(l)) {
@@ -377,6 +404,7 @@ func (s *Service) endIf(runID int64, why string, only func(*live) bool) bool {
 		return false
 	}
 	l.endedWhy = why
+	l.endedFails = fails
 	frozen := l.paused
 	l.release()
 	proc := l.proc

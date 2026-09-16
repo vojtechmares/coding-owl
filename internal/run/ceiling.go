@@ -162,7 +162,7 @@ func (s *Service) watchUsage(r store.Run, account, line string) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), bookkeepingTimeout)
 	defer cancel()
 	s.recordUsage(ctx, account, u)
-	if _, ending := s.interrupted(r.ID); ending {
+	if _, ending, _ := s.interrupted(r.ID); ending {
 		// Already being ended, by this or by anything else: whatever the Agent
 		// says on its way out changes nothing.
 		return

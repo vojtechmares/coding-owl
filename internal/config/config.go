@@ -35,6 +35,11 @@ type Phase struct {
 	Model string
 	// Effort is how hard it thinks.
 	Effort string
+	// Timeout is the longest this phase's Agent may run, and Stall the longest
+	// it may go without saying anything. Zero at a level that does not set one,
+	// so that a narrower level can (ADR-0036).
+	Timeout time.Duration
+	Stall   time.Duration
 }
 
 // PhasePlan and PhaseExecute are the phases a Job passes through (ADR-0026).
@@ -321,8 +326,10 @@ type check struct {
 
 // phase is the on-disk shape of one entry under `phases`.
 type phase struct {
-	Model  string `yaml:"model"`
-	Effort string `yaml:"effort"`
+	Model   string `yaml:"model"`
+	Effort  string `yaml:"effort"`
+	Timeout string `yaml:"timeout"`
+	Stall   string `yaml:"stall"`
 }
 
 // decodeStrict reads a file into its on-disk shape, refusing any key the shape
@@ -876,7 +883,32 @@ func parsePhases(source string, phases map[string]phase) (map[string]Phase, erro
 		if name != PhasePlan && name != PhaseExecute {
 			return nil, fmt.Errorf("%s: phases has no %q; a job is planned then executed", source, name)
 		}
-		out[name] = Phase{Model: p.Model, Effort: p.Effort}
+		parsed := Phase{Model: p.Model, Effort: p.Effort}
+		// A limit nobody can read is what a limit exists to prevent, so an
+		// unreadable one is refused by name rather than left at the default
+		// (ADR-0036).
+		for _, field := range []struct {
+			what, value string
+			into        *time.Duration
+		}{
+			{"timeout", p.Timeout, &parsed.Timeout},
+			{"stall", p.Stall, &parsed.Stall},
+		} {
+			if field.value == "" {
+				continue
+			}
+			d, err := time.ParseDuration(field.value)
+			if err != nil {
+				return nil, fmt.Errorf("%s: the %s phase's %s %q is not a duration like 4h",
+					source, name, field.what, field.value)
+			}
+			if d <= 0 {
+				return nil, fmt.Errorf("%s: the %s phase has a %s of %s; an agent needs time to work",
+					source, name, field.what, d)
+			}
+			*field.into = d
+		}
+		out[name] = parsed
 	}
 	return out, nil
 }

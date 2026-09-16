@@ -459,10 +459,13 @@ func phaseRows(t *testing.T, out string) []string {
 			continue
 		}
 		fields := strings.Fields(ln)
-		if len(fields) != 5 {
+		if len(fields) < 5 {
 			t.Fatalf("cannot read the phase row %q, want phase, model, its source, effort and its source:\n%s", ln, out)
 		}
-		rows = append(rows, strings.Join(fields, "|"))
+		// The row also carries each phase's limits and where they came from
+		// (ADR-0036), which these scenarios say nothing about: they are the
+		// business of the sheet that introduced them.
+		rows = append(rows, strings.Join(fields[:5], "|"))
 	}
 	return rows
 }

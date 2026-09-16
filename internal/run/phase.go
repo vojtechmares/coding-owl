@@ -3,6 +3,7 @@ package run
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/store"
@@ -44,21 +45,53 @@ type Settings struct {
 	Phase  Phase
 	Model  Choice
 	Effort Choice
+	// Timeout is the longest this phase's Agent may run, and Stall the longest
+	// it may go without saying anything. Both are always set: a Run nothing
+	// bounds is one only the user's return can end, and an idle machine has no
+	// user to return (ADR-0036).
+	Timeout Limit
+	Stall   Limit
 }
+
+// Limit is an effective duration limit and the level it came from. It is
+// Choice for a duration: what owl jobs show prints beside a limit is the same
+// question as for a model, and the answer has to be traceable the same way.
+type Limit struct {
+	Value time.Duration
+	From  string
+}
+
+// DefaultStall is how long any phase's Agent may go without saying anything
+// before Owl ends the Run. It is the same for both phases because it measures
+// the tool being stuck rather than the work being long, and fifteen minutes is
+// already what Owl waits for a frozen Run and for a Verifier (ADR-0036).
+const DefaultStall = 15 * time.Minute
+
+// Planning is short by design, and execution is the long one, so they are
+// bounded differently: together they fit inside a night rather than running
+// into the user's morning (ADR-0036).
+const (
+	DefaultPlanTimeout    = 1 * time.Hour
+	DefaultExecuteTimeout = 4 * time.Hour
+)
 
 // defaults are what a phase runs at when nothing says otherwise: planning is
 // short and decides everything downstream, so it thinks harder than the
 // execution it decides (ADR-0028).
 var defaults = map[Phase]Settings{
 	PhasePlan: {
-		Phase:  PhasePlan,
-		Model:  Choice{Value: "opus", From: FromDefault},
-		Effort: Choice{Value: "xhigh", From: FromDefault},
+		Phase:   PhasePlan,
+		Model:   Choice{Value: "opus", From: FromDefault},
+		Effort:  Choice{Value: "xhigh", From: FromDefault},
+		Timeout: Limit{Value: DefaultPlanTimeout, From: FromDefault},
+		Stall:   Limit{Value: DefaultStall, From: FromDefault},
 	},
 	PhaseExecute: {
-		Phase:  PhaseExecute,
-		Model:  Choice{Value: "opus", From: FromDefault},
-		Effort: Choice{Value: "high", From: FromDefault},
+		Phase:   PhaseExecute,
+		Model:   Choice{Value: "opus", From: FromDefault},
+		Effort:  Choice{Value: "high", From: FromDefault},
+		Timeout: Limit{Value: DefaultExecuteTimeout, From: FromDefault},
+		Stall:   Limit{Value: DefaultStall, From: FromDefault},
 	},
 }
 
@@ -87,6 +120,12 @@ func resolve(phase Phase, global config.Global, project config.Config, job store
 		}
 		if p.Effort != "" {
 			s.Effort = Choice{Value: p.Effort, From: from}
+		}
+		if p.Timeout > 0 {
+			s.Timeout = Limit{Value: p.Timeout, From: from}
+		}
+		if p.Stall > 0 {
+			s.Stall = Limit{Value: p.Stall, From: from}
 		}
 	}
 	apply(global.Phases[string(phase)], FromGlobal)

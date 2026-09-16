@@ -147,6 +147,12 @@ message PhaseSettings {
   string model_from = 3;
   string effort = 4;
   string effort_from = 5;
+  // How long this phase's Agent may run, and how long it may go without
+  // saying anything, each with the level it came from (ADR-0036).
+  google.protobuf.Duration timeout = 6;
+  string timeout_from = 7;
+  google.protobuf.Duration stall = 8;
+  string stall_from = 9;
 }
 
 // RunOutcome is how a Run ended (ADR-0027).
