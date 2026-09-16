@@ -11,6 +11,8 @@ export function Conversation(arg1:number):Promise<client.ConversationDetails>;
 
 export function Conversations():Promise<Array<client.Conversation>>;
 
+export function DriverModels():Promise<desktop.DriverModels>;
+
 export function Drop(arg1:number,arg2:boolean):Promise<client.Job>;
 
 export function FollowLog(arg1:number):Promise<void>;

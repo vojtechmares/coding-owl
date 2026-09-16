@@ -271,6 +271,22 @@ export namespace client {
 		    return a;
 		}
 	}
+	export class DriverModel {
+	    Name: string;
+	    Alias: boolean;
+	    About: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DriverModel(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Name = source["Name"];
+	        this.Alias = source["Alias"];
+	        this.About = source["About"];
+	    }
+	}
 	export class Job {
 	    ID: number;
 	    Source: string;
@@ -336,6 +352,10 @@ export namespace client {
 	    ModelFrom: string;
 	    Effort: string;
 	    EffortFrom: string;
+	    Timeout: number;
+	    TimeoutFrom: string;
+	    Stall: number;
+	    StallFrom: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new PhaseSettings(source);
@@ -348,6 +368,10 @@ export namespace client {
 	        this.ModelFrom = source["ModelFrom"];
 	        this.Effort = source["Effort"];
 	        this.EffortFrom = source["EffortFrom"];
+	        this.Timeout = source["Timeout"];
+	        this.TimeoutFrom = source["TimeoutFrom"];
+	        this.Stall = source["Stall"];
+	        this.StallFrom = source["StallFrom"];
 	    }
 	}
 	export class Skill {
@@ -709,6 +733,38 @@ export namespace client {
 
 export namespace desktop {
 	
+	export class DriverModels {
+	    Driver: string;
+	    Models: client.DriverModel[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DriverModels(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Driver = source["Driver"];
+	        this.Models = this.convertValues(source["Models"], client.DriverModel);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class SkillUpdate {
 	    updated: client.Skill[];
 	    all: client.Skill[];

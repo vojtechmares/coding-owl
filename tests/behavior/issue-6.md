@@ -86,13 +86,13 @@ Then its argv carries `--effort medium`
 And it still carries `--model opus`, which the file does not set
 
 ### S12 - the global file overrides the defaults, and a Project overrides the global
-Given `$XDG_CONFIG_HOME/coding-owl/config.yaml` setting `phases.plan.model` to `sonnet` and `phases.execute.effort` to `low`, and a Project whose `.coding-owl.yaml` sets `phases.plan.model` to `haiku`
+Given `$XDG_CONFIG_HOME/coding-owl/config.yaml` setting `phases.plan.model` to `anthropic/claude-sonnet` and `phases.execute.effort` to `low`, and a Project whose `.coding-owl.yaml` sets `phases.plan.model` to `anthropic/claude-haiku`
 When the planning Run and then the execution Run happen
 Then the planning Agent's argv carries `--model haiku`
 And the execution Agent's argv carries `--effort low`
 
 ### S13 - owl add --model and --effort override everything for that Job
-Given the global file and the Project configuration of S12, and a Job added with `--model sonnet --effort max`
+Given the global file and the Project configuration of S12, and a Job added with `--model anthropic/claude-sonnet --effort max`
 When the planning Run and then the execution Run happen
 Then both Agents' argv carry `--model sonnet` and `--effort max`
 
@@ -100,8 +100,8 @@ Then both Agents' argv carry `--model sonnet` and `--effort max`
 Given the global file and the Project configuration of S12, and a Job added with no overrides
 When `owl jobs show <job>` runs
 Then it prints a phases section with a row for `plan` and a row for `execute`
-And the plan row shows model `haiku` from the project and effort `xhigh` from the default
-And the execute row shows model `opus` from the default and effort `low` from the global file
+And the plan row shows model `anthropic/claude-haiku` from the project and effort `xhigh` from the default
+And the execute row shows model `anthropic/claude-opus` from the default and effort `low` from the global file
 
 ### S15 - a Run records its phase
 Given the two Runs of S1
@@ -109,8 +109,13 @@ When `owl jobs show <job>` runs
 Then its runs table has a phase column reading `plan` for the first Run and `execute` for the second
 
 ### S16 - a bad model or effort is refused before an Agent is started
-Given a registered Project whose base branch carries `.coding-owl.yaml` setting `phases.plan.model` to `--oops`
+Given a registered Project whose base branch carries `.coding-owl.yaml` setting `phases.plan.model` to one of `anthropic/--oops`, `--oops/claude-opus` or `--oops`
 When `owl start` runs for a Job in that Project
 Then it exits with a non-zero code
-And stderr says the model is not usable
+And stderr names the model it refused
 And `owl jobs show <job>` reports the Job as still pending with no Run
+
+A model that would reach the tool's argv as an option is the case this guards:
+the vendor prefix means the written model need not start with a dash for a half
+of it to, so each half is checked rather than the string. A model naming no
+vendor at all is refused too, for saying nothing about who serves it.

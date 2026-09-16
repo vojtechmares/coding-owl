@@ -66,11 +66,11 @@ func reported() client.JobDetails {
 		VerifierSystemPrompt: "You are reviewing somebody else's work.\n\n- Say pass or fail.",
 		Phases: []client.PhaseSettings{
 			{
-				Phase: "plan", Model: "opus", ModelFrom: "default", Effort: "xhigh", EffortFrom: "default",
+				Phase: "plan", Model: "anthropic/claude-opus", ModelFrom: "default", Effort: "xhigh", EffortFrom: "default",
 				Timeout: time.Hour, TimeoutFrom: "default", Stall: 15 * time.Minute, StallFrom: "default",
 			},
 			{
-				Phase: "execute", Model: "sonnet", ModelFrom: "project", Effort: "high", EffortFrom: "job",
+				Phase: "execute", Model: "anthropic/claude-sonnet", ModelFrom: "project", Effort: "high", EffortFrom: "job",
 				Timeout: 90 * time.Minute, TimeoutFrom: "project", Stall: 15 * time.Minute, StallFrom: "default",
 			},
 		},
@@ -267,9 +267,9 @@ checks:
     looks right
 
 phases:
-PHASE    MODEL   FROM     EFFORT  FROM     TIMEOUT  FROM     STALL  FROM
-plan     opus    default  xhigh   default  1h       default  15m    default
-execute  sonnet  project  high    job      1h30m    project  15m    default
+PHASE    MODEL                    FROM     EFFORT  FROM     TIMEOUT  FROM     STALL  FROM
+plan     anthropic/claude-opus    default  xhigh   default  1h       default  15m    default
+execute  anthropic/claude-sonnet  project  high    job      1h30m    project  15m    default
 
 plan:
 step one: read the tests

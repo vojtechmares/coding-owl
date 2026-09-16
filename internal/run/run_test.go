@@ -51,6 +51,10 @@ func (d *fakeDriver) Capabilities() driver.Capabilities {
 	return driver.Capabilities{StreamingOutput: true, UsageReporting: !d.silent}
 }
 
+func (*fakeDriver) Models() []driver.ModelInfo {
+	return []driver.ModelInfo{{Model: driver.Model{Vendor: "anthropic", Name: "claude-opus"}, Alias: true}}
+}
+
 // Usage is what this tool says about the account, for the lines the test gave
 // it a figure for.
 func (d *fakeDriver) Usage(line string) (driver.Usage, bool) {

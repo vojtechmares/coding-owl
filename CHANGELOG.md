@@ -29,9 +29,15 @@ All notable changes to Coding Owl are recorded here. The format follows
   on an untouched machine cannot hold the queue until morning. Both default to
   something sensible, are set per phase, and `owl jobs show` prints what is in
   force and where it came from.
+- `owl models`, and a Models view in the desktop app, listing what a Job's
+  phases can run on.
 
 ### Changed
 
+- A model is named vendor-first, as `anthropic/claude-opus`. A versionless
+  name follows the vendor's latest; one with a version pins it. A model naming
+  no vendor, or a vendor the Driver does not serve, is refused before the Job
+  gets a worktree.
 - A Job's default TTL is 3 rather than 10, so a Job that goes wrong is reported
   on the third night rather than the tenth. `--ttl` at enqueue and
   `owl jobs extend` are unchanged.

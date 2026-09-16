@@ -6,6 +6,8 @@ package driver
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/agent"
@@ -25,6 +27,67 @@ type Capabilities struct {
 	// UsageReporting means the tool reports the account utilization it drew,
 	// which is what a ceiling needs (ADR-0020).
 	UsageReporting bool
+}
+
+// Model is a model as Owl names it: a vendor, then that vendor's own name for
+// the model, as in `anthropic/claude-opus` (ADR-0028).
+//
+// The vendor is Owl's half. It says which Driver can serve the model, so a
+// Project that asks for one nobody drives is refused by name rather than
+// finding out when an Agent will not start.
+//
+// Everything after the slash is the Driver's half, passed through as it was
+// written. That is what lets one spelling cover both a versionless alias, which
+// follows whatever the vendor calls its latest, and a pinned model - Owl does
+// not need to know which it was given.
+type Model struct {
+	Vendor string
+	Name   string
+}
+
+// ParseModel reads a model Owl was given. Both halves are required: a bare
+// name was the spelling before vendors were named, and guessing a vendor for it
+// would quietly pick a Driver on the user's behalf.
+func ParseModel(s string) (Model, error) {
+	vendor, name, ok := strings.Cut(s, "/")
+	if !ok {
+		return Model{}, fmt.Errorf("model %q names no vendor; write it as vendor/model, like anthropic/claude-opus", s)
+	}
+	if vendor == "" || name == "" || strings.Contains(name, "/") {
+		return Model{}, fmt.Errorf("model %q is not vendor/model, like anthropic/claude-opus", s)
+	}
+	// The name is what reaches a tool's argv as the value of an option, and a
+	// dash-leading one would land there as another option instead. Refused
+	// here rather than by each Driver: the vendor prefix hides it from a check
+	// on the written model, which does not start with a dash at all.
+	//
+	// The vendor is refused on the same terms even though it is never passed
+	// to a tool. It buys nothing today and costs nothing, and a check that
+	// holds for one half of a name and not the other is one a later reader has
+	// to work out the reason for - there isn't one.
+	for _, half := range []struct{ what, value string }{{"vendor", vendor}, {"model", name}} {
+		if strings.HasPrefix(half.value, "-") {
+			return Model{}, fmt.Errorf("model %q is not usable: the %s %q may not start with a dash",
+				s, half.what, half.value)
+		}
+	}
+	return Model{Vendor: vendor, Name: name}, nil
+}
+
+func (m Model) String() string { return m.Vendor + "/" + m.Name }
+
+// ModelInfo is one model a Driver serves, as `owl models` and the desktop app
+// list it. A Driver declaring these is what makes the set discoverable instead
+// of something a user learns from a rejected configuration file.
+type ModelInfo struct {
+	// Model is what to write as a phase's model.
+	Model Model
+	// Alias is true for a versionless name that follows whatever the vendor
+	// currently calls its latest of that model, and false for one pinned to a
+	// version that will not move.
+	Alias bool
+	// About says what the model is for, in one line.
+	About string
 }
 
 // Usage is what a tool reported about the account's utilization, which is what
@@ -78,6 +141,10 @@ type Driver interface {
 	Name() string
 	// Capabilities is what this tool can do.
 	Capabilities() Capabilities
+	// Models are the models this Driver serves, in the order a listing shows
+	// them. It is what `owl models` and the desktop app print, and what a
+	// phase's model is checked against before an Agent is started (ADR-0028).
+	Models() []ModelInfo
 	// Check reports whether the tool is installed and a version Owl supports.
 	Check(ctx context.Context) error
 	// Command builds the Agent for one Run.

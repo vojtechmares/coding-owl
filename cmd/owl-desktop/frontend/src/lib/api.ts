@@ -21,6 +21,7 @@ export type Conversation = client.Conversation;
 export type ChatMessage = client.ChatMessage;
 export type ConversationDetails = client.ConversationDetails;
 export type SkillUpdate = desktop.SkillUpdate;
+export type DriverModels = desktop.DriverModels;
 
 // Go marshals a nil slice as null, so every list that crosses the bindings
 // is made an array here, once, and the views never have to ask.
@@ -73,6 +74,9 @@ export const api = {
       return u;
     }),
   models: (): Promise<ChatModel[]> => App.Models().then(list),
+  // The Agent's models, which is a different list from the chat's: only these
+  // go in a Project's configuration (ADR-0028).
+  driverModels: (): Promise<DriverModels> => App.DriverModels(),
   conversations: (): Promise<Conversation[]> => App.Conversations().then(list),
   conversation: (id: number): Promise<ConversationDetails> =>
     App.Conversation(id).then((d) => {

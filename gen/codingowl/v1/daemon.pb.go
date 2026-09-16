@@ -121,6 +121,161 @@ func (x *GetStatusResponse) GetSocketPath() string {
 	return ""
 }
 
+type ListDriverModelsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDriverModelsRequest) Reset() {
+	*x = ListDriverModelsRequest{}
+	mi := &file_codingowl_v1_daemon_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDriverModelsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDriverModelsRequest) ProtoMessage() {}
+
+func (x *ListDriverModelsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_daemon_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDriverModelsRequest.ProtoReflect.Descriptor instead.
+func (*ListDriverModelsRequest) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_daemon_proto_rawDescGZIP(), []int{2}
+}
+
+type ListDriverModelsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Driver is the tool these models are served by.
+	Driver string `protobuf:"bytes,1,opt,name=driver,proto3" json:"driver,omitempty"`
+	// Models are what a phase's model may be set to, in the order to show them.
+	Models        []*DriverModel `protobuf:"bytes,2,rep,name=models,proto3" json:"models,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDriverModelsResponse) Reset() {
+	*x = ListDriverModelsResponse{}
+	mi := &file_codingowl_v1_daemon_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDriverModelsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDriverModelsResponse) ProtoMessage() {}
+
+func (x *ListDriverModelsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_daemon_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDriverModelsResponse.ProtoReflect.Descriptor instead.
+func (*ListDriverModelsResponse) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_daemon_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListDriverModelsResponse) GetDriver() string {
+	if x != nil {
+		return x.Driver
+	}
+	return ""
+}
+
+func (x *ListDriverModelsResponse) GetModels() []*DriverModel {
+	if x != nil {
+		return x.Models
+	}
+	return nil
+}
+
+// DriverModel is one model a Driver serves (ADR-0028).
+type DriverModel struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Name is what to write as a phase's model, vendor and all.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Alias is true for a versionless name that follows whatever the vendor
+	// currently calls its latest of that model.
+	Alias bool `protobuf:"varint,2,opt,name=alias,proto3" json:"alias,omitempty"`
+	// About says what the model is for, in one line.
+	About         string `protobuf:"bytes,3,opt,name=about,proto3" json:"about,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DriverModel) Reset() {
+	*x = DriverModel{}
+	mi := &file_codingowl_v1_daemon_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DriverModel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DriverModel) ProtoMessage() {}
+
+func (x *DriverModel) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_daemon_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DriverModel.ProtoReflect.Descriptor instead.
+func (*DriverModel) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_daemon_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *DriverModel) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DriverModel) GetAlias() bool {
+	if x != nil {
+		return x.Alias
+	}
+	return false
+}
+
+func (x *DriverModel) GetAbout() string {
+	if x != nil {
+		return x.About
+	}
+	return ""
+}
+
 var File_codingowl_v1_daemon_proto protoreflect.FileDescriptor
 
 const file_codingowl_v1_daemon_proto_rawDesc = "" +
@@ -131,9 +286,18 @@ const file_codingowl_v1_daemon_proto_rawDesc = "" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x121\n" +
 	"\x06uptime\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x06uptime\x12\x1f\n" +
 	"\vsocket_path\x18\x03 \x01(\tR\n" +
-	"socketPath2_\n" +
+	"socketPath\"\x19\n" +
+	"\x17ListDriverModelsRequest\"e\n" +
+	"\x18ListDriverModelsResponse\x12\x16\n" +
+	"\x06driver\x18\x01 \x01(\tR\x06driver\x121\n" +
+	"\x06models\x18\x02 \x03(\v2\x19.codingowl.v1.DriverModelR\x06models\"M\n" +
+	"\vDriverModel\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05alias\x18\x02 \x01(\bR\x05alias\x12\x14\n" +
+	"\x05about\x18\x03 \x01(\tR\x05about2\xc4\x01\n" +
 	"\rDaemonService\x12N\n" +
-	"\tGetStatus\x12\x1e.codingowl.v1.GetStatusRequest\x1a\x1f.codingowl.v1.GetStatusResponse\"\x00B\xb1\x01\n" +
+	"\tGetStatus\x12\x1e.codingowl.v1.GetStatusRequest\x1a\x1f.codingowl.v1.GetStatusResponse\"\x00\x12c\n" +
+	"\x10ListDriverModels\x12%.codingowl.v1.ListDriverModelsRequest\x1a&.codingowl.v1.ListDriverModelsResponse\"\x00B\xb1\x01\n" +
 	"\x10com.codingowl.v1B\vDaemonProtoP\x01Z?github.com/vojtechmares/coding-owl/gen/codingowl/v1;codingowlv1\xa2\x02\x03CXX\xaa\x02\fCodingowl.V1\xca\x02\fCodingowl\\V1\xe2\x02\x18Codingowl\\V1\\GPBMetadata\xea\x02\rCodingowl::V1b\x06proto3"
 
 var (
@@ -148,21 +312,27 @@ func file_codingowl_v1_daemon_proto_rawDescGZIP() []byte {
 	return file_codingowl_v1_daemon_proto_rawDescData
 }
 
-var file_codingowl_v1_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_codingowl_v1_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_codingowl_v1_daemon_proto_goTypes = []any{
-	(*GetStatusRequest)(nil),    // 0: codingowl.v1.GetStatusRequest
-	(*GetStatusResponse)(nil),   // 1: codingowl.v1.GetStatusResponse
-	(*durationpb.Duration)(nil), // 2: google.protobuf.Duration
+	(*GetStatusRequest)(nil),         // 0: codingowl.v1.GetStatusRequest
+	(*GetStatusResponse)(nil),        // 1: codingowl.v1.GetStatusResponse
+	(*ListDriverModelsRequest)(nil),  // 2: codingowl.v1.ListDriverModelsRequest
+	(*ListDriverModelsResponse)(nil), // 3: codingowl.v1.ListDriverModelsResponse
+	(*DriverModel)(nil),              // 4: codingowl.v1.DriverModel
+	(*durationpb.Duration)(nil),      // 5: google.protobuf.Duration
 }
 var file_codingowl_v1_daemon_proto_depIdxs = []int32{
-	2, // 0: codingowl.v1.GetStatusResponse.uptime:type_name -> google.protobuf.Duration
-	0, // 1: codingowl.v1.DaemonService.GetStatus:input_type -> codingowl.v1.GetStatusRequest
-	1, // 2: codingowl.v1.DaemonService.GetStatus:output_type -> codingowl.v1.GetStatusResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	5, // 0: codingowl.v1.GetStatusResponse.uptime:type_name -> google.protobuf.Duration
+	4, // 1: codingowl.v1.ListDriverModelsResponse.models:type_name -> codingowl.v1.DriverModel
+	0, // 2: codingowl.v1.DaemonService.GetStatus:input_type -> codingowl.v1.GetStatusRequest
+	2, // 3: codingowl.v1.DaemonService.ListDriverModels:input_type -> codingowl.v1.ListDriverModelsRequest
+	1, // 4: codingowl.v1.DaemonService.GetStatus:output_type -> codingowl.v1.GetStatusResponse
+	3, // 5: codingowl.v1.DaemonService.ListDriverModels:output_type -> codingowl.v1.ListDriverModelsResponse
+	4, // [4:6] is the sub-list for method output_type
+	2, // [2:4] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_codingowl_v1_daemon_proto_init() }
@@ -176,7 +346,7 @@ func file_codingowl_v1_daemon_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codingowl_v1_daemon_proto_rawDesc), len(file_codingowl_v1_daemon_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

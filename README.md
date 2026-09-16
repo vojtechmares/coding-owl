@@ -202,12 +202,12 @@ verification:
   agent: true            # additionally have a fresh Agent review the diff
 phases:                  # model, effort and limits per phase
   plan:
-    model: opus
+    model: anthropic/claude-opus
     effort: xhigh
     timeout: 1h          # the longest this phase's Agent may run at all
     stall: 15m           # the longest it may go without saying anything
   execute:
-    model: sonnet
+    model: anthropic/claude-sonnet
     timeout: 4h
 allowedTools:            # what an unattended Agent may do without asking
   - Bash(go test:*)
@@ -266,6 +266,7 @@ Owl honours the XDG variables on both macOS and Linux:
 | `owl jobs show\|accept\|drop\|extend` | Inspect a Job, keep or refuse its work, give it more Runs |
 | `owl logs <run> [-f]` | The Agent's own structured stream, one event per line |
 | `owl skills add\|list\|update\|remove` | Manage the Skills a Project gives its Agents |
+| `owl models` | The models a Job's phases can run on, aliases and pinned |
 | `owl providers add\|list\|remove` | Model providers the desktop chat speaks to |
 | `owl gc` | Reclaim finished worktrees, report what is unfinished |
 | `owl daemon run\|install\|status` | Run, install and inspect the daemon |

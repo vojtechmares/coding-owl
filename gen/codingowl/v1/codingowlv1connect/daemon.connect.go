@@ -35,12 +35,19 @@ const (
 const (
 	// DaemonServiceGetStatusProcedure is the fully-qualified name of the DaemonService's GetStatus RPC.
 	DaemonServiceGetStatusProcedure = "/codingowl.v1.DaemonService/GetStatus"
+	// DaemonServiceListDriverModelsProcedure is the fully-qualified name of the DaemonService's
+	// ListDriverModels RPC.
+	DaemonServiceListDriverModelsProcedure = "/codingowl.v1.DaemonService/ListDriverModels"
 )
 
 // DaemonServiceClient is a client for the codingowl.v1.DaemonService service.
 type DaemonServiceClient interface {
 	// GetStatus reports the running daemon's version, uptime and socket path.
 	GetStatus(context.Context, *connect.Request[v1.GetStatusRequest]) (*connect.Response[v1.GetStatusResponse], error)
+	// ListModels reports the models the daemon's Driver serves, so that what a
+	// phase may be set to is discoverable rather than learned from a rejected
+	// configuration file (ADR-0028).
+	ListDriverModels(context.Context, *connect.Request[v1.ListDriverModelsRequest]) (*connect.Response[v1.ListDriverModelsResponse], error)
 }
 
 // NewDaemonServiceClient constructs a client for the codingowl.v1.DaemonService service. By
@@ -60,12 +67,19 @@ func NewDaemonServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(daemonServiceMethods.ByName("GetStatus")),
 			connect.WithClientOptions(opts...),
 		),
+		listDriverModels: connect.NewClient[v1.ListDriverModelsRequest, v1.ListDriverModelsResponse](
+			httpClient,
+			baseURL+DaemonServiceListDriverModelsProcedure,
+			connect.WithSchema(daemonServiceMethods.ByName("ListDriverModels")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // daemonServiceClient implements DaemonServiceClient.
 type daemonServiceClient struct {
-	getStatus *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
+	getStatus        *connect.Client[v1.GetStatusRequest, v1.GetStatusResponse]
+	listDriverModels *connect.Client[v1.ListDriverModelsRequest, v1.ListDriverModelsResponse]
 }
 
 // GetStatus calls codingowl.v1.DaemonService.GetStatus.
@@ -73,10 +87,19 @@ func (c *daemonServiceClient) GetStatus(ctx context.Context, req *connect.Reques
 	return c.getStatus.CallUnary(ctx, req)
 }
 
+// ListDriverModels calls codingowl.v1.DaemonService.ListDriverModels.
+func (c *daemonServiceClient) ListDriverModels(ctx context.Context, req *connect.Request[v1.ListDriverModelsRequest]) (*connect.Response[v1.ListDriverModelsResponse], error) {
+	return c.listDriverModels.CallUnary(ctx, req)
+}
+
 // DaemonServiceHandler is an implementation of the codingowl.v1.DaemonService service.
 type DaemonServiceHandler interface {
 	// GetStatus reports the running daemon's version, uptime and socket path.
 	GetStatus(context.Context, *connect.Request[v1.GetStatusRequest]) (*connect.Response[v1.GetStatusResponse], error)
+	// ListModels reports the models the daemon's Driver serves, so that what a
+	// phase may be set to is discoverable rather than learned from a rejected
+	// configuration file (ADR-0028).
+	ListDriverModels(context.Context, *connect.Request[v1.ListDriverModelsRequest]) (*connect.Response[v1.ListDriverModelsResponse], error)
 }
 
 // NewDaemonServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -92,10 +115,18 @@ func NewDaemonServiceHandler(svc DaemonServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(daemonServiceMethods.ByName("GetStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
+	daemonServiceListDriverModelsHandler := connect.NewUnaryHandler(
+		DaemonServiceListDriverModelsProcedure,
+		svc.ListDriverModels,
+		connect.WithSchema(daemonServiceMethods.ByName("ListDriverModels")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/codingowl.v1.DaemonService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DaemonServiceGetStatusProcedure:
 			daemonServiceGetStatusHandler.ServeHTTP(w, r)
+		case DaemonServiceListDriverModelsProcedure:
+			daemonServiceListDriverModelsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -107,4 +138,8 @@ type UnimplementedDaemonServiceHandler struct{}
 
 func (UnimplementedDaemonServiceHandler) GetStatus(context.Context, *connect.Request[v1.GetStatusRequest]) (*connect.Response[v1.GetStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.DaemonService.GetStatus is not implemented"))
+}
+
+func (UnimplementedDaemonServiceHandler) ListDriverModels(context.Context, *connect.Request[v1.ListDriverModelsRequest]) (*connect.Response[v1.ListDriverModelsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.DaemonService.ListDriverModels is not implemented"))
 }

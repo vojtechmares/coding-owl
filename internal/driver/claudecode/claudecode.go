@@ -84,6 +84,62 @@ func (*Driver) Capabilities() driver.Capabilities {
 	}
 }
 
+// Vendor is who makes the models this Driver serves, and the half of a model
+// name Owl routes on (ADR-0028).
+const Vendor = "anthropic"
+
+// aliases maps the versionless names Owl offers onto what Claude Code's
+// `--model` calls them. Owl's spelling is the vendor's full name for the
+// model, so that `anthropic/claude-opus` reads the same as the pinned
+// `anthropic/claude-opus-5` beside it and the two sort together in a listing;
+// the tool's own spelling is the short one, which is its business and not the
+// user's (ADR-0018).
+var aliases = map[string]string{
+	"claude-opus":   "opus",
+	"claude-sonnet": "sonnet",
+	"claude-haiku":  "haiku",
+}
+
+// models are what this Driver serves. The aliases come first because they are
+// what a Project should normally write: an alias follows the vendor's latest,
+// so a Project that pins is choosing to stay where it is.
+var models = []driver.ModelInfo{
+	{
+		Model: driver.Model{Vendor: Vendor, Name: "claude-opus"}, Alias: true,
+		About: "the most capable model; follows the latest Opus",
+	},
+	{
+		Model: driver.Model{Vendor: Vendor, Name: "claude-sonnet"}, Alias: true,
+		About: "balanced capability and headroom; follows the latest Sonnet",
+	},
+	{
+		Model: driver.Model{Vendor: Vendor, Name: "claude-haiku"}, Alias: true,
+		About: "the fastest and cheapest; follows the latest Haiku",
+	},
+	{Model: driver.Model{Vendor: Vendor, Name: "claude-opus-5"}, About: "Opus 5, pinned"},
+	{Model: driver.Model{Vendor: Vendor, Name: "claude-sonnet-5"}, About: "Sonnet 5, pinned"},
+	{Model: driver.Model{Vendor: Vendor, Name: "claude-haiku-4-5-20251001"}, About: "Haiku 4.5, pinned"},
+}
+
+// Models are the models this Driver serves.
+func (*Driver) Models() []driver.ModelInfo { return models }
+
+// toolModel is what to pass to `--model` for a model Owl was given. A name
+// this Driver does not list is passed through rather than refused: the vendor
+// ships models faster than Owl does releases, and refusing one Owl has not
+// heard of yet would make the listing a ceiling rather than a signpost. The
+// vendor is what is checked, because that is the half Owl owns.
+func toolModel(m driver.Model) (string, error) {
+	if m.Vendor != Vendor {
+		return "", fmt.Errorf("claude code drives %s models, not %q; write the model as %s/claude-opus",
+			Vendor, m.Vendor, Vendor)
+	}
+	if tool, ok := aliases[m.Name]; ok {
+		return tool, nil
+	}
+	return m.Name, nil
+}
+
 // usageSubtype is the system event that carries the account's limits.
 const usageSubtype = "usage_limits"
 
@@ -222,11 +278,24 @@ func (d *Driver) Command(req driver.Request) (agent.Invocation, error) {
 	if req.BudgetUSD > 0 {
 		args = append(args, "--max-budget-usd", formatUSD(req.BudgetUSD))
 	}
+	// Owl names a model by vendor, and the tool has its own word for it: the
+	// vendor is checked here and dropped, since every model this Driver runs
+	// is that vendor's (ADR-0028).
+	model := req.Model
+	if model != "" {
+		parsed, err := driver.ParseModel(model)
+		if err != nil {
+			return agent.Invocation{}, err
+		}
+		if model, err = toolModel(parsed); err != nil {
+			return agent.Invocation{}, err
+		}
+	}
 	// A phase decides what the Agent runs as and how hard it thinks
 	// (ADR-0028). Both are values, never options, so a dash-leading one is
 	// refused rather than passed on.
 	for _, setting := range []struct{ flag, value string }{
-		{"--model", req.Model},
+		{"--model", model},
 		{"--effort", req.Effort},
 	} {
 		if setting.value == "" {
