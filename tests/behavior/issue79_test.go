@@ -135,9 +135,17 @@ func TestS5NothingInTheRepositoryStillInvokesNpmForTheFrontend(t *testing.T) {
 			case ".git", "node_modules", "dist", "build", "bin":
 				return filepath.SkipDir
 			}
+			rel, _ := filepath.Rel(repoDir, path)
 			// Reviews are a record of the repository as it was when they were
 			// written, npm included.
-			if rel, _ := filepath.Rel(repoDir, path); rel == filepath.Join("docs", "reviews") {
+			if rel == filepath.Join("docs", "reviews") {
+				return filepath.SkipDir
+			}
+			// Agent worktrees are gitignored checkouts of this same repository
+			// at whatever commit somebody left them on, so scanning them asks
+			// this question of every past state of the tree rather than of the
+			// tree. What they hold is their own branch's business.
+			if rel == filepath.Join(".claude", "worktrees") {
 				return filepath.SkipDir
 			}
 			return nil
