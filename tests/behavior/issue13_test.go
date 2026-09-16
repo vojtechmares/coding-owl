@@ -21,15 +21,15 @@ func attempts(t *testing.T, l *layout, job string) int {
 	return n
 }
 
-func TestS1TTLDefaultsToTenAttempts(t *testing.T) {
+func TestS1TTLDefaultsToThreeAttempts(t *testing.T) {
 	l, _ := agentLayout(t, agentScript, 0)
 	daemonUp(t, l)
 	r := project(t, l, "api")
 
 	addJob(t, l, r.dir, "work")
 
-	if got := attempts(t, l, "1"); got != 10 {
-		t.Errorf("a job is queued with %d attempts, want ten", got)
+	if got := attempts(t, l, "1"); got != 3 {
+		t.Errorf("a job is queued with %d attempts, want three", got)
 	}
 }
 
@@ -38,10 +38,10 @@ func TestS2TTLIsSettableWhenTheJobIsQueued(t *testing.T) {
 	daemonUp(t, l)
 	r := project(t, l, "api")
 
-	addJob(t, l, r.dir, "work", "--ttl", "3")
+	addJob(t, l, r.dir, "work", "--ttl", "7")
 
-	if got := attempts(t, l, "1"); got != 3 {
-		t.Errorf("a job queued with --ttl 3 has %d attempts, want three", got)
+	if got := attempts(t, l, "1"); got != 7 {
+		t.Errorf("a job queued with --ttl 7 has %d attempts, want seven", got)
 	}
 }
 
@@ -179,14 +179,14 @@ func TestS9ExtendReturnsAnExhaustedJobToTheQueue(t *testing.T) {
 
 	res := mustOwl(t, l, "jobs", "extend", job)
 
-	if !strings.Contains(res.stdout, "10") {
+	if !strings.Contains(res.stdout, "3") {
 		t.Errorf("owl jobs extend does not say how many attempts the job has:\n%s", res.stdout)
 	}
 	if got := jobState(t, l, job); got != "pending" {
 		t.Errorf("state = %q, want pending", got)
 	}
-	if got := attempts(t, l, job); got != 10 {
-		t.Errorf("the job has %d attempts, want ten", got)
+	if got := attempts(t, l, job); got != 3 {
+		t.Errorf("the job has %d attempts, want three", got)
 	}
 	if _, started := startRun(t, l); started != job {
 		t.Errorf("owl start ran job %s, want the extended job %s", started, job)

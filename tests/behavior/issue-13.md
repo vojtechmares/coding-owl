@@ -11,15 +11,15 @@ interrupted does. `owl jobs show` reports what a Job has left.
 
 ## Scenarios
 
-### S1 - a Job is queued with ten attempts
+### S1 - a Job is queued with three attempts
 Given a running daemon and a registered Project
 When `owl add "work"` runs
-Then `owl jobs show <job>` reports ten attempts left
+Then `owl jobs show <job>` reports three attempts left
 
 ### S2 - owl add --ttl says how many attempts a Job gets
 Given a running daemon and a registered Project
-When `owl add "work" --ttl 3` runs
-Then `owl jobs show <job>` reports three attempts left
+When `owl add "work" --ttl 7` runs
+Then `owl jobs show <job>` reports seven attempts left
 
 ### S3 - a TTL that is not a number of attempts is refused
 Given a running daemon and a registered Project
@@ -61,7 +61,7 @@ And the exhausted Job is still `exhausted`
 Given the exhausted Job of S7
 When `owl jobs extend <job>` runs
 Then it exits 0 and says how many attempts the Job now has
-And `owl jobs show <job>` reports the Job as `pending` with ten attempts left
+And `owl jobs show <job>` reports the Job as `pending` with three attempts left
 And `owl start` then starts a Run for it
 
 ### S10 - owl jobs extend adds to what is left rather than replacing it
