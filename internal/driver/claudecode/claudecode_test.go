@@ -633,3 +633,80 @@ func TestUsageWillNotReadWhatAToolShouldNotBeSaying(t *testing.T) {
 		t.Errorf("Usage = %+v, want nothing read out of a line about %d windows", got, len(many))
 	}
 }
+
+// Owl names a model vendor-first and the tool has its own word for it, so a
+// versionless alias reaches argv as the short name Claude Code takes, and a
+// pinned model reaches it unchanged (ADR-0028).
+func TestCommandTranslatesOwlsModelNameIntoTheToolsOwn(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+
+	for _, c := range []struct{ owl, tool string }{
+		{"anthropic/claude-opus", "opus"},
+		{"anthropic/claude-sonnet", "sonnet"},
+		{"anthropic/claude-haiku", "haiku"},
+		// Not an alias this Driver lists, and not refused either: the vendor
+		// ships models faster than Owl ships releases.
+		{"anthropic/claude-opus-5", "claude-opus-5"},
+		{"anthropic/claude-opus-9-20301231", "claude-opus-9-20301231"},
+	} {
+		t.Run(c.owl, func(t *testing.T) {
+			inv, err := claudecode.New().Command(driver.Request{
+				Prompt: "work", WorkingDir: "/worktrees/1", ConfigDir: workAccount,
+				Token: "sk-ant-oat01-one", Model: c.owl,
+			})
+			if err != nil {
+				t.Fatalf("Command: %v", err)
+			}
+			i := slices.Index(inv.Args, "--model")
+			if i < 0 || i+1 >= len(inv.Args) {
+				t.Fatalf("argv carries no --model: %v", inv.Args)
+			}
+			if got := inv.Args[i+1]; got != c.tool {
+				t.Errorf("--model %q, want %q: %s is owl's name, %s is the tool's", got, c.tool, c.owl, c.tool)
+			}
+		})
+	}
+}
+
+// The vendor is the half Owl owns, so a model this Driver cannot serve is
+// refused by name rather than passed to a tool that would not know it.
+func TestCommandRefusesAModelOfAnotherVendor(t *testing.T) {
+	stubClaude(t, "2.1.267 (Claude Code)")
+
+	for _, model := range []string{"openai/gpt-5", "claude-opus", "anthropic/--oops", "--oops/claude-opus"} {
+		t.Run(model, func(t *testing.T) {
+			_, err := claudecode.New().Command(driver.Request{
+				Prompt: "work", WorkingDir: "/worktrees/1", ConfigDir: workAccount,
+				Token: "sk-ant-oat01-one", Model: model,
+			})
+			if err == nil {
+				t.Fatalf("Command with model %q = nil, want an error", model)
+			}
+		})
+	}
+}
+
+// A Driver declares what it serves so that the set is discoverable from `owl
+// models` and the desktop app rather than from a rejected file (ADR-0028).
+func TestModelsAreDeclaredAndNamedVendorFirst(t *testing.T) {
+	models := claudecode.New().Models()
+
+	if len(models) == 0 {
+		t.Fatal("the driver declares no models; nothing can list them")
+	}
+	var aliases int
+	for _, m := range models {
+		if m.Model.Vendor != claudecode.Vendor {
+			t.Errorf("model %s is not a %s model", m.Model, claudecode.Vendor)
+		}
+		if m.About == "" {
+			t.Errorf("model %s says nothing about itself", m.Model)
+		}
+		if m.Alias {
+			aliases++
+		}
+	}
+	if aliases == 0 {
+		t.Error("no model is an alias; a project would have to pin a version to say anything")
+	}
+}

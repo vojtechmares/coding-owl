@@ -385,10 +385,10 @@ func TestS11PlanProjectConfigurationOverridesTheDefaults(t *testing.T) {
 // phasedConfig is the global and Project configuration S12 to S14 share.
 func phasedConfig(t *testing.T, l *layout) *repo {
 	t.Helper()
-	globalConfig(t, l, "apiVersion: codingowl.dev/v1\nphases:\n  plan:\n    model: sonnet\n  execute:\n    effort: low\n")
+	globalConfig(t, l, "apiVersion: codingowl.dev/v1\nphases:\n  plan:\n    model: anthropic/claude-sonnet\n  execute:\n    effort: low\n")
 	r := newRepo(t, l, "api")
 	r.commit(".coding-owl.yaml",
-		"apiVersion: codingowl.dev/v1\nphases:\n  plan:\n    model: haiku\n", "configure owl")
+		"apiVersion: codingowl.dev/v1\nphases:\n  plan:\n    model: anthropic/claude-haiku\n", "configure owl")
 	addProject(t, l, r)
 	return r
 }
@@ -411,7 +411,7 @@ func TestS13PlanJobOverridesEverything(t *testing.T) {
 	l, s := planningLayout(t, planText)
 	daemonUp(t, l)
 	r := phasedConfig(t, l)
-	addJob(t, l, r.dir, "work", "--model", "sonnet", "--effort", "max")
+	addJob(t, l, r.dir, "work", "--model", "anthropic/claude-sonnet", "--effort", "max")
 
 	phase(t, l)
 	phase(t, l)
@@ -434,11 +434,11 @@ func TestS14PlanJobsShowPrintsTheEffectiveModelAndEffortAndItsSource(t *testing.
 	if len(rows) != 2 {
 		t.Fatalf("owl jobs show reports %d phases, want plan and execute:\n%s", len(rows), out)
 	}
-	if rows[0] != "plan|haiku|project|xhigh|default" {
-		t.Errorf("plan phase = %q, want haiku from the project and xhigh from the default", rows[0])
+	if rows[0] != "plan|anthropic/claude-haiku|project|xhigh|default" {
+		t.Errorf("plan phase = %q, want anthropic/claude-haiku from the project and xhigh from the default", rows[0])
 	}
-	if rows[1] != "execute|opus|default|low|global" {
-		t.Errorf("execute phase = %q, want opus from the default and low from the global file", rows[1])
+	if rows[1] != "execute|anthropic/claude-opus|default|low|global" {
+		t.Errorf("execute phase = %q, want anthropic/claude-opus from the default and low from the global file", rows[1])
 	}
 }
 
@@ -488,27 +488,35 @@ func TestS15PlanRunsRecordTheirPhase(t *testing.T) {
 }
 
 func TestS16PlanABadModelIsRefusedBeforeAnAgentStarts(t *testing.T) {
-	l, _ := planningLayout(t, planText)
-	daemonUp(t, l)
-	r := newRepo(t, l, "api")
-	r.commit(".coding-owl.yaml",
-		"apiVersion: codingowl.dev/v1\nphases:\n  plan:\n    model: --oops\n", "configure owl")
-	addProject(t, l, r)
-	addJob(t, l, r.dir, "work")
+	// Each half of a vendor/model name separately, and a name with no vendor
+	// at all. The written model starting with a dash is only one of these:
+	// anthropic/--oops does not, and would still reach the tool's argv as an
+	// option if the halves were not checked on their own.
+	for _, model := range []string{"anthropic/--oops", "--oops/claude-opus", "--oops"} {
+		t.Run(model, func(t *testing.T) {
+			l, _ := planningLayout(t, planText)
+			daemonUp(t, l)
+			r := newRepo(t, l, "api")
+			r.commit(".coding-owl.yaml",
+				"apiVersion: codingowl.dev/v1\nphases:\n  plan:\n    model: "+model+"\n", "configure owl")
+			addProject(t, l, r)
+			addJob(t, l, r.dir, "work")
 
-	res := runOwl(t, l, "start")
+			res := runOwl(t, l, "start")
 
-	if res.code == 0 {
-		t.Fatalf("owl start exited 0 with an unusable model\nstdout:\n%s", res.stdout)
-	}
-	if !strings.Contains(res.stderr, "--oops") || !strings.Contains(res.stderr, "not usable") {
-		t.Errorf("stderr does not say the model it refused is not usable:\n%s", res.stderr)
-	}
-	out := mustOwl(t, l, "jobs", "show", "1").stdout
-	if got := line(t, out, "state"); got != "pending" {
-		t.Errorf("state = %q, want the job still pending", got)
-	}
-	if got := line(t, out, "runs"); got != "none" {
-		t.Errorf("runs = %q, want none", got)
+			if res.code == 0 {
+				t.Fatalf("owl start exited 0 with an unusable model\nstdout:\n%s", res.stdout)
+			}
+			if !strings.Contains(res.stderr, "--oops") {
+				t.Errorf("stderr does not name the model it refused:\n%s", res.stderr)
+			}
+			out := mustOwl(t, l, "jobs", "show", "1").stdout
+			if got := line(t, out, "state"); got != "pending" {
+				t.Errorf("state = %q, want the job still pending", got)
+			}
+			if got := line(t, out, "runs"); got != "none" {
+				t.Errorf("runs = %q, want none", got)
+			}
+		})
 	}
 }

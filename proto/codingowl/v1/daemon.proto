@@ -9,6 +9,10 @@ import "google/protobuf/duration.proto";
 service DaemonService {
   // GetStatus reports the running daemon's version, uptime and socket path.
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse) {}
+  // ListDriverModels reports the models the daemon's Driver serves, so that what a
+  // phase may be set to is discoverable rather than learned from a rejected
+  // configuration file (ADR-0028).
+  rpc ListDriverModels(ListDriverModelsRequest) returns (ListDriverModelsResponse) {}
 }
 
 message GetStatusRequest {}
@@ -20,4 +24,24 @@ message GetStatusResponse {
   google.protobuf.Duration uptime = 2;
   // Socket path the daemon is listening on.
   string socket_path = 3;
+}
+
+message ListDriverModelsRequest {}
+
+message ListDriverModelsResponse {
+  // Driver is the tool these models are served by.
+  string driver = 1;
+  // Models are what a phase's model may be set to, in the order to show them.
+  repeated DriverModel models = 2;
+}
+
+// DriverModel is one model a Driver serves (ADR-0028).
+message DriverModel {
+  // Name is what to write as a phase's model, vendor and all.
+  string name = 1;
+  // Alias is true for a versionless name that follows whatever the vendor
+  // currently calls its latest of that model.
+  bool alias = 2;
+  // About says what the model is for, in one line.
+  string about = 3;
 }

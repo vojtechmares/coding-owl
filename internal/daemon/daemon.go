@@ -24,6 +24,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/chat"
 	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/credential"
+	"github.com/vojtechmares/coding-owl/internal/driver"
 	"github.com/vojtechmares/coding-owl/internal/driver/claudecode"
 	"github.com/vojtechmares/coding-owl/internal/executor/host"
 	"github.com/vojtechmares/coding-owl/internal/gc"
@@ -139,6 +140,11 @@ func Run(ctx context.Context, opts Options) error {
 
 	projects := project.NewService(db, opts.Paths.ConfigDir)
 	accounts := account.NewService(db, creds, opts.Paths.DataDir)
+	// One Driver for the daemon: what runs the Agents, what reviews them, and
+	// what says which models a phase may name are all the same tool. Told
+	// where it is when the daemon's PATH does not say, since a daemon under
+	// brew services gets a fixed PATH without ~/.local/bin.
+	drv := claudecode.NewWithPath(global.ClaudePath)
 	skills := skill.NewService(skill.NewCache(filepath.Join(opts.Paths.DataDir, skillsDir)))
 	worktrees := filepath.Join(opts.Paths.DataDir, worktreesDir)
 	collector := gc.NewService(gc.Options{
@@ -155,16 +161,14 @@ func Run(ctx context.Context, opts Options) error {
 		Collector:         collector,
 		Skills:            skills,
 		WorktreeConfigDir: filepath.Join(opts.Paths.DataDir, ownedDir),
-		// Where the tool is, when the daemon's PATH does not say: a daemon
-		// under brew services gets a fixed PATH without ~/.local/bin.
-		Driver:        claudecode.NewWithPath(global.ClaudePath),
-		Executor:      host.New(),
-		Verifier:      command.New(),
-		AgentVerifier: agentverifier.New(claudecode.NewWithPath(global.ClaudePath), host.New()),
-		WorktreeDir:   worktrees,
-		LogDir:        filepath.Join(opts.Paths.StateDir, logsDir),
-		ConfigPath:    configPath,
-		Logger:        log,
+		Driver:            drv,
+		Executor:          host.New(),
+		Verifier:          command.New(),
+		AgentVerifier:     agentverifier.New(drv, host.New()),
+		WorktreeDir:       worktrees,
+		LogDir:            filepath.Join(opts.Paths.StateDir, logsDir),
+		ConfigPath:        configPath,
+		Logger:            log,
 	})
 	// Agents outlive the request that started them, so they are stopped when
 	// the daemon stops rather than when a caller hangs up.
@@ -201,6 +205,7 @@ func Run(ctx context.Context, opts Options) error {
 		version: opts.Version,
 		socket:  sock,
 		started: started,
+		driver:  drv,
 	}))
 	mux.Handle(codingowlv1connect.NewProjectServiceHandler(&projectService{
 		projects: projects,
@@ -395,6 +400,22 @@ type daemonService struct {
 	version string
 	socket  string
 	started time.Time
+	// driver is the tool this daemon runs Agents with, which is what says
+	// which models a phase may name (ADR-0028).
+	driver driver.Driver
+}
+
+// ListDriverModels reports what a phase's model may be set to. It is the
+// Driver's own list rather than anything Owl keeps, so a Driver added later
+// brings its own vocabulary with it (ADR-0018).
+func (s *daemonService) ListDriverModels(context.Context, *connect.Request[codingowlv1.ListDriverModelsRequest]) (*connect.Response[codingowlv1.ListDriverModelsResponse], error) {
+	res := &codingowlv1.ListDriverModelsResponse{Driver: s.driver.Name()}
+	for _, m := range s.driver.Models() {
+		res.Models = append(res.Models, &codingowlv1.DriverModel{
+			Name: m.Model.String(), Alias: m.Alias, About: m.About,
+		})
+	}
+	return connect.NewResponse(res), nil
 }
 
 func (s *daemonService) GetStatus(context.Context, *connect.Request[codingowlv1.GetStatusRequest]) (*connect.Response[codingowlv1.GetStatusResponse], error) {

@@ -34,6 +34,10 @@ func (*fakeDriver) Name() string { return "fake" }
 
 func (*fakeDriver) Capabilities() driver.Capabilities { return driver.Capabilities{} }
 
+func (*fakeDriver) Models() []driver.ModelInfo {
+	return []driver.ModelInfo{{Model: driver.Model{Vendor: "anthropic", Name: "claude-opus"}, Alias: true}}
+}
+
 func (*fakeDriver) Check(context.Context) error { return nil }
 
 func (d *fakeDriver) Command(req driver.Request) (agentpkg.Invocation, error) {

@@ -6,17 +6,19 @@ import { api, usePoll } from "./lib/api";
 import { Overview } from "./views/Overview";
 import { Projects } from "./views/Projects";
 import { Skills } from "./views/Skills";
+import { Models } from "./views/Models";
 import { Chat } from "./views/Chat";
 import { Queue } from "./views/Queue";
 import { Jobs } from "./views/Jobs";
 import { JobDetail } from "./views/JobDetail";
 
-type View = "overview" | "projects" | "skills" | "queue" | "jobs" | "chat";
+type View = "overview" | "projects" | "skills" | "models" | "queue" | "jobs" | "chat";
 
 const views: { key: View; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "projects", label: "Projects" },
   { key: "skills", label: "Skills" },
+  { key: "models", label: "Models" },
   { key: "queue", label: "Queue" },
   { key: "jobs", label: "Jobs" },
   { key: "chat", label: "Chat" },
@@ -93,6 +95,8 @@ export default function App() {
             <Projects />
           ) : view === "skills" ? (
             <Skills />
+          ) : view === "models" ? (
+            <Models />
           ) : view === "chat" ? (
             <Chat />
           ) : view === "queue" ? (

@@ -18,6 +18,10 @@ export function Conversations() {
   return window['go']['desktop']['App']['Conversations']();
 }
 
+export function DriverModels() {
+  return window['go']['desktop']['App']['DriverModels']();
+}
+
 export function Drop(arg1, arg2) {
   return window['go']['desktop']['App']['Drop'](arg1, arg2);
 }

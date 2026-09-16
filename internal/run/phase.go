@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vojtechmares/coding-owl/internal/config"
+	"github.com/vojtechmares/coding-owl/internal/driver"
 	"github.com/vojtechmares/coding-owl/internal/store"
 )
 
@@ -81,14 +82,14 @@ const (
 var defaults = map[Phase]Settings{
 	PhasePlan: {
 		Phase:   PhasePlan,
-		Model:   Choice{Value: "opus", From: FromDefault},
+		Model:   Choice{Value: "anthropic/claude-opus", From: FromDefault},
 		Effort:  Choice{Value: "xhigh", From: FromDefault},
 		Timeout: Limit{Value: DefaultPlanTimeout, From: FromDefault},
 		Stall:   Limit{Value: DefaultStall, From: FromDefault},
 	},
 	PhaseExecute: {
 		Phase:   PhaseExecute,
-		Model:   Choice{Value: "opus", From: FromDefault},
+		Model:   Choice{Value: "anthropic/claude-opus", From: FromDefault},
 		Effort:  Choice{Value: "high", From: FromDefault},
 		Timeout: Limit{Value: DefaultExecuteTimeout, From: FromDefault},
 		Stall:   Limit{Value: DefaultStall, From: FromDefault},
@@ -146,6 +147,13 @@ func resolve(phase Phase, global config.Global, project config.Config, job store
 			return s, fmt.Errorf("the %s phase's %s %q is not usable: it may not start with a dash",
 				phase, check.what, check.choice.Value)
 		}
+	}
+	// A model names the vendor that serves it (ADR-0028), and one that does not
+	// is caught here rather than by the Driver: the Job is refused before a
+	// worktree is made for it, and the settings still come back so that owl
+	// jobs show can print the value that is the problem.
+	if _, err := driver.ParseModel(s.Model.Value); err != nil {
+		return s, fmt.Errorf("the %s phase's %w", phase, err)
 	}
 	return s, nil
 }

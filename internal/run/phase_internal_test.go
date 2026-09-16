@@ -14,11 +14,11 @@ import (
 
 func TestResolveTakesTheNarrowestLevelThatSaysAnything(t *testing.T) {
 	global := config.Global{Phases: map[string]config.Phase{
-		"plan":    {Model: "sonnet"},
+		"plan":    {Model: "anthropic/claude-sonnet"},
 		"execute": {Effort: "low"},
 	}}
 	project := config.Config{Phases: map[string]config.Phase{
-		"plan": {Model: "haiku"},
+		"plan": {Model: "anthropic/claude-haiku"},
 	}}
 
 	plan, err := resolve(PhasePlan, global, project, store.Job{})
@@ -30,13 +30,13 @@ func TestResolveTakesTheNarrowestLevelThatSaysAnything(t *testing.T) {
 		t.Fatalf("resolve: %v", err)
 	}
 
-	if plan.Model != (Choice{Value: "haiku", From: FromProject}) {
-		t.Errorf("plan model = %+v, want haiku from the project", plan.Model)
+	if plan.Model != (Choice{Value: "anthropic/claude-haiku", From: FromProject}) {
+		t.Errorf("plan model = %+v, want anthropic/claude-haiku from the project", plan.Model)
 	}
 	if plan.Effort != (Choice{Value: "xhigh", From: FromDefault}) {
 		t.Errorf("plan effort = %+v, want the default", plan.Effort)
 	}
-	if execute.Model != (Choice{Value: "opus", From: FromDefault}) {
+	if execute.Model != (Choice{Value: "anthropic/claude-opus", From: FromDefault}) {
 		t.Errorf("execute model = %+v, want the default", execute.Model)
 	}
 	if execute.Effort != (Choice{Value: "low", From: FromGlobal}) {
@@ -45,15 +45,15 @@ func TestResolveTakesTheNarrowestLevelThatSaysAnything(t *testing.T) {
 }
 
 func TestResolveLetsTheJobOverrideEverything(t *testing.T) {
-	global := config.Global{Phases: map[string]config.Phase{"plan": {Model: "sonnet", Effort: "low"}}}
-	project := config.Config{Phases: map[string]config.Phase{"plan": {Model: "haiku"}}}
+	global := config.Global{Phases: map[string]config.Phase{"plan": {Model: "anthropic/claude-sonnet", Effort: "low"}}}
+	project := config.Config{Phases: map[string]config.Phase{"plan": {Model: "anthropic/claude-haiku"}}}
 
-	got, err := resolve(PhasePlan, global, project, store.Job{Model: "opus", Effort: "max"})
+	got, err := resolve(PhasePlan, global, project, store.Job{Model: "anthropic/claude-opus", Effort: "max"})
 
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if got.Model != (Choice{Value: "opus", From: FromJob}) || got.Effort != (Choice{Value: "max", From: FromJob}) {
+	if got.Model != (Choice{Value: "anthropic/claude-opus", From: FromJob}) || got.Effort != (Choice{Value: "max", From: FromJob}) {
 		t.Errorf("settings = %+v, want both from the job", got)
 	}
 }

@@ -306,6 +306,28 @@ func (a *App) AnswerCommand(requestID, decision string) error {
 	return a.client.AnswerCommand(ctx, requestID, client.CommandDecision(decision))
 }
 
+// DriverModels is what a Job's phases can run on, and the tool that serves
+// them. It is the Agent's models rather than the chat's: the two are different
+// lists for different things, and only this one goes in a Project's
+// configuration (ADR-0028).
+func (a *App) DriverModels() (DriverModels, error) {
+	ctx, cancel := a.call()
+	defer cancel()
+	name, models, err := a.client.DriverModels(ctx)
+	if err != nil {
+		return DriverModels{}, err
+	}
+	return DriverModels{Driver: name, Models: models}, nil
+}
+
+// DriverModels is what the app shows about the models a phase may name.
+type DriverModels struct {
+	// Driver is the tool that serves them.
+	Driver string
+	// Models are what a phase's model may be set to, in the order to show.
+	Models []client.DriverModel
+}
+
 // Models is every model the configured providers offer. A key is never among
 // them: the daemon holds those (ADR-0022).
 func (a *App) Models() ([]client.ChatModel, error) {

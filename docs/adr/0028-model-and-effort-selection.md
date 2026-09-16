@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-09
+- **Amended:** 2026-09-17, models name their vendor and Drivers declare what they serve
 
 ## Context
 
@@ -19,9 +20,32 @@ invocation rather than being a property of the Account.
 Defaults are per phase:
 
 ```yaml
-plan:    { model: opus, effort: xhigh }
-execute: { model: opus, effort: high }
+plan:    { model: anthropic/claude-opus, effort: xhigh }
+execute: { model: anthropic/claude-opus, effort: high }
 ```
+
+### A model names its vendor
+
+A model is written `vendor/model`. The vendor is Owl's half and says which
+Driver can serve it; everything after the slash is the Driver's own vocabulary,
+passed through as written.
+
+That split is what makes one spelling cover both a **versionless alias** -
+`anthropic/claude-opus`, which follows whatever the vendor currently calls its
+latest Opus - and a **pinned** model like `anthropic/claude-opus-5`. Owl does
+not need to know which it was handed, so a Project stays current by default and
+pins only when it means to.
+
+The vendor is checked; the name is not. Refusing a model Owl has not heard of
+would make the list a ceiling, and vendors ship models faster than Owl ships
+releases. A Driver therefore accepts any name for its own vendor and refuses
+every other vendor by name, in `resolve`, before the Job gets a worktree.
+
+Because a name that is accepted is not thereby advertised, the set has to be
+discoverable some other way: each Driver **declares the models it serves**, and
+`owl models` and the desktop app list them with the alias-or-pinned distinction
+on each. That is the only way a user learns the vocabulary without reading the
+source or being rejected by a configuration file.
 
 Settings cascade **global → Project → Job**, narrowest winning, and
 `owl add --model --effort` overrides for a single Job.

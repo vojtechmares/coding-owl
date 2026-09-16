@@ -110,6 +110,33 @@ func (c *Client) DaemonStatus(ctx context.Context) (*DaemonStatus, error) {
 	}, nil
 }
 
+// DriverModel is one model the daemon's Driver serves (ADR-0028).
+type DriverModel struct {
+	// Name is what to write as a phase's model, vendor and all.
+	Name string
+	// Alias is true for a versionless name that follows whatever the vendor
+	// currently calls its latest of that model.
+	Alias bool
+	// About says what the model is for, in one line.
+	About string
+}
+
+// DriverModels asks the daemon what a phase's model may be set to, and which
+// tool serves them.
+func (c *Client) DriverModels(ctx context.Context) (string, []DriverModel, error) {
+	res, err := c.daemon.ListDriverModels(ctx, connect.NewRequest(&codingowlv1.ListDriverModelsRequest{}))
+	if err != nil {
+		return "", nil, c.wrap(err)
+	}
+	models := make([]DriverModel, 0, len(res.Msg.GetModels()))
+	for _, m := range res.Msg.GetModels() {
+		models = append(models, DriverModel{
+			Name: m.GetName(), Alias: m.GetAlias(), About: m.GetAbout(),
+		})
+	}
+	return res.Msg.GetDriver(), models, nil
+}
+
 // wrap turns a failed dial into ErrDaemonNotRunning, naming the socket, and
 // strips the Connect envelope off everything else so the CLI prints the
 // message the daemon wrote rather than a code-prefixed version of it.
