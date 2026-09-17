@@ -185,28 +185,28 @@ export function Overview({
           <table>
             <thead>
               <tr>
-                <th>Run</th>
-                <th>Job</th>
-                <th>Project</th>
-                <th>Phase</th>
-                <th>Agent</th>
-                <th>Attempt</th>
-                <th>Started</th>
+                <th className="tight">Run</th>
+                <th className="tight">Job</th>
+                <th className="tight">Project</th>
+                <th className="tight">Phase</th>
+                <th className="tight">Agent</th>
+                <th className="tight">Attempt</th>
+                <th className="tight">Started</th>
                 <th>Prompt</th>
               </tr>
             </thead>
             <tbody>
               {data.Running.map((r) => (
                 <tr key={r.Run.ID} className="row" onClick={() => onOpen(r.Job.ID)}>
-                  <td className="mono">{r.Run.ID}</td>
-                  <td className="mono">{r.Job.ID}</td>
-                  <td>{r.Job.Project}</td>
-                  <td>{r.Run.Phase || "-"}</td>
-                  <td>
+                  <td className="mono tight">{r.Run.ID}</td>
+                  <td className="mono tight">{r.Job.ID}</td>
+                  <td className="tight">{r.Job.Project}</td>
+                  <td className="tight">{r.Run.Phase || "-"}</td>
+                  <td className="tight">
                     <StatePill state={runPill(r.Run)} /> <span className="dim">{runOutcome(r.Run)}</span>
                   </td>
-                  <td>{r.Run.Attempt}</td>
-                  <td className="dim">{ago(r.Run.Started)}</td>
+                  <td className="tight">{r.Run.Attempt}</td>
+                  <td className="dim tight">{ago(r.Run.Started)}</td>
                   <td className="prompt">{r.Job.Prompt}</td>
                 </tr>
               ))}
