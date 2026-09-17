@@ -285,7 +285,7 @@ from - `CLAUDE.md` for Claude Code - so the tool reads them itself and Owl
 injects nothing. Saving blank text takes them away.
 
 One file changes every Job on that Account, in every Project, so it is worth
-keeping short. To see for yourself that the tool is reading them, ask it:
+keeping short. To read them back as an Agent on that Account would, ask it:
 
 ```
 owl account exec work -- --print "what standing instructions are you under?"

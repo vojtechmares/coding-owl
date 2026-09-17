@@ -83,10 +83,12 @@ Account exists to keep separate.
   Executor to bound what an Agent can reach (ADR-0006's deferred container),
   not a rule in a file the Agent can also edit.
 - Because it is the tool's own file, Owl inherits whatever that tool does with
-  it - including whether it is read in the non-interactive print mode every Run
-  uses. That is verified by running the tool, not by reading Owl's tests, and
-  `owl account exec <name> -- --print ...` is how a user checks it for
-  themselves.
+  it. For `claude-code` the relocation is documented: setting
+  `CLAUDE_CONFIG_DIR` puts every `~/.claude` path under that directory instead,
+  and `CLAUDE.md` is one of them. Owl's own half - that an Agent for an Account
+  is started against a directory holding the file - is what the behaviour tests
+  pin, and it is all Owl can pin. A Driver for a tool that decided differently
+  would need its own answer here, which is why the filename is the Driver's.
 
 ## Alternatives considered
 
