@@ -6,69 +6,73 @@ All notable changes to Coding Owl are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-17
+
 ### Added
 
 - A single `owl` binary that is the daemon, the CLI and the worker in one.
-- A desktop app for macOS, installable with Homebrew as a cask.
-- Projects, Jobs and Runs: queue a prompt against a repository and Owl carries
-  it out in a worktree and branch of its own, one Run at a time, until
-  Verification passes.
-- Idle detection: work starts after ten minutes without input on AC power, and
-  stops the moment the user is back.
-- A Handoff document on each Job's branch, so a Run can pick up where the last
-  one left off without a shared conversation.
+  Homebrew installs it, and `brew services` or `owl daemon install` runs the
+  daemon under launchd. It needs git 2.38 or newer and says so at startup.
+- A desktop app for macOS, installable with Homebrew as a cask, in the same
+  design as codingowl.dev: small text in dense tables, hairline rules, and
+  colour that says one of four things - in motion, waiting for you, gone
+  wrong, at rest.
+- Projects, Jobs and Runs: register a repository, queue a prompt against it
+  with `owl add`, and Owl carries it out in a worktree and branch of its own
+  until Verification passes. `owl project` and `owl queue` manage both.
+- `owl status` answers the morning question - what is running, which Jobs
+  want a decision, and what refused the blocked ones.
+- Idle detection: work starts after ten minutes without keyboard or mouse
+  input on AC power, and stops the moment the user is back.
+- A Job is planned in a Run of its own before it is carried out, and that
+  plan becomes the Handoff the execution Run is given.
+- A Handoff document on each Job's branch, so a Run picks up where the last
+  one left off without a shared conversation. It is what the next Run
+  orients from, including edits the user makes to it.
+- Verification gates every Job on the Project's own checks, and a Project
+  can also ask for a review by a fresh Agent given the plan and the diff and
+  nothing else. Every check runs, so a blocked Job reports all of what is
+  wrong at once.
+- Every Run starts by replaying the Job's branch onto current base, so
+  Verification judges the work against the code everyone else is on. A
+  rebase that conflicts blocks the Job, naming every path in the way.
+- `owl jobs accept` keeps a reviewed Job's work and reclaims only its
+  worktree; `owl jobs drop` refuses it and takes the branch with it. Neither
+  pushes anything anywhere.
+- Every Job carries how many Runs it may still take - three by default, one
+  spent per Run whatever the Run became - and `owl jobs extend` gives an
+  exhausted Job more.
+- `owl pause` freezes a Run and every process it started, so the machine is
+  the user's again at once, and `owl resume` carries the same Run on. A Run
+  left frozen for the grace window ends, and its Job goes back to the place
+  it held in the queue.
 - Accounts with a utilization ceiling, and concurrency caps, so Owl never
-  spends the headroom the user needs.
+  spends the headroom the user needs. A Job passed over keeps its place, and
+  `owl status` says which cap or ceiling held it back.
 - A standing unattended contract appended to every Run, and a default tool
   allowlist granted once per Account.
-- A chat in the desktop app that can look at the repository, with the user's
-  say-so.
-- Skills declared per Project, fetched and placed for each Run.
+- Garbage collection reclaims the worktrees of finished Jobs, finishes a Job
+  whose branch is already merged, and reports - never removes - anything
+  that looks unfinished. `owl gc` runs it on demand.
+- Skills declared per Project and pinned to a version, fetched and placed
+  for each Run. The desktop app lists them and updates them.
+- A chat in the desktop app that the daemon answers, and that can look at
+  the repository with the user's say-so.
 - Every Run is bounded: each phase has a limit on how long its Agent may run
   and on how long it may go without saying anything, so an Agent that wedges
-  on an untouched machine cannot hold the queue until morning. Both default to
-  something sensible, are set per phase, and `owl jobs show` prints what is in
-  force and where it came from.
-- `owl models`, and a Models view in the desktop app, listing what a Job's
-  phases can run on.
-- `owl account exec <name> -- <command>`, which runs an Account's coding tool
-  against that Account's own configuration. An Account's configuration
-  directory is the tool's configuration directory, so the tool's own commands
-  are how an Account gets its MCP servers, its plugins and its settings. Owl
-  models none of them.
+  cannot hold the queue until morning.
+- `owl models`, and a Models view in the app, listing what a Job's phases
+  can run on. A model is named vendor-first, as `anthropic/claude-opus`: a
+  versionless name follows the vendor's latest, one with a version pins it.
+- `owl jobs show` prints what each Run was given and what came of it - the
+  plan, the handoff, the system prompt that Run was started with, every
+  check's verdict, and what each phase ran at and where that came from.
+- `owl account exec <name> -- <command>` runs an Account's coding tool
+  against that Account's own configuration, which is how an Account gets its
+  MCP servers, its plugins and its settings. Owl models none of them.
 - Standing instructions on an Account: text every Run on it reads, whichever
-  Project the Run is for. Kept as the file that Account's tool reads
-  instructions from, so the tool reads them itself and Owl injects nothing.
-  Editable with `owl account instructions show|set|edit` and in the desktop
-  app.
+  Project the Run is for, kept as the file that Account's tool reads
+  instructions from. `owl account instructions show|set|edit`, and the app.
 
-### Changed
-
-- A model is named vendor-first, as `anthropic/claude-opus`. A versionless
-  name follows the vendor's latest; one with a version pins it. A model naming
-  no vendor, or a vendor the Driver does not serve, is refused before the Job
-  gets a worktree.
-- A Job's default TTL is 3 rather than 10, so a Job that goes wrong is reported
-  on the third night rather than the tenth. `--ttl` at enqueue and
-  `owl jobs extend` are unchanged.
-- The desktop app is set in the same design as codingowl.dev - a light ground,
-  hairline rules and Geist - instead of the liquid glass it shipped with. A
-  dashboard is small text in dense tables, and the glass was in the way of
-  reading it. Colour now says one of four things and nothing else: blue is in
-  motion, near-black is waiting for you, rose is something that went wrong,
-  grey is at rest.
-
-### Fixed
-
-- The daemon makes its socket under a private umask and tightens its
-  directory on every start.
-- The daemon settles configuration, credentials and recovery before it starts
-  listening, and leaves no socket behind when it cannot start.
-- Garbage collection prunes only Owl's own stale worktrees, never the user's.
-- A worktree holding work git does not know about is reported rather than
-  reclaimed even in a repository that sets `status.showUntrackedFiles=no`,
-  which used to make such a worktree look clean and get it deleted silently.
-- A long Jobs list no longer drags the desktop window sideways, sidebar and
-  all: a table wider than its panel scrolls inside it.
-
-[Unreleased]: https://github.com/vojtechmares/coding-owl/commits/main
+[Unreleased]: https://github.com/vojtechmares/coding-owl/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/vojtechmares/coding-owl/releases/tag/v0.1.0
