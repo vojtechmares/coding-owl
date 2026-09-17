@@ -55,6 +55,9 @@ All notable changes to Coding Owl are recorded here. The format follows
 - The daemon settles configuration, credentials and recovery before it starts
   listening, and leaves no socket behind when it cannot start.
 - Garbage collection prunes only Owl's own stale worktrees, never the user's.
+- A worktree holding work git does not know about is reported rather than
+  reclaimed even in a repository that sets `status.showUntrackedFiles=no`,
+  which used to make such a worktree look clean and get it deleted silently.
 - A long Jobs list no longer drags the desktop window sideways, sidebar and
   all: a table wider than its panel scrolls inside it.
 
