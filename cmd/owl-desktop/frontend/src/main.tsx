@@ -8,7 +8,7 @@ import "./style.css";
 // A window with no daemon behind it, for looking at the design (#36). The flag
 // is a constant at build time, so an ordinary build drops both the branch and
 // the module it calls.
-if (import.meta.env.VITE_FAKE) installFake();
+if (import.meta.env.VITE_FAKE) installFake(import.meta.env.VITE_FAKE);
 
 // Boundary shows what went wrong instead of an empty window: a desktop app
 // has no console a user would open.

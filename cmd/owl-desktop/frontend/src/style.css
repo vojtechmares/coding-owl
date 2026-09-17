@@ -366,12 +366,14 @@ td.reason {
   text-overflow: ellipsis;
 }
 
+/* Shares of what is left, not of the table: a prompt is the longest thing in a
+   row but it must not squeeze a date or a branch into wrapping. */
 .prompt {
-  width: 62%;
+  width: 45%;
 }
 
 td.reason {
-  width: 38%;
+  width: 30%;
 }
 
 /* A row that opens something. The hover has to reach the panel's edge, which

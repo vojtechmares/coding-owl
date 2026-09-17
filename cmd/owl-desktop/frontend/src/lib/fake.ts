@@ -26,6 +26,10 @@ const at = (minutesAgo: number) => new Date(opened - minutesAgo * 60_000).toISOS
 // Go's zero time, which is what the daemon sends for a Run that has not ended.
 const never = "0001-01-01T00:00:00Z";
 
+// Where the daemon would be listening, named in both states because it is the
+// thing to check when nothing is.
+const socket = "/Users/vojta/Library/Application Support/coding-owl/owl.sock";
+
 const projects = [
   { Name: "coding-owl", Path: "/Users/vojta/work/me/coding-owl", BaseBranch: "main", Registered: at(60 * 24 * 12) },
   { Name: "acceptmarkdown", Path: "/Users/vojta/work/acceptmarkdown", BaseBranch: "main", Registered: at(60 * 24 * 6) },
@@ -560,7 +564,7 @@ const app: Record<string, (...args: never[]) => Promise<unknown>> = {
     running: true,
     version: "0.1.0",
     uptime: "6h 41m",
-    socketPath: "/Users/vojta/Library/Application Support/coding-owl/owl.sock",
+    socketPath: socket,
     error: "",
   }),
   Projects: async () => projects,
@@ -652,10 +656,29 @@ const app: Record<string, (...args: never[]) => Promise<unknown>> = {
   StopLog: async (...args: never[]) => stopLog(args[0] as unknown as number),
 };
 
+// Nothing answering on the socket, which is the other state worth looking at:
+// every call fails the way the client fails, and the app has to say so rather
+// than showing an empty window.
+const down: Record<string, (...args: never[]) => Promise<unknown>> = {
+  Status: async () => ({
+    running: false,
+    version: "",
+    uptime: "",
+    socketPath: socket,
+    error: `dial unix ${socket}: connect: no such file or directory`,
+  }),
+};
+
 // install puts the fake where the generated bindings look for the real thing.
-export function install() {
+// `VITE_FAKE=down` is the same app with nothing answering on the socket.
+export function install(mode?: string) {
   const w = window as unknown as Record<string, unknown>;
-  w.go = { desktop: { App: app } };
+  const refused = () => Promise.reject(new Error(`dial unix ${socket}: connect: no such file or directory`));
+  const bound =
+    mode === "down"
+      ? Object.fromEntries(Object.keys(app).map((name) => [name, down[name] ?? refused]))
+      : app;
+  w.go = { desktop: { App: bound } };
   // Wails' generated runtime is a thin wrapper over these, and EventsOn is
   // EventsOnMultiple with no limit - so this is the method to provide, not the
   // one the app appears to call.
