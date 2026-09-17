@@ -809,3 +809,35 @@ select {
 .ask textarea::placeholder {
   color: var(--color-ink-faint);
 }
+
+/* An Account's standing instructions. The chat's box is for a message and is
+   four lines high; this one is for a document that every Run on the Account
+   reads, so it is tall enough to see what is already in it, monospaced like
+   the file it is, and the full width of the panel. */
+
+.instructions {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 20em;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.instructions::placeholder {
+  color: var(--color-ink-faint);
+}
+
+/* While a save is in flight the box is not the file: it is what was sent. */
+.instructions:disabled {
+  background: var(--color-surface-sunk);
+  color: var(--color-ink-dim);
+}

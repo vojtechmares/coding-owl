@@ -6,6 +6,14 @@ export function Accept(arg1, arg2) {
   return window['go']['desktop']['App']['Accept'](arg1, arg2);
 }
 
+export function AccountInstructions(arg1) {
+  return window['go']['desktop']['App']['AccountInstructions'](arg1);
+}
+
+export function Accounts() {
+  return window['go']['desktop']['App']['Accounts']();
+}
+
 export function AnswerCommand(arg1, arg2) {
   return window['go']['desktop']['App']['AnswerCommand'](arg1, arg2);
 }
@@ -56,6 +64,10 @@ export function Projects() {
 
 export function Resume() {
   return window['go']['desktop']['App']['Resume']();
+}
+
+export function SaveAccountInstructions(arg1, arg2) {
+  return window['go']['desktop']['App']['SaveAccountInstructions'](arg1, arg2);
 }
 
 export function Send(arg1, arg2, arg3) {

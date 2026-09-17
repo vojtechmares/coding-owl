@@ -442,6 +442,57 @@ const driverModels = {
   ],
 };
 
+// The Accounts work runs on, the two the overview already names (ADR-0019),
+// each with its own configuration directory.
+const accounts = [
+  {
+    Name: "personal",
+    Driver: "claude-code",
+    ConfigDir: "/Users/vojta/.local/share/coding-owl/accounts/personal",
+    HasCredential: true,
+    FailoverAllowed: false,
+    Created: at(60 * 24 * 40),
+  },
+  {
+    Name: "work",
+    Driver: "claude-code",
+    ConfigDir: "/Users/vojta/.local/share/coding-owl/accounts/work",
+    HasCredential: true,
+    FailoverAllowed: true,
+    Created: at(60 * 24 * 18),
+  },
+];
+
+// What each Account's standing instructions say. One Account has been given
+// some and one has not, because an empty editor and a full one are both worth
+// looking at.
+const instructions: Record<string, string> = {
+  personal: `# Standing instructions
+
+Write commit messages as Conventional Commits, and sign them off.
+
+Prose is in sentence case, with hyphens rather than em dashes. Comments say why
+something is the way it is, not what the line below does.
+
+Never touch a file under \`gen/\`: it is generated, and the generator is the
+thing to change.
+`,
+  work: "",
+};
+
+// What the daemon reports about an Account's instructions: the file its Driver
+// reads, where that file is, and what it says.
+function instructionsFor(name: string) {
+  const account = accounts.find((a) => a.Name === name) ?? accounts[0];
+  return {
+    Account: account.Name,
+    Driver: account.Driver,
+    File: "CLAUDE.md",
+    Path: `${account.ConfigDir}/CLAUDE.md`,
+    Text: instructions[account.Name] ?? "",
+  };
+}
+
 const conversations = [
   { ID: 3, Title: "Why was job 37 blocked?", Model: "claude-sonnet-5", Created: at(46), Updated: at(44) },
   { ID: 2, Title: "What did verification say about 33?", Model: "claude-sonnet-5", Created: at(60 * 15), Updated: at(60 * 15) },
@@ -607,6 +658,16 @@ const app: Record<string, (...args: never[]) => Promise<unknown>> = {
       all,
       files: { Manifest: ".coding-owl/skills.yaml", Lock: ".coding-owl/skills.lock", InRepo: true },
     };
+  },
+  Accounts: async () => accounts,
+  AccountInstructions: async (...args: never[]) => instructionsFor(args[0] as unknown as string),
+  SaveAccountInstructions: async (...args: never[]) => {
+    const name = args[0] as unknown as string;
+    const text = args[1] as unknown as string;
+    // Blank text clears them, as the daemon does: what comes back is what a
+    // reopened editor would read, not what was typed.
+    instructions[name] = text.trim() === "" ? "" : text;
+    return instructionsFor(name);
   },
   Models: async () => chatModels,
   DriverModels: async () => driverModels,
