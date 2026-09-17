@@ -73,13 +73,15 @@ const { title, eyebrow, tagline, description, install, features } = page.data;
       title="See what ran, what is running, and what is waiting for you."
       subtitle="The desktop app is a view on the same daemon the CLI talks to: projects, the queue, jobs to review, and each run's log and diff."
     />
-    <figure class="mt-10 overflow-hidden rounded-lg">
+    {/* The app is the same white as this page, so the frame is what separates
+        the screenshot from it. */}
+    <figure class="mt-10 overflow-hidden rounded-lg border border-line">
       <Image
         src={overview}
-        alt="The Coding Owl desktop app: the overview with jobs pending, one awaiting review and one blocked."
+        alt="The Coding Owl desktop app: the overview, with the machine idle on AC power, one Account over its five-hour ceiling, and a Run in progress."
         widths={[640, 960, 1400, 1800]}
         sizes="(min-width: 1024px) 944px, 100vw"
-        class="block w-full rounded-lg"
+        class="block w-full"
         loading="lazy"
       />
     </figure>
