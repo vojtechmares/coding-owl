@@ -187,7 +187,10 @@ func AddWorktree(dir, path, branch, base string) error {
 // refuses a worktree holding changes nobody has committed unless force says
 // otherwise: reclaiming disk must not destroy work silently (ADR-0015).
 func RemoveWorktree(dir, path string, force bool) error {
-	args := []string{"worktree", "remove"}
+	// git's own refusal is the second half of that guarantee - it is what
+	// catches work written between the check above and this removal - so it
+	// is asked to see untracked files too.
+	args := append(append([]string{}, seeUntrackedFiles...), "worktree", "remove")
 	if force {
 		args = append(args, "--force")
 	}
@@ -260,10 +263,24 @@ func commonDir(dir string) (string, error) {
 	return resolved, nil
 }
 
+// seeUntrackedFiles makes git report the files it does not know about,
+// whatever the repository says. `status.showUntrackedFiles=no` is a setting
+// people do use, and under it a worktree holding nothing but untracked work
+// looks clean - to the check below and to git's own `worktree remove` guard
+// alike - so disposal would delete that work without a word, which is the one
+// thing ADR-0015 says garbage collection must never do. Asking is what makes
+// the answer Owl's rather than the repository's.
+//
+// `normal` rather than `all`: the question is only whether anything is there,
+// and it stops at an untracked directory instead of walking every file inside
+// one.
+var seeUntrackedFiles = []string{"-c", "status.showUntrackedFiles=normal"}
+
 // WorktreeIsClean reports whether a worktree holds nothing uncommitted -
 // neither a change to a tracked file nor a file git does not know about.
 func WorktreeIsClean(path string) (bool, error) {
-	out, stderr, code, err := run(path, "status", "--porcelain")
+	args := append(append([]string{}, seeUntrackedFiles...), "status", "--porcelain")
+	out, stderr, code, err := run(path, args...)
 	if err != nil {
 		return false, err
 	}
