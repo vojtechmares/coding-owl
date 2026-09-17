@@ -73,6 +73,66 @@ func (c *Client) RemoveAccount(ctx context.Context, name string) (Account, error
 	return accountFromProto(res.Msg.GetAccount()), nil
 }
 
+// Instructions are an Account's standing instructions: text every Run on that
+// Account reads, whichever Project the Run is for (ADR-0037).
+type Instructions struct {
+	// Account is whose they are.
+	Account string
+	// Driver is the coding tool that Account is on.
+	Driver string
+	// File is what that Driver's tool calls the file, and is empty for a tool
+	// that reads none: a caller with an empty File has nothing to show and
+	// nothing to save.
+	File string
+	// Path is where the file is, and is empty when File is.
+	Path string
+	// Text is what it says, and is empty for an Account given none.
+	Text string
+}
+
+// AccountCredential returns an Account with the secret to run its tool on,
+// which is what running that tool as the Account needs. It is the one call
+// that hands a secret back: `owl account exec` runs the tool at the user's own
+// terminal, so the daemon cannot run it for them.
+func (c *Client) AccountCredential(ctx context.Context, name string) (Account, string, error) {
+	res, err := c.accounts.AccountCredential(ctx, connect.NewRequest(&codingowlv1.AccountCredentialRequest{Name: name}))
+	if err != nil {
+		return Account{}, "", c.wrap(err)
+	}
+	return accountFromProto(res.Msg.GetAccount()), res.Msg.GetToken(), nil
+}
+
+// AccountInstructions returns an Account's standing instructions.
+func (c *Client) AccountInstructions(ctx context.Context, name string) (Instructions, error) {
+	res, err := c.accounts.GetAccountInstructions(ctx, connect.NewRequest(&codingowlv1.GetAccountInstructionsRequest{Name: name}))
+	if err != nil {
+		return Instructions{}, c.wrap(err)
+	}
+	return instructionsFromProto(res.Msg.GetInstructions()), nil
+}
+
+// SetAccountInstructions writes them, and returns them as they now stand.
+// Text that is blank takes them away.
+func (c *Client) SetAccountInstructions(ctx context.Context, name, text string) (Instructions, error) {
+	res, err := c.accounts.SetAccountInstructions(ctx, connect.NewRequest(&codingowlv1.SetAccountInstructionsRequest{
+		Name: name, Text: text,
+	}))
+	if err != nil {
+		return Instructions{}, c.wrap(err)
+	}
+	return instructionsFromProto(res.Msg.GetInstructions()), nil
+}
+
+func instructionsFromProto(in *codingowlv1.Instructions) Instructions {
+	return Instructions{
+		Account: in.GetAccount(),
+		Driver:  in.GetDriver(),
+		File:    in.GetFile(),
+		Path:    in.GetPath(),
+		Text:    in.GetText(),
+	}
+}
+
 func accountFromProto(a *codingowlv1.Account) Account {
 	return Account{
 		Name:            a.GetName(),

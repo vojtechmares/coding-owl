@@ -90,6 +90,16 @@ func (d *fakeDriver) SetupToken(configDir string) (agent.Invocation, error) {
 	return agent.Invocation{Path: "/fake/agent", Args: []string{"setup-token"}, Dir: configDir}, nil
 }
 
+// Exec runs the tool's own CLI against an Account, which this fake has no
+// need of beyond satisfying the Driver.
+func (d *fakeDriver) Exec(configDir, _ string, args []string) (agent.Invocation, error) {
+	return agent.Invocation{Path: "/fake/agent", Args: args, Dir: configDir}, nil
+}
+
+// InstructionsFile is what this fake's tool would read an Account's standing
+// instructions from.
+func (d *fakeDriver) InstructionsFile() string { return "FAKE.md" }
+
 func (d *fakeDriver) given() driver.Request {
 	d.mu.Lock()
 	defer d.mu.Unlock()

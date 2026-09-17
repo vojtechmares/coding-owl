@@ -54,6 +54,12 @@ func (*fakeDriver) SetupToken(string) (agentpkg.Invocation, error) {
 	return agentpkg.Invocation{}, nil
 }
 
+func (*fakeDriver) Exec(_, _ string, args []string) (agentpkg.Invocation, error) {
+	return agentpkg.Invocation{Path: "/usr/bin/true", Args: args}, nil
+}
+
+func (*fakeDriver) InstructionsFile() string { return "FAKE.md" }
+
 func (*fakeDriver) SkillsDir() string { return ".fake/skills" }
 
 func (*fakeDriver) Usage(string) (driver.Usage, bool) { return driver.Usage{}, false }

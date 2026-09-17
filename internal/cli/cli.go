@@ -81,6 +81,14 @@ func withTimeout(ctx context.Context, env Env, fn func(context.Context, *client.
 	return fn(ctx, client.New(env.Paths.SocketPath))
 }
 
+// exitCodeError is a command that has already said whatever there was to say
+// and carries only the status to exit with. It is how a command that runs
+// something else on the user's behalf passes that program's status back out,
+// rather than flattening every outcome to Owl's own 1.
+type exitCodeError struct{ code int }
+
+func (e *exitCodeError) Error() string { return fmt.Sprintf("exited with status %d", e.code) }
+
 // Run executes args against the command tree and returns the exit code.
 func Run(ctx context.Context, env Env, args []string) int {
 	root := newRoot(env)
@@ -88,6 +96,14 @@ func Run(ctx context.Context, env Env, args []string) int {
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
 	if err := root.ExecuteContext(ctx); err != nil {
+		// A command that ran another program on the user's behalf reports
+		// that program's status and nothing else: the program has already
+		// written whatever it had to say to the terminal, and `owl: exited
+		// with status 1` underneath it would be Owl talking over it.
+		var exit *exitCodeError
+		if errors.As(err, &exit) {
+			return exit.code
+		}
 		_, _ = fmt.Fprintf(env.Stderr, "owl: %v\n", err)
 		return 1
 	}

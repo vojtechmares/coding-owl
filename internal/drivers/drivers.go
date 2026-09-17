@@ -40,6 +40,22 @@ func Lookup(name string, global config.Global) (driver.Driver, bool) {
 	return make(global), true
 }
 
+// InstructionsFile is the file a Driver's tool reads an Account's standing
+// instructions from, and empty for a name that is not a Driver or a tool that
+// reads none (ADR-0037).
+//
+// The Driver is built from an empty configuration because the answer is the
+// tool's own constant: where its binary is on this machine does not change
+// what it calls that file. Anything that has to run the tool asks Lookup for
+// a Driver built from the daemon's real configuration instead.
+func InstructionsFile(name string) string {
+	d, ok := Lookup(name, config.Global{})
+	if !ok {
+		return ""
+	}
+	return d.InstructionsFile()
+}
+
 // Names is every Driver Owl has, in order.
 func Names() []string {
 	out := make([]string, 0, len(all))

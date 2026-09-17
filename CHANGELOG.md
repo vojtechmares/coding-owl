@@ -31,6 +31,16 @@ All notable changes to Coding Owl are recorded here. The format follows
   force and where it came from.
 - `owl models`, and a Models view in the desktop app, listing what a Job's
   phases can run on.
+- `owl account exec <name> -- <command>`, which runs an Account's coding tool
+  against that Account's own configuration. An Account's configuration
+  directory is the tool's configuration directory, so the tool's own commands
+  are how an Account gets its MCP servers, its plugins and its settings. Owl
+  models none of them.
+- Standing instructions on an Account: text every Run on it reads, whichever
+  Project the Run is for. Kept as the file that Account's tool reads
+  instructions from, so the tool reads them itself and Owl injects nothing.
+  Editable with `owl account instructions show|set|edit` and in the desktop
+  app.
 
 ### Changed
 

@@ -243,6 +243,54 @@ Account limits are percentages of a subscription's rate-limit window. Owl
 will not schedule past them, measured against the account's total usage rather
 than Owl's alone, so there is always room left for you.
 
+### Account configuration
+
+An Account's configuration directory is its coding tool's configuration
+directory, so the tool's own commands are how that Account is configured. `owl
+account exec` runs the tool against one:
+
+```
+owl account exec work -- mcp add --scope user sentry --transport http https://mcp.sentry.dev/mcp
+owl account exec work -- plugin install some-plugin
+owl account exec work -- mcp list
+```
+
+Everything after `--` is the tool's, passed through untouched, and the tool's
+exit status is the command's. Owl models no MCP server and no plugin: it points
+the tool at the right Account and gets out of the way.
+
+Two things to know about an MCP server an Agent is meant to use. An unattended
+Agent denies anything not on its allowlist, so the server's tools have to be
+granted as `mcp__<server>__*` in the Account's `settings.json` or in a
+Project's `allowedTools`. And a repository's own `.mcp.json` servers wait for
+an approval nobody is awake to give, so user scope - what `--scope user` writes,
+in the Account's own directory - is the one that works for a Run.
+
+### Standing instructions
+
+An Account carries standing instructions that every Run on it reads, whichever
+Project the Run is for. They are the place for conventions that hold across all
+of an Account's work, as against a Project's `unattendedClauses`, which hold
+only for that Project.
+
+```
+owl account instructions edit work            # in $VISUAL, $EDITOR, or vi
+owl account instructions set work < CLAUDE.md # from a file
+owl account instructions show work
+```
+
+They are also editable in the desktop app. Owl keeps them in the Account's
+configuration directory under the name that Account's tool reads instructions
+from - `CLAUDE.md` for Claude Code - so the tool reads them itself and Owl
+injects nothing. Saving blank text takes them away.
+
+One file changes every Job on that Account, in every Project, so it is worth
+keeping short. To see for yourself that the tool is reading them, ask it:
+
+```
+owl account exec work -- --print "what standing instructions are you under?"
+```
+
 ### Filesystem layout
 
 Owl honours the XDG variables on both macOS and Linux:
@@ -258,7 +306,8 @@ Owl honours the XDG variables on both macOS and Linux:
 | Command | What it does |
 | --- | --- |
 | `owl project add\|list\|show\|rename\|move\|remove` | Register repositories as Projects |
-| `owl account add\|list\|remove` | Manage the subscriptions Owl runs work on |
+| `owl account add\|list\|remove\|exec` | Manage the subscriptions Owl runs work on |
+| `owl account instructions show\|set\|edit` | The standing instructions every Run on an Account reads |
 | `owl add <prompt>` | Queue a Job, planned first unless `--no-plan` |
 | `owl queue list\|reorder\|remove` | Show and reorder the queued Jobs |
 | `owl start` / `owl pause` / `owl resume` | Override idle: run now, freeze everything, continue |
