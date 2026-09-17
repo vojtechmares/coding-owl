@@ -44,7 +44,7 @@ const (
 type DaemonServiceClient interface {
 	// GetStatus reports the running daemon's version, uptime and socket path.
 	GetStatus(context.Context, *connect.Request[v1.GetStatusRequest]) (*connect.Response[v1.GetStatusResponse], error)
-	// ListModels reports the models the daemon's Driver serves, so that what a
+	// ListDriverModels reports the models the daemon's Driver serves, so that what a
 	// phase may be set to is discoverable rather than learned from a rejected
 	// configuration file (ADR-0028).
 	ListDriverModels(context.Context, *connect.Request[v1.ListDriverModelsRequest]) (*connect.Response[v1.ListDriverModelsResponse], error)
@@ -96,7 +96,7 @@ func (c *daemonServiceClient) ListDriverModels(ctx context.Context, req *connect
 type DaemonServiceHandler interface {
 	// GetStatus reports the running daemon's version, uptime and socket path.
 	GetStatus(context.Context, *connect.Request[v1.GetStatusRequest]) (*connect.Response[v1.GetStatusResponse], error)
-	// ListModels reports the models the daemon's Driver serves, so that what a
+	// ListDriverModels reports the models the daemon's Driver serves, so that what a
 	// phase may be set to is discoverable rather than learned from a rejected
 	// configuration file (ADR-0028).
 	ListDriverModels(context.Context, *connect.Request[v1.ListDriverModelsRequest]) (*connect.Response[v1.ListDriverModelsResponse], error)
