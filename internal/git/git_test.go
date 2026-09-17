@@ -451,6 +451,113 @@ func TestWorktreeIsCleanSeesWhatHasNotBeenCommitted(t *testing.T) {
 	}
 }
 
+// hidingRepo is a repository that asks git to stop mentioning untracked files
+// at all, with a worktree on a branch of its own. A user who set that is still
+// a user whose untracked files are work, and the answer decides whether the
+// worktree is deleted (issue #66, ADR-0015).
+func hidingRepo(t *testing.T) (dir, worktree string) {
+	t.Helper()
+	dir = newRepo(t)
+	run(t, dir, "config", "status.showUntrackedFiles", "no")
+	worktree = filepath.Join(t.TempDir(), "job-1")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	return dir, worktree
+}
+
+// stray puts a file git does not know about in the worktree and returns it.
+func stray(t *testing.T, worktree, name string) string {
+	t.Helper()
+	path := filepath.Join(worktree, name)
+	if err := os.WriteFile(path, []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestS1TheCleanCheckSeesUntrackedWorkTheRepositoryHides(t *testing.T) {
+	_, worktree := hidingRepo(t)
+	stray(t, worktree, "stray.txt")
+
+	clean, err := git.WorktreeIsClean(worktree)
+
+	if err != nil {
+		t.Fatalf("WorktreeIsClean: %v", err)
+	}
+	if clean {
+		t.Error("a worktree is reported clean because the repository hides untracked files")
+	}
+}
+
+func TestS2RemovingAWorktreeRefusesUntrackedWorkTheRepositoryHides(t *testing.T) {
+	dir, worktree := hidingRepo(t)
+	path := stray(t, worktree, "stray.txt")
+
+	err := git.RemoveWorktree(dir, worktree, false)
+
+	if err == nil {
+		t.Fatal("RemoveWorktree took a worktree holding untracked work")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("the untracked work is gone: %v", err)
+	}
+}
+
+func TestS3ForcingStillRemovesAWorktreeTheRepositoryHidesWorkIn(t *testing.T) {
+	dir, worktree := hidingRepo(t)
+	stray(t, worktree, "stray.txt")
+
+	if err := git.RemoveWorktree(dir, worktree, true); err != nil {
+		t.Fatalf("forced RemoveWorktree: %v", err)
+	}
+
+	if _, err := os.Stat(worktree); err == nil {
+		t.Error("the worktree survived a forced removal")
+	}
+}
+
+func TestS4AChangedTrackedFileIsStillSeen(t *testing.T) {
+	_, worktree := hidingRepo(t)
+	// README.md is what newRepo committed, so this is an edit to a file git
+	// does know about - never hidden by the setting, and still work.
+	if err := os.WriteFile(filepath.Join(worktree, "README.md"), []byte("# changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clean, err := git.WorktreeIsClean(worktree)
+
+	if err != nil {
+		t.Fatalf("WorktreeIsClean: %v", err)
+	}
+	if clean {
+		t.Error("a worktree holding a changed tracked file is reported clean")
+	}
+}
+
+func TestS5WhatTheRepositoryIgnoresIsStillIgnored(t *testing.T) {
+	dir := newRepo(t)
+	run(t, dir, "config", "status.showUntrackedFiles", "no")
+	commit(t, dir, ".gitignore", "ignored.txt\n")
+	worktree := filepath.Join(t.TempDir(), "job-1")
+	if err := git.AddWorktree(dir, worktree, "owl/job-1", "main"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	stray(t, worktree, "ignored.txt")
+
+	clean, err := git.WorktreeIsClean(worktree)
+
+	if err != nil {
+		t.Fatalf("WorktreeIsClean: %v", err)
+	}
+	// A .gitignore is the user saying those files do not count, which asking
+	// for untracked files does not override - Owl places its own worktree
+	// excludes on that understanding (ADR-0033).
+	if !clean {
+		t.Error("a worktree holding only an ignored file is reported as holding work")
+	}
+}
+
 func TestDeleteBranchRemovesEvenUnmergedWork(t *testing.T) {
 	dir := newRepo(t)
 	worktree := filepath.Join(t.TempDir(), "job-1")
