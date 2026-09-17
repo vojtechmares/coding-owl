@@ -5,6 +5,10 @@ import {desktop} from '../models';
 
 export function Accept(arg1:number,arg2:boolean):Promise<client.Job>;
 
+export function AccountInstructions(arg1:string):Promise<client.Instructions>;
+
+export function Accounts():Promise<Array<client.Account>>;
+
 export function AnswerCommand(arg1:string,arg2:string):Promise<void>;
 
 export function Conversation(arg1:number):Promise<client.ConversationDetails>;
@@ -30,6 +34,8 @@ export function Pause():Promise<Array<client.Run>>;
 export function Projects():Promise<Array<client.Project>>;
 
 export function Resume():Promise<Array<client.Run>>;
+
+export function SaveAccountInstructions(arg1:string,arg2:string):Promise<client.Instructions>;
 
 export function Send(arg1:number,arg2:string,arg3:string):Promise<number>;
 

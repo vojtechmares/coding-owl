@@ -11,6 +11,8 @@ export type Job = client.Job;
 export type JobDetails = client.JobDetails;
 export type Run = client.Run;
 export type Project = client.Project;
+export type Account = client.Account;
+export type Instructions = client.Instructions;
 export type Overview = client.Overview;
 export type Machine = client.Machine;
 export type Status = desktop.Status;
@@ -58,6 +60,14 @@ function details(d: JobDetails): JobDetails {
 export const api = {
   status: (): Promise<Status> => App.Status(),
   projects: (): Promise<Project[]> => App.Projects().then(list),
+  accounts: (): Promise<Account[]> => App.Accounts().then(list),
+  // An Account's standing instructions: the text every Run on that Account
+  // reads, whichever Project the Run is for (ADR-0037).
+  accountInstructions: (name: string): Promise<Instructions> => App.AccountInstructions(name),
+  // What comes back is what was saved rather than what was typed, and blank
+  // text takes them away.
+  saveAccountInstructions: (name: string, text: string): Promise<Instructions> =>
+    App.SaveAccountInstructions(name, text),
   overview: (): Promise<Overview> => App.Overview().then(overview),
   jobs: (all: boolean): Promise<Job[]> => App.Jobs(all).then(list),
   job: (id: number): Promise<JobDetails> => App.Job(id).then(details),

@@ -141,6 +141,32 @@ func (a *App) Projects() ([]client.Project, error) {
 	return a.client.ListProjects(ctx)
 }
 
+// Accounts lists the Accounts Owl runs work on (ADR-0019).
+func (a *App) Accounts() ([]client.Account, error) {
+	ctx, cancel := a.call()
+	defer cancel()
+	return a.client.ListAccounts(ctx)
+}
+
+// AccountInstructions are an Account's standing instructions: the text every
+// Run on that Account reads, whichever Project the Run is for (ADR-0037). The
+// daemon reads the file, not the app: it lives in the Account's configuration
+// directory, and the app touches no disk of its own (ADR-0009).
+func (a *App) AccountInstructions(name string) (client.Instructions, error) {
+	ctx, cancel := a.call()
+	defer cancel()
+	return a.client.AccountInstructions(ctx, name)
+}
+
+// SaveAccountInstructions writes them and hands back what now stands, so the
+// frontend shows what was saved rather than what was typed. Text that is
+// blank takes them away, which is how an Account is left with none again.
+func (a *App) SaveAccountInstructions(name, text string) (client.Instructions, error) {
+	ctx, cancel := a.call()
+	defer cancel()
+	return a.client.SetAccountInstructions(ctx, name, text)
+}
+
 // Overview is what owl status reports.
 func (a *App) Overview() (client.Overview, error) {
 	ctx, cancel := a.call()

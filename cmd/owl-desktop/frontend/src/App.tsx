@@ -6,6 +6,7 @@ import mark from "./assets/mark.png";
 import { api, usePoll } from "./lib/api";
 import { Overview } from "./views/Overview";
 import { Projects } from "./views/Projects";
+import { Accounts } from "./views/Accounts";
 import { Skills } from "./views/Skills";
 import { Models } from "./views/Models";
 import { Chat } from "./views/Chat";
@@ -13,11 +14,12 @@ import { Queue } from "./views/Queue";
 import { Jobs } from "./views/Jobs";
 import { JobDetail } from "./views/JobDetail";
 
-type View = "overview" | "projects" | "skills" | "models" | "queue" | "jobs" | "chat";
+type View = "overview" | "projects" | "accounts" | "skills" | "models" | "queue" | "jobs" | "chat";
 
 const views: { key: View; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "projects", label: "Projects" },
+  { key: "accounts", label: "Accounts" },
   { key: "skills", label: "Skills" },
   { key: "models", label: "Models" },
   { key: "queue", label: "Queue" },
@@ -95,6 +97,8 @@ export default function App() {
             <Overview data={overview.data} error={down ? undefined : overview.error} refresh={overview.refresh} onOpen={open} />
           ) : view === "projects" ? (
             <Projects />
+          ) : view === "accounts" ? (
+            <Accounts />
           ) : view === "skills" ? (
             <Skills />
           ) : view === "models" ? (

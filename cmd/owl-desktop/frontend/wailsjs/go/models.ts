@@ -1,5 +1,46 @@
 export namespace client {
 	
+	export class Account {
+	    Name: string;
+	    Driver: string;
+	    ConfigDir: string;
+	    HasCredential: boolean;
+	    FailoverAllowed: boolean;
+	    // Go type: time
+	    Created: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Account(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Name = source["Name"];
+	        this.Driver = source["Driver"];
+	        this.ConfigDir = source["ConfigDir"];
+	        this.HasCredential = source["HasCredential"];
+	        this.FailoverAllowed = source["FailoverAllowed"];
+	        this.Created = this.convertValues(source["Created"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class UsageWindow {
 	    Name: string;
 	    Read: boolean;
@@ -285,6 +326,26 @@ export namespace client {
 	        this.Name = source["Name"];
 	        this.Alias = source["Alias"];
 	        this.About = source["About"];
+	    }
+	}
+	export class Instructions {
+	    Account: string;
+	    Driver: string;
+	    File: string;
+	    Path: string;
+	    Text: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Instructions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Account = source["Account"];
+	        this.Driver = source["Driver"];
+	        this.File = source["File"];
+	        this.Path = source["Path"];
+	        this.Text = source["Text"];
 	    }
 	}
 	export class Job {
