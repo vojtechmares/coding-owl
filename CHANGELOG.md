@@ -41,6 +41,12 @@ All notable changes to Coding Owl are recorded here. The format follows
 - A Job's default TTL is 3 rather than 10, so a Job that goes wrong is reported
   on the third night rather than the tenth. `--ttl` at enqueue and
   `owl jobs extend` are unchanged.
+- The desktop app is set in the same design as codingowl.dev - a light ground,
+  hairline rules and Geist - instead of the liquid glass it shipped with. A
+  dashboard is small text in dense tables, and the glass was in the way of
+  reading it. Colour now says one of four things and nothing else: blue is in
+  motion, near-black is waiting for you, rose is something that went wrong,
+  grey is at rest.
 
 ### Fixed
 
@@ -49,5 +55,7 @@ All notable changes to Coding Owl are recorded here. The format follows
 - The daemon settles configuration, credentials and recovery before it starts
   listening, and leaves no socket behind when it cannot start.
 - Garbage collection prunes only Owl's own stale worktrees, never the user's.
+- A long Jobs list no longer drags the desktop window sideways, sidebar and
+  all: a table wider than its panel scrolls inside it.
 
 [Unreleased]: https://github.com/vojtechmares/coding-owl/commits/main
