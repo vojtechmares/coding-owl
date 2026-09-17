@@ -17,3 +17,10 @@ See `docs/agents/triage-labels.md`.
 
 Single-context: `CONTEXT.md` and `docs/adr/` at the repo root.
 See `docs/agents/domain.md`.
+
+### Queueing issues for Owl
+
+`scripts/queue-ready-for-agent.sh` copies `ready-for-agent` issues into the
+Coding Owl queue, one Job per issue, with a prompt that checks the issue for
+blockers first and leaves a blocked one to be queued again later.
+See `docs/agents/queue-from-github.md`.
