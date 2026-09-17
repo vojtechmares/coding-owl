@@ -72,3 +72,4 @@ What else was on the table and why it lost.
 | [0034](0034-sigkill-after-sigterm.md) | An Agent that will not stop when it is asked is killed | Accepted |
 | [0035](0035-agent-permissions-allowlist.md) | An unattended Agent is granted a default allowlist, once, per Account | Accepted |
 | [0036](0036-per-run-limits.md) | Every Run is bounded by a timeout and a stall limit | Accepted |
+| [0037](0037-account-standing-instructions.md) | An Account carries standing instructions, kept as the tool's own file | Accepted |

@@ -42,6 +42,15 @@ const (
 	// AccountServiceRemoveAccountProcedure is the fully-qualified name of the AccountService's
 	// RemoveAccount RPC.
 	AccountServiceRemoveAccountProcedure = "/codingowl.v1.AccountService/RemoveAccount"
+	// AccountServiceAccountCredentialProcedure is the fully-qualified name of the AccountService's
+	// AccountCredential RPC.
+	AccountServiceAccountCredentialProcedure = "/codingowl.v1.AccountService/AccountCredential"
+	// AccountServiceGetAccountInstructionsProcedure is the fully-qualified name of the AccountService's
+	// GetAccountInstructions RPC.
+	AccountServiceGetAccountInstructionsProcedure = "/codingowl.v1.AccountService/GetAccountInstructions"
+	// AccountServiceSetAccountInstructionsProcedure is the fully-qualified name of the AccountService's
+	// SetAccountInstructions RPC.
+	AccountServiceSetAccountInstructionsProcedure = "/codingowl.v1.AccountService/SetAccountInstructions"
 )
 
 // AccountServiceClient is a client for the codingowl.v1.AccountService service.
@@ -54,6 +63,17 @@ type AccountServiceClient interface {
 	// RemoveAccount takes an Account and its secret away. It is refused while
 	// any Job records having run on it (ADR-0023).
 	RemoveAccount(context.Context, *connect.Request[v1.RemoveAccountRequest]) (*connect.Response[v1.RemoveAccountResponse], error)
+	// AccountCredential returns an Account with the secret to run its tool on,
+	// which is what `owl account exec` needs to run that tool as the Account.
+	// It is the one call that hands a secret back, and it does so because the
+	// command runs at the user's own terminal and the daemon cannot run it for
+	// them. The socket is the user's alone (ADR-0004).
+	AccountCredential(context.Context, *connect.Request[v1.AccountCredentialRequest]) (*connect.Response[v1.AccountCredentialResponse], error)
+	// GetAccountInstructions returns the standing instructions every Run on an
+	// Account reads (ADR-0037).
+	GetAccountInstructions(context.Context, *connect.Request[v1.GetAccountInstructionsRequest]) (*connect.Response[v1.GetAccountInstructionsResponse], error)
+	// SetAccountInstructions writes them. Text that is blank takes them away.
+	SetAccountInstructions(context.Context, *connect.Request[v1.SetAccountInstructionsRequest]) (*connect.Response[v1.SetAccountInstructionsResponse], error)
 }
 
 // NewAccountServiceClient constructs a client for the codingowl.v1.AccountService service. By
@@ -85,14 +105,35 @@ func NewAccountServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(accountServiceMethods.ByName("RemoveAccount")),
 			connect.WithClientOptions(opts...),
 		),
+		accountCredential: connect.NewClient[v1.AccountCredentialRequest, v1.AccountCredentialResponse](
+			httpClient,
+			baseURL+AccountServiceAccountCredentialProcedure,
+			connect.WithSchema(accountServiceMethods.ByName("AccountCredential")),
+			connect.WithClientOptions(opts...),
+		),
+		getAccountInstructions: connect.NewClient[v1.GetAccountInstructionsRequest, v1.GetAccountInstructionsResponse](
+			httpClient,
+			baseURL+AccountServiceGetAccountInstructionsProcedure,
+			connect.WithSchema(accountServiceMethods.ByName("GetAccountInstructions")),
+			connect.WithClientOptions(opts...),
+		),
+		setAccountInstructions: connect.NewClient[v1.SetAccountInstructionsRequest, v1.SetAccountInstructionsResponse](
+			httpClient,
+			baseURL+AccountServiceSetAccountInstructionsProcedure,
+			connect.WithSchema(accountServiceMethods.ByName("SetAccountInstructions")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // accountServiceClient implements AccountServiceClient.
 type accountServiceClient struct {
-	addAccount    *connect.Client[v1.AddAccountRequest, v1.AddAccountResponse]
-	listAccounts  *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
-	removeAccount *connect.Client[v1.RemoveAccountRequest, v1.RemoveAccountResponse]
+	addAccount             *connect.Client[v1.AddAccountRequest, v1.AddAccountResponse]
+	listAccounts           *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
+	removeAccount          *connect.Client[v1.RemoveAccountRequest, v1.RemoveAccountResponse]
+	accountCredential      *connect.Client[v1.AccountCredentialRequest, v1.AccountCredentialResponse]
+	getAccountInstructions *connect.Client[v1.GetAccountInstructionsRequest, v1.GetAccountInstructionsResponse]
+	setAccountInstructions *connect.Client[v1.SetAccountInstructionsRequest, v1.SetAccountInstructionsResponse]
 }
 
 // AddAccount calls codingowl.v1.AccountService.AddAccount.
@@ -110,6 +151,21 @@ func (c *accountServiceClient) RemoveAccount(ctx context.Context, req *connect.R
 	return c.removeAccount.CallUnary(ctx, req)
 }
 
+// AccountCredential calls codingowl.v1.AccountService.AccountCredential.
+func (c *accountServiceClient) AccountCredential(ctx context.Context, req *connect.Request[v1.AccountCredentialRequest]) (*connect.Response[v1.AccountCredentialResponse], error) {
+	return c.accountCredential.CallUnary(ctx, req)
+}
+
+// GetAccountInstructions calls codingowl.v1.AccountService.GetAccountInstructions.
+func (c *accountServiceClient) GetAccountInstructions(ctx context.Context, req *connect.Request[v1.GetAccountInstructionsRequest]) (*connect.Response[v1.GetAccountInstructionsResponse], error) {
+	return c.getAccountInstructions.CallUnary(ctx, req)
+}
+
+// SetAccountInstructions calls codingowl.v1.AccountService.SetAccountInstructions.
+func (c *accountServiceClient) SetAccountInstructions(ctx context.Context, req *connect.Request[v1.SetAccountInstructionsRequest]) (*connect.Response[v1.SetAccountInstructionsResponse], error) {
+	return c.setAccountInstructions.CallUnary(ctx, req)
+}
+
 // AccountServiceHandler is an implementation of the codingowl.v1.AccountService service.
 type AccountServiceHandler interface {
 	// AddAccount records an Account, makes its configuration directory and puts
@@ -120,6 +176,17 @@ type AccountServiceHandler interface {
 	// RemoveAccount takes an Account and its secret away. It is refused while
 	// any Job records having run on it (ADR-0023).
 	RemoveAccount(context.Context, *connect.Request[v1.RemoveAccountRequest]) (*connect.Response[v1.RemoveAccountResponse], error)
+	// AccountCredential returns an Account with the secret to run its tool on,
+	// which is what `owl account exec` needs to run that tool as the Account.
+	// It is the one call that hands a secret back, and it does so because the
+	// command runs at the user's own terminal and the daemon cannot run it for
+	// them. The socket is the user's alone (ADR-0004).
+	AccountCredential(context.Context, *connect.Request[v1.AccountCredentialRequest]) (*connect.Response[v1.AccountCredentialResponse], error)
+	// GetAccountInstructions returns the standing instructions every Run on an
+	// Account reads (ADR-0037).
+	GetAccountInstructions(context.Context, *connect.Request[v1.GetAccountInstructionsRequest]) (*connect.Response[v1.GetAccountInstructionsResponse], error)
+	// SetAccountInstructions writes them. Text that is blank takes them away.
+	SetAccountInstructions(context.Context, *connect.Request[v1.SetAccountInstructionsRequest]) (*connect.Response[v1.SetAccountInstructionsResponse], error)
 }
 
 // NewAccountServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -147,6 +214,24 @@ func NewAccountServiceHandler(svc AccountServiceHandler, opts ...connect.Handler
 		connect.WithSchema(accountServiceMethods.ByName("RemoveAccount")),
 		connect.WithHandlerOptions(opts...),
 	)
+	accountServiceAccountCredentialHandler := connect.NewUnaryHandler(
+		AccountServiceAccountCredentialProcedure,
+		svc.AccountCredential,
+		connect.WithSchema(accountServiceMethods.ByName("AccountCredential")),
+		connect.WithHandlerOptions(opts...),
+	)
+	accountServiceGetAccountInstructionsHandler := connect.NewUnaryHandler(
+		AccountServiceGetAccountInstructionsProcedure,
+		svc.GetAccountInstructions,
+		connect.WithSchema(accountServiceMethods.ByName("GetAccountInstructions")),
+		connect.WithHandlerOptions(opts...),
+	)
+	accountServiceSetAccountInstructionsHandler := connect.NewUnaryHandler(
+		AccountServiceSetAccountInstructionsProcedure,
+		svc.SetAccountInstructions,
+		connect.WithSchema(accountServiceMethods.ByName("SetAccountInstructions")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/codingowl.v1.AccountService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AccountServiceAddAccountProcedure:
@@ -155,6 +240,12 @@ func NewAccountServiceHandler(svc AccountServiceHandler, opts ...connect.Handler
 			accountServiceListAccountsHandler.ServeHTTP(w, r)
 		case AccountServiceRemoveAccountProcedure:
 			accountServiceRemoveAccountHandler.ServeHTTP(w, r)
+		case AccountServiceAccountCredentialProcedure:
+			accountServiceAccountCredentialHandler.ServeHTTP(w, r)
+		case AccountServiceGetAccountInstructionsProcedure:
+			accountServiceGetAccountInstructionsHandler.ServeHTTP(w, r)
+		case AccountServiceSetAccountInstructionsProcedure:
+			accountServiceSetAccountInstructionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -174,4 +265,16 @@ func (UnimplementedAccountServiceHandler) ListAccounts(context.Context, *connect
 
 func (UnimplementedAccountServiceHandler) RemoveAccount(context.Context, *connect.Request[v1.RemoveAccountRequest]) (*connect.Response[v1.RemoveAccountResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.AccountService.RemoveAccount is not implemented"))
+}
+
+func (UnimplementedAccountServiceHandler) AccountCredential(context.Context, *connect.Request[v1.AccountCredentialRequest]) (*connect.Response[v1.AccountCredentialResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.AccountService.AccountCredential is not implemented"))
+}
+
+func (UnimplementedAccountServiceHandler) GetAccountInstructions(context.Context, *connect.Request[v1.GetAccountInstructionsRequest]) (*connect.Response[v1.GetAccountInstructionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.AccountService.GetAccountInstructions is not implemented"))
+}
+
+func (UnimplementedAccountServiceHandler) SetAccountInstructions(context.Context, *connect.Request[v1.SetAccountInstructionsRequest]) (*connect.Response[v1.SetAccountInstructionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.AccountService.SetAccountInstructions is not implemented"))
 }

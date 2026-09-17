@@ -51,6 +51,36 @@ func (s *accountService) RemoveAccount(ctx context.Context, req *connect.Request
 	return connect.NewResponse(&codingowlv1.RemoveAccountResponse{Account: toAccountProto(a)}), nil
 }
 
+func (s *accountService) AccountCredential(ctx context.Context, req *connect.Request[codingowlv1.AccountCredentialRequest]) (*connect.Response[codingowlv1.AccountCredentialResponse], error) {
+	a, token, err := s.accounts.Credential(ctx, req.Msg.GetName())
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return connect.NewResponse(&codingowlv1.AccountCredentialResponse{
+		Account: toAccountProto(a), Token: token,
+	}), nil
+}
+
+func (s *accountService) GetAccountInstructions(ctx context.Context, req *connect.Request[codingowlv1.GetAccountInstructionsRequest]) (*connect.Response[codingowlv1.GetAccountInstructionsResponse], error) {
+	in, err := s.accounts.Instructions(ctx, req.Msg.GetName())
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return connect.NewResponse(&codingowlv1.GetAccountInstructionsResponse{
+		Instructions: toInstructionsProto(in),
+	}), nil
+}
+
+func (s *accountService) SetAccountInstructions(ctx context.Context, req *connect.Request[codingowlv1.SetAccountInstructionsRequest]) (*connect.Response[codingowlv1.SetAccountInstructionsResponse], error) {
+	in, err := s.accounts.SetInstructions(ctx, req.Msg.GetName(), req.Msg.GetText())
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return connect.NewResponse(&codingowlv1.SetAccountInstructionsResponse{
+		Instructions: toInstructionsProto(in),
+	}), nil
+}
+
 func toAccountProto(a account.Account) *codingowlv1.Account {
 	return &codingowlv1.Account{
 		Name:            a.Name,
@@ -59,5 +89,15 @@ func toAccountProto(a account.Account) *codingowlv1.Account {
 		HasCredential:   a.HasCredential,
 		FailoverAllowed: a.FailoverAllowed,
 		Created:         timestamppb.New(a.Created),
+	}
+}
+
+func toInstructionsProto(in account.Instructions) *codingowlv1.Instructions {
+	return &codingowlv1.Instructions{
+		Account: in.Account,
+		Driver:  in.Driver,
+		File:    in.File,
+		Path:    in.Path,
+		Text:    in.Text,
 	}
 }

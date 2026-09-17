@@ -43,7 +43,8 @@ A Project names the Account its Jobs run on in its configuration file:
 
     account: work`,
 	}
-	cmd.AddCommand(newAccountAddCmd(env), newAccountListCmd(env), newAccountRemoveCmd(env))
+	cmd.AddCommand(newAccountAddCmd(env), newAccountListCmd(env), newAccountRemoveCmd(env),
+		newAccountExecCmd(env), newAccountInstructionsCmd(env))
 	return cmd
 }
 
@@ -114,6 +115,14 @@ input instead, for a machine that has one already.`,
 				_, _ = fmt.Fprintf(env.Stdout, "account %s added, on %s\n", a.Name, a.Driver)
 				_, _ = fmt.Fprintf(env.Stdout, "configuration directory: %s\n", a.ConfigDir)
 				_, _ = fmt.Fprintf(env.Stdout, "run its jobs by putting `account: %s` in a project's configuration\n", a.Name)
+				// The directory above is the tool's own, which is what makes
+				// the tool's own commands the way to configure this Account.
+				// Printing where it is without saying that leaves the user to
+				// work out what to do with a path.
+				_, _ = fmt.Fprintf(env.Stdout,
+					"configure it with its tool's own commands, as in `owl account exec %s -- mcp list`\n", a.Name)
+				_, _ = fmt.Fprintf(env.Stdout,
+					"give every run on it standing instructions with `owl account instructions edit %s`\n", a.Name)
 				return nil
 			})
 		},

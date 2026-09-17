@@ -22,6 +22,93 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Instructions are an Account's standing instructions: text every Run on that
+// Account reads, whichever Project the Run is for (ADR-0037).
+type Instructions struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Account is whose they are.
+	Account string `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	// Driver is the coding tool that Account is on.
+	Driver string `protobuf:"bytes,2,opt,name=driver,proto3" json:"driver,omitempty"`
+	// File is what that Driver's tool calls the file, and is empty for a tool
+	// that reads no such file. A caller with an empty file has nothing to show
+	// and nothing to save.
+	File string `protobuf:"bytes,3,opt,name=file,proto3" json:"file,omitempty"`
+	// Path is where the file is, so a caller can say where what it shows came
+	// from. It is empty when file is.
+	Path string `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
+	// Text is what the file says, and is empty for an Account that has been
+	// given none.
+	Text          string `protobuf:"bytes,5,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Instructions) Reset() {
+	*x = Instructions{}
+	mi := &file_codingowl_v1_account_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Instructions) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Instructions) ProtoMessage() {}
+
+func (x *Instructions) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_account_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Instructions.ProtoReflect.Descriptor instead.
+func (*Instructions) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *Instructions) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *Instructions) GetDriver() string {
+	if x != nil {
+		return x.Driver
+	}
+	return ""
+}
+
+func (x *Instructions) GetFile() string {
+	if x != nil {
+		return x.File
+	}
+	return ""
+}
+
+func (x *Instructions) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *Instructions) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
 // Account is a subscription Owl runs work on.
 type Account struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -44,7 +131,7 @@ type Account struct {
 
 func (x *Account) Reset() {
 	*x = Account{}
-	mi := &file_codingowl_v1_account_proto_msgTypes[0]
+	mi := &file_codingowl_v1_account_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -56,7 +143,7 @@ func (x *Account) String() string {
 func (*Account) ProtoMessage() {}
 
 func (x *Account) ProtoReflect() protoreflect.Message {
-	mi := &file_codingowl_v1_account_proto_msgTypes[0]
+	mi := &file_codingowl_v1_account_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -69,7 +156,7 @@ func (x *Account) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Account.ProtoReflect.Descriptor instead.
 func (*Account) Descriptor() ([]byte, []int) {
-	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{0}
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Account) GetName() string {
@@ -131,7 +218,7 @@ type AddAccountRequest struct {
 
 func (x *AddAccountRequest) Reset() {
 	*x = AddAccountRequest{}
-	mi := &file_codingowl_v1_account_proto_msgTypes[1]
+	mi := &file_codingowl_v1_account_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -143,7 +230,7 @@ func (x *AddAccountRequest) String() string {
 func (*AddAccountRequest) ProtoMessage() {}
 
 func (x *AddAccountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codingowl_v1_account_proto_msgTypes[1]
+	mi := &file_codingowl_v1_account_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -156,7 +243,7 @@ func (x *AddAccountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddAccountRequest.ProtoReflect.Descriptor instead.
 func (*AddAccountRequest) Descriptor() ([]byte, []int) {
-	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{1}
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *AddAccountRequest) GetName() string {
@@ -196,7 +283,7 @@ type AddAccountResponse struct {
 
 func (x *AddAccountResponse) Reset() {
 	*x = AddAccountResponse{}
-	mi := &file_codingowl_v1_account_proto_msgTypes[2]
+	mi := &file_codingowl_v1_account_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -208,7 +295,7 @@ func (x *AddAccountResponse) String() string {
 func (*AddAccountResponse) ProtoMessage() {}
 
 func (x *AddAccountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codingowl_v1_account_proto_msgTypes[2]
+	mi := &file_codingowl_v1_account_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -221,7 +308,7 @@ func (x *AddAccountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddAccountResponse.ProtoReflect.Descriptor instead.
 func (*AddAccountResponse) Descriptor() ([]byte, []int) {
-	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{2}
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *AddAccountResponse) GetAccount() *Account {
@@ -239,7 +326,7 @@ type ListAccountsRequest struct {
 
 func (x *ListAccountsRequest) Reset() {
 	*x = ListAccountsRequest{}
-	mi := &file_codingowl_v1_account_proto_msgTypes[3]
+	mi := &file_codingowl_v1_account_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -251,7 +338,7 @@ func (x *ListAccountsRequest) String() string {
 func (*ListAccountsRequest) ProtoMessage() {}
 
 func (x *ListAccountsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codingowl_v1_account_proto_msgTypes[3]
+	mi := &file_codingowl_v1_account_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -264,7 +351,7 @@ func (x *ListAccountsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAccountsRequest.ProtoReflect.Descriptor instead.
 func (*ListAccountsRequest) Descriptor() ([]byte, []int) {
-	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{3}
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{4}
 }
 
 type ListAccountsResponse struct {
@@ -276,7 +363,7 @@ type ListAccountsResponse struct {
 
 func (x *ListAccountsResponse) Reset() {
 	*x = ListAccountsResponse{}
-	mi := &file_codingowl_v1_account_proto_msgTypes[4]
+	mi := &file_codingowl_v1_account_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -288,7 +375,7 @@ func (x *ListAccountsResponse) String() string {
 func (*ListAccountsResponse) ProtoMessage() {}
 
 func (x *ListAccountsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codingowl_v1_account_proto_msgTypes[4]
+	mi := &file_codingowl_v1_account_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -301,7 +388,7 @@ func (x *ListAccountsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAccountsResponse.ProtoReflect.Descriptor instead.
 func (*ListAccountsResponse) Descriptor() ([]byte, []int) {
-	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{4}
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ListAccountsResponse) GetAccounts() []*Account {
@@ -320,7 +407,7 @@ type RemoveAccountRequest struct {
 
 func (x *RemoveAccountRequest) Reset() {
 	*x = RemoveAccountRequest{}
-	mi := &file_codingowl_v1_account_proto_msgTypes[5]
+	mi := &file_codingowl_v1_account_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -332,7 +419,7 @@ func (x *RemoveAccountRequest) String() string {
 func (*RemoveAccountRequest) ProtoMessage() {}
 
 func (x *RemoveAccountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_codingowl_v1_account_proto_msgTypes[5]
+	mi := &file_codingowl_v1_account_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -345,7 +432,7 @@ func (x *RemoveAccountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveAccountRequest.ProtoReflect.Descriptor instead.
 func (*RemoveAccountRequest) Descriptor() ([]byte, []int) {
-	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{5}
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RemoveAccountRequest) GetName() string {
@@ -366,7 +453,7 @@ type RemoveAccountResponse struct {
 
 func (x *RemoveAccountResponse) Reset() {
 	*x = RemoveAccountResponse{}
-	mi := &file_codingowl_v1_account_proto_msgTypes[6]
+	mi := &file_codingowl_v1_account_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -378,7 +465,7 @@ func (x *RemoveAccountResponse) String() string {
 func (*RemoveAccountResponse) ProtoMessage() {}
 
 func (x *RemoveAccountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_codingowl_v1_account_proto_msgTypes[6]
+	mi := &file_codingowl_v1_account_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -391,7 +478,7 @@ func (x *RemoveAccountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveAccountResponse.ProtoReflect.Descriptor instead.
 func (*RemoveAccountResponse) Descriptor() ([]byte, []int) {
-	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{6}
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RemoveAccountResponse) GetAccount() *Account {
@@ -401,11 +488,303 @@ func (x *RemoveAccountResponse) GetAccount() *Account {
 	return nil
 }
 
+type AccountCredentialRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountCredentialRequest) Reset() {
+	*x = AccountCredentialRequest{}
+	mi := &file_codingowl_v1_account_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountCredentialRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountCredentialRequest) ProtoMessage() {}
+
+func (x *AccountCredentialRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_account_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountCredentialRequest.ProtoReflect.Descriptor instead.
+func (*AccountCredentialRequest) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *AccountCredentialRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type AccountCredentialResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Account is the Account the secret belongs to, which carries the
+	// configuration directory the tool has to be run against.
+	Account *Account `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	// Token is the long-lived token that Account draws on.
+	Token         string `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountCredentialResponse) Reset() {
+	*x = AccountCredentialResponse{}
+	mi := &file_codingowl_v1_account_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountCredentialResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountCredentialResponse) ProtoMessage() {}
+
+func (x *AccountCredentialResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_account_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountCredentialResponse.ProtoReflect.Descriptor instead.
+func (*AccountCredentialResponse) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *AccountCredentialResponse) GetAccount() *Account {
+	if x != nil {
+		return x.Account
+	}
+	return nil
+}
+
+func (x *AccountCredentialResponse) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+type GetAccountInstructionsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAccountInstructionsRequest) Reset() {
+	*x = GetAccountInstructionsRequest{}
+	mi := &file_codingowl_v1_account_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAccountInstructionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAccountInstructionsRequest) ProtoMessage() {}
+
+func (x *GetAccountInstructionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_account_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAccountInstructionsRequest.ProtoReflect.Descriptor instead.
+func (*GetAccountInstructionsRequest) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *GetAccountInstructionsRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type GetAccountInstructionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Instructions  *Instructions          `protobuf:"bytes,1,opt,name=instructions,proto3" json:"instructions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAccountInstructionsResponse) Reset() {
+	*x = GetAccountInstructionsResponse{}
+	mi := &file_codingowl_v1_account_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAccountInstructionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAccountInstructionsResponse) ProtoMessage() {}
+
+func (x *GetAccountInstructionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_account_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAccountInstructionsResponse.ProtoReflect.Descriptor instead.
+func (*GetAccountInstructionsResponse) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *GetAccountInstructionsResponse) GetInstructions() *Instructions {
+	if x != nil {
+		return x.Instructions
+	}
+	return nil
+}
+
+type SetAccountInstructionsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Name is whose instructions to write.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Text is what they should say. Blank takes them away.
+	Text          string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetAccountInstructionsRequest) Reset() {
+	*x = SetAccountInstructionsRequest{}
+	mi := &file_codingowl_v1_account_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetAccountInstructionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetAccountInstructionsRequest) ProtoMessage() {}
+
+func (x *SetAccountInstructionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_account_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetAccountInstructionsRequest.ProtoReflect.Descriptor instead.
+func (*SetAccountInstructionsRequest) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SetAccountInstructionsRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SetAccountInstructionsRequest) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+type SetAccountInstructionsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Instructions are how they now stand.
+	Instructions  *Instructions `protobuf:"bytes,1,opt,name=instructions,proto3" json:"instructions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetAccountInstructionsResponse) Reset() {
+	*x = SetAccountInstructionsResponse{}
+	mi := &file_codingowl_v1_account_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetAccountInstructionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetAccountInstructionsResponse) ProtoMessage() {}
+
+func (x *SetAccountInstructionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_account_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetAccountInstructionsResponse.ProtoReflect.Descriptor instead.
+func (*SetAccountInstructionsResponse) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_account_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *SetAccountInstructionsResponse) GetInstructions() *Instructions {
+	if x != nil {
+		return x.Instructions
+	}
+	return nil
+}
+
 var File_codingowl_v1_account_proto protoreflect.FileDescriptor
 
 const file_codingowl_v1_account_proto_rawDesc = "" +
 	"\n" +
-	"\x1acodingowl/v1/account.proto\x12\fcodingowl.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xdc\x01\n" +
+	"\x1acodingowl/v1/account.proto\x12\fcodingowl.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"|\n" +
+	"\fInstructions\x12\x18\n" +
+	"\aaccount\x18\x01 \x01(\tR\aaccount\x12\x16\n" +
+	"\x06driver\x18\x02 \x01(\tR\x06driver\x12\x12\n" +
+	"\x04file\x18\x03 \x01(\tR\x04file\x12\x12\n" +
+	"\x04path\x18\x04 \x01(\tR\x04path\x12\x12\n" +
+	"\x04text\x18\x05 \x01(\tR\x04text\"\xdc\x01\n" +
 	"\aAccount\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06driver\x18\x02 \x01(\tR\x06driver\x12\x1d\n" +
@@ -427,12 +806,29 @@ const file_codingowl_v1_account_proto_rawDesc = "" +
 	"\x14RemoveAccountRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"H\n" +
 	"\x15RemoveAccountResponse\x12/\n" +
-	"\aaccount\x18\x01 \x01(\v2\x15.codingowl.v1.AccountR\aaccount2\x98\x02\n" +
+	"\aaccount\x18\x01 \x01(\v2\x15.codingowl.v1.AccountR\aaccount\".\n" +
+	"\x18AccountCredentialRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"b\n" +
+	"\x19AccountCredentialResponse\x12/\n" +
+	"\aaccount\x18\x01 \x01(\v2\x15.codingowl.v1.AccountR\aaccount\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\"3\n" +
+	"\x1dGetAccountInstructionsRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"`\n" +
+	"\x1eGetAccountInstructionsResponse\x12>\n" +
+	"\finstructions\x18\x01 \x01(\v2\x1a.codingowl.v1.InstructionsR\finstructions\"G\n" +
+	"\x1dSetAccountInstructionsRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\"`\n" +
+	"\x1eSetAccountInstructionsResponse\x12>\n" +
+	"\finstructions\x18\x01 \x01(\v2\x1a.codingowl.v1.InstructionsR\finstructions2\xee\x04\n" +
 	"\x0eAccountService\x12Q\n" +
 	"\n" +
 	"AddAccount\x12\x1f.codingowl.v1.AddAccountRequest\x1a .codingowl.v1.AddAccountResponse\"\x00\x12W\n" +
 	"\fListAccounts\x12!.codingowl.v1.ListAccountsRequest\x1a\".codingowl.v1.ListAccountsResponse\"\x00\x12Z\n" +
-	"\rRemoveAccount\x12\".codingowl.v1.RemoveAccountRequest\x1a#.codingowl.v1.RemoveAccountResponse\"\x00B\xb2\x01\n" +
+	"\rRemoveAccount\x12\".codingowl.v1.RemoveAccountRequest\x1a#.codingowl.v1.RemoveAccountResponse\"\x00\x12f\n" +
+	"\x11AccountCredential\x12&.codingowl.v1.AccountCredentialRequest\x1a'.codingowl.v1.AccountCredentialResponse\"\x00\x12u\n" +
+	"\x16GetAccountInstructions\x12+.codingowl.v1.GetAccountInstructionsRequest\x1a,.codingowl.v1.GetAccountInstructionsResponse\"\x00\x12u\n" +
+	"\x16SetAccountInstructions\x12+.codingowl.v1.SetAccountInstructionsRequest\x1a,.codingowl.v1.SetAccountInstructionsResponse\"\x00B\xb2\x01\n" +
 	"\x10com.codingowl.v1B\fAccountProtoP\x01Z?github.com/vojtechmares/coding-owl/gen/codingowl/v1;codingowlv1\xa2\x02\x03CXX\xaa\x02\fCodingowl.V1\xca\x02\fCodingowl\\V1\xe2\x02\x18Codingowl\\V1\\GPBMetadata\xea\x02\rCodingowl::V1b\x06proto3"
 
 var (
@@ -447,33 +843,49 @@ func file_codingowl_v1_account_proto_rawDescGZIP() []byte {
 	return file_codingowl_v1_account_proto_rawDescData
 }
 
-var file_codingowl_v1_account_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_codingowl_v1_account_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_codingowl_v1_account_proto_goTypes = []any{
-	(*Account)(nil),               // 0: codingowl.v1.Account
-	(*AddAccountRequest)(nil),     // 1: codingowl.v1.AddAccountRequest
-	(*AddAccountResponse)(nil),    // 2: codingowl.v1.AddAccountResponse
-	(*ListAccountsRequest)(nil),   // 3: codingowl.v1.ListAccountsRequest
-	(*ListAccountsResponse)(nil),  // 4: codingowl.v1.ListAccountsResponse
-	(*RemoveAccountRequest)(nil),  // 5: codingowl.v1.RemoveAccountRequest
-	(*RemoveAccountResponse)(nil), // 6: codingowl.v1.RemoveAccountResponse
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
+	(*Instructions)(nil),                   // 0: codingowl.v1.Instructions
+	(*Account)(nil),                        // 1: codingowl.v1.Account
+	(*AddAccountRequest)(nil),              // 2: codingowl.v1.AddAccountRequest
+	(*AddAccountResponse)(nil),             // 3: codingowl.v1.AddAccountResponse
+	(*ListAccountsRequest)(nil),            // 4: codingowl.v1.ListAccountsRequest
+	(*ListAccountsResponse)(nil),           // 5: codingowl.v1.ListAccountsResponse
+	(*RemoveAccountRequest)(nil),           // 6: codingowl.v1.RemoveAccountRequest
+	(*RemoveAccountResponse)(nil),          // 7: codingowl.v1.RemoveAccountResponse
+	(*AccountCredentialRequest)(nil),       // 8: codingowl.v1.AccountCredentialRequest
+	(*AccountCredentialResponse)(nil),      // 9: codingowl.v1.AccountCredentialResponse
+	(*GetAccountInstructionsRequest)(nil),  // 10: codingowl.v1.GetAccountInstructionsRequest
+	(*GetAccountInstructionsResponse)(nil), // 11: codingowl.v1.GetAccountInstructionsResponse
+	(*SetAccountInstructionsRequest)(nil),  // 12: codingowl.v1.SetAccountInstructionsRequest
+	(*SetAccountInstructionsResponse)(nil), // 13: codingowl.v1.SetAccountInstructionsResponse
+	(*timestamppb.Timestamp)(nil),          // 14: google.protobuf.Timestamp
 }
 var file_codingowl_v1_account_proto_depIdxs = []int32{
-	7, // 0: codingowl.v1.Account.created:type_name -> google.protobuf.Timestamp
-	0, // 1: codingowl.v1.AddAccountResponse.account:type_name -> codingowl.v1.Account
-	0, // 2: codingowl.v1.ListAccountsResponse.accounts:type_name -> codingowl.v1.Account
-	0, // 3: codingowl.v1.RemoveAccountResponse.account:type_name -> codingowl.v1.Account
-	1, // 4: codingowl.v1.AccountService.AddAccount:input_type -> codingowl.v1.AddAccountRequest
-	3, // 5: codingowl.v1.AccountService.ListAccounts:input_type -> codingowl.v1.ListAccountsRequest
-	5, // 6: codingowl.v1.AccountService.RemoveAccount:input_type -> codingowl.v1.RemoveAccountRequest
-	2, // 7: codingowl.v1.AccountService.AddAccount:output_type -> codingowl.v1.AddAccountResponse
-	4, // 8: codingowl.v1.AccountService.ListAccounts:output_type -> codingowl.v1.ListAccountsResponse
-	6, // 9: codingowl.v1.AccountService.RemoveAccount:output_type -> codingowl.v1.RemoveAccountResponse
-	7, // [7:10] is the sub-list for method output_type
-	4, // [4:7] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	14, // 0: codingowl.v1.Account.created:type_name -> google.protobuf.Timestamp
+	1,  // 1: codingowl.v1.AddAccountResponse.account:type_name -> codingowl.v1.Account
+	1,  // 2: codingowl.v1.ListAccountsResponse.accounts:type_name -> codingowl.v1.Account
+	1,  // 3: codingowl.v1.RemoveAccountResponse.account:type_name -> codingowl.v1.Account
+	1,  // 4: codingowl.v1.AccountCredentialResponse.account:type_name -> codingowl.v1.Account
+	0,  // 5: codingowl.v1.GetAccountInstructionsResponse.instructions:type_name -> codingowl.v1.Instructions
+	0,  // 6: codingowl.v1.SetAccountInstructionsResponse.instructions:type_name -> codingowl.v1.Instructions
+	2,  // 7: codingowl.v1.AccountService.AddAccount:input_type -> codingowl.v1.AddAccountRequest
+	4,  // 8: codingowl.v1.AccountService.ListAccounts:input_type -> codingowl.v1.ListAccountsRequest
+	6,  // 9: codingowl.v1.AccountService.RemoveAccount:input_type -> codingowl.v1.RemoveAccountRequest
+	8,  // 10: codingowl.v1.AccountService.AccountCredential:input_type -> codingowl.v1.AccountCredentialRequest
+	10, // 11: codingowl.v1.AccountService.GetAccountInstructions:input_type -> codingowl.v1.GetAccountInstructionsRequest
+	12, // 12: codingowl.v1.AccountService.SetAccountInstructions:input_type -> codingowl.v1.SetAccountInstructionsRequest
+	3,  // 13: codingowl.v1.AccountService.AddAccount:output_type -> codingowl.v1.AddAccountResponse
+	5,  // 14: codingowl.v1.AccountService.ListAccounts:output_type -> codingowl.v1.ListAccountsResponse
+	7,  // 15: codingowl.v1.AccountService.RemoveAccount:output_type -> codingowl.v1.RemoveAccountResponse
+	9,  // 16: codingowl.v1.AccountService.AccountCredential:output_type -> codingowl.v1.AccountCredentialResponse
+	11, // 17: codingowl.v1.AccountService.GetAccountInstructions:output_type -> codingowl.v1.GetAccountInstructionsResponse
+	13, // 18: codingowl.v1.AccountService.SetAccountInstructions:output_type -> codingowl.v1.SetAccountInstructionsResponse
+	13, // [13:19] is the sub-list for method output_type
+	7,  // [7:13] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_codingowl_v1_account_proto_init() }
@@ -487,7 +899,7 @@ func file_codingowl_v1_account_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codingowl_v1_account_proto_rawDesc), len(file_codingowl_v1_account_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

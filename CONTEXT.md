@@ -71,6 +71,14 @@ The share of an Account's rate-limit window that Owl will not schedule past,
 measured against the account's total usage rather than Owl's alone.
 _Avoid_: quota, budget, cap, allowance
 
+**Standing instructions**:
+Text an Account carries that every Run on it reads, whichever Project the Run
+is for. Kept in the Account's configuration directory as the file that
+Account's coding tool reads instructions from, so the tool reads them itself
+and Owl injects nothing (ADR-0037). Distinct from a Project's unattended
+clauses, which hold for that Project alone.
+_Avoid_: memory, profile, preferences, prompt, rules
+
 ### Doing the work
 
 **Agent**:

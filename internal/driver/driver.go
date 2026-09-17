@@ -154,6 +154,18 @@ type Driver interface {
 	// (ADR-0019). It runs in the Account's own configuration directory rather
 	// than the user's.
 	SetupToken(configDir string) (agent.Invocation, error)
+	// Exec builds the tool's own CLI, run against an Account's configuration
+	// directory with that Account's credential. It is how an Account is
+	// configured with the commands the tool already has - its MCP servers,
+	// its plugins, whatever it grows next - without Owl having to model any
+	// of them (ADR-0019). The arguments are the user's and reach the tool
+	// untouched.
+	Exec(configDir, token string, args []string) (agent.Invocation, error)
+	// InstructionsFile is the file inside an Account's configuration
+	// directory that this tool reads standing instructions from, and empty
+	// for a tool that reads none. The name is the tool's own, which is why it
+	// lives here rather than where Accounts do (ADR-0018, ADR-0037).
+	InstructionsFile() string
 	// SkillsDir is where this tool reads Skills from, relative to the worktree
 	// it runs in (ADR-0033). It is the tool's own convention, which is why it
 	// lives behind the Driver rather than in the scheduler.

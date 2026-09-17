@@ -42,6 +42,12 @@ const tokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
 // (ADR-0033).
 const skillsDir = ".claude/skills"
 
+// instructionsName is the file Claude Code reads user-level instructions from
+// inside its configuration directory. Owl writes an Account's standing
+// instructions there, so every Run on that Account reads them whichever
+// Project it is for (ADR-0037).
+const instructionsName = "CLAUDE.md"
+
 // MinVersion is the oldest Claude Code Owl drives, and NextMajor the release
 // it stops at. The flags below are a CLI contract rather than an API, so the
 // range is pinned and checked before every Run (ADR-0012).
@@ -324,18 +330,44 @@ func (d *Driver) Command(req driver.Request) (agent.Invocation, error) {
 // the Account's own configuration directory, so the flow never touches the
 // user's own (ADR-0019).
 func (d *Driver) SetupToken(configDir string) (agent.Invocation, error) {
+	// The setup authenticates the Account, so it is the one command that runs
+	// without its credential: there is not one yet.
+	return d.interactive(configDir, "", []string{"setup-token"})
+}
+
+// Exec builds the tool's own CLI against an Account's configuration
+// directory, which is what makes that Account configurable with the commands
+// Claude Code already has - `mcp add`, `plugin install`, and whatever it
+// grows next. Owl models none of them: the configuration directory is the
+// interface, and this only makes it reachable (ADR-0019, ADR-0037).
+func (d *Driver) Exec(configDir, token string, args []string) (agent.Invocation, error) {
+	if len(args) == 0 {
+		return agent.Invocation{}, errors.New("name a command to run, as in: owl account exec <account> -- mcp list")
+	}
+	return d.interactive(configDir, token, args)
+}
+
+// InstructionsFile is where Claude Code reads an Account's standing
+// instructions from.
+func (*Driver) InstructionsFile() string { return instructionsName }
+
+// interactive builds a command a person runs at their own terminal against an
+// Account's configuration directory. Unlike an Agent it may prompt, because
+// somebody is there to answer; like an Agent it sees the Account's directory
+// and credential and none of the daemon's own (ADR-0019).
+func (d *Driver) interactive(configDir, token string, args []string) (agent.Invocation, error) {
 	path, err := d.lookPath()
 	if err != nil {
 		return agent.Invocation{}, err
 	}
-	env, err := accountEnv(configDir, "")
+	env, err := accountEnv(configDir, token)
 	if err != nil {
 		return agent.Invocation{}, err
 	}
-	// The setup runs in the Account's own directory, not in whatever directory
-	// the user happened to type the command in: it is the tool's own flow, and
-	// an Agent belongs where its work is (ADR-0006, ADR-0019).
-	return agent.Invocation{Path: path, Args: []string{"setup-token"}, Dir: configDir, Env: env, Unset: daemonCredentials}, nil
+	// It runs in the Account's own directory, not in whatever directory the
+	// user happened to type the command in: it is the tool's own flow, acting
+	// on that Account (ADR-0006, ADR-0019).
+	return agent.Invocation{Path: path, Args: args, Dir: configDir, Env: env, Unset: daemonCredentials}, nil
 }
 
 // settingsName is the tool's own settings file inside a configuration

@@ -17,6 +17,36 @@ service AccountService {
   // RemoveAccount takes an Account and its secret away. It is refused while
   // any Job records having run on it (ADR-0023).
   rpc RemoveAccount(RemoveAccountRequest) returns (RemoveAccountResponse) {}
+  // AccountCredential returns an Account with the secret to run its tool on,
+  // which is what `owl account exec` needs to run that tool as the Account.
+  // It is the one call that hands a secret back, and it does so because the
+  // command runs at the user's own terminal and the daemon cannot run it for
+  // them. The socket is the user's alone (ADR-0004).
+  rpc AccountCredential(AccountCredentialRequest) returns (AccountCredentialResponse) {}
+  // GetAccountInstructions returns the standing instructions every Run on an
+  // Account reads (ADR-0037).
+  rpc GetAccountInstructions(GetAccountInstructionsRequest) returns (GetAccountInstructionsResponse) {}
+  // SetAccountInstructions writes them. Text that is blank takes them away.
+  rpc SetAccountInstructions(SetAccountInstructionsRequest) returns (SetAccountInstructionsResponse) {}
+}
+
+// Instructions are an Account's standing instructions: text every Run on that
+// Account reads, whichever Project the Run is for (ADR-0037).
+message Instructions {
+  // Account is whose they are.
+  string account = 1;
+  // Driver is the coding tool that Account is on.
+  string driver = 2;
+  // File is what that Driver's tool calls the file, and is empty for a tool
+  // that reads no such file. A caller with an empty file has nothing to show
+  // and nothing to save.
+  string file = 3;
+  // Path is where the file is, so a caller can say where what it shows came
+  // from. It is empty when file is.
+  string path = 4;
+  // Text is what the file says, and is empty for an Account that has been
+  // given none.
+  string text = 5;
 }
 
 // Account is a subscription Owl runs work on.
@@ -66,4 +96,36 @@ message RemoveAccountResponse {
   // Account is the Account as it last stood, so the caller can say where the
   // configuration directory it left behind is.
   Account account = 1;
+}
+
+message AccountCredentialRequest {
+  string name = 1;
+}
+
+message AccountCredentialResponse {
+  // Account is the Account the secret belongs to, which carries the
+  // configuration directory the tool has to be run against.
+  Account account = 1;
+  // Token is the long-lived token that Account draws on.
+  string token = 2;
+}
+
+message GetAccountInstructionsRequest {
+  string name = 1;
+}
+
+message GetAccountInstructionsResponse {
+  Instructions instructions = 1;
+}
+
+message SetAccountInstructionsRequest {
+  // Name is whose instructions to write.
+  string name = 1;
+  // Text is what they should say. Blank takes them away.
+  string text = 2;
+}
+
+message SetAccountInstructionsResponse {
+  // Instructions are how they now stand.
+  Instructions instructions = 1;
 }
