@@ -325,6 +325,48 @@ links to `/docs/decisions/*`. D4 works.
 installed on this machine; they build the desktop release and have nothing to
 do with this branch. Everything else passes, the six new scenarios included.
 
+## What verification found
+
+Three rounds, because a PASS counts only for the commit it saw and the fixes
+moved the branch each time. The agents could not be given a `$VERDICTS`
+directory - this session may only write inside the worktree - so each returned
+its verdict as its final message instead.
+
+**The one real finding, round one, correctness: the manual stated a wrong
+default.** `--ttl` gets three Runs, not ten: `queue.DefaultTTL` is 3
+(`internal/queue/queue.go`:48), applied by `Add` (:184) and by `Extend` (:344)
+whenever the flag is unset. D5 said to narrate from the cobra help, and the
+cobra help is itself stale - `internal/cli/queue.go`:44,79 and
+`internal/cli/run.go`:252,278 all still say ten, left behind by the commit that
+made a Job default to three. The pages are fixed; the help text is not, because
+a docs issue is the wrong place to change CLI output. Filed as **#141**, with a
+comment recording that `docs/adr/0025`:29,46 carries the same stale number.
+
+The lesson for whoever narrates the next page: the help text is the project's
+voice, not its truth. Check a number against the constant.
+
+**Two notes acted on rather than deferred.** The homepage's "Follow the quick
+start" linked `/docs/guide#quick-start`, which this branch turned into a
+three-line pointer - a regression this work created, so it was repaired here
+(`website/src/pages/index.astro`:61 now goes to `/docs/getting-started`; the
+"Get started" button above it still points at the guide's Installing section,
+which is #127's to move). And `owl account list` prints a failover column the
+page's list of columns left out.
+
+**Two left alone, on purpose.** The Account sections of
+`projects-and-accounts.md` are near-verbatim copies of README.md:206-252, which
+is the drift D2 argues against - but `## Configuration` is #124's to move, and
+both reviewers agreed to leave it. Until #124 lands the two copies change
+together. And S4 does not catch a bogus word after a leaf command
+(`owl status json`): telling that from a legitimate argument needs arity that
+`owl skills update [name...]` does not have, and the false positives would cost
+more than the gap.
+
+**S1 was tightened twice.** First it tested three weaker things than its own
+sheet clause; it now splits the page into `##` sections and requires each
+step's command in that step's own section. Confirmed by hand that it fails when
+a command is moved out of its section.
+
 ## State
 
 - [x] Blocker check
@@ -335,6 +377,11 @@ do with this branch. Everything else passes, the six new scenarios included.
 - [x] Loader link resolution + PUBLISHED
 - [x] Website README, /docs subtitle, CI step
 - [x] `make lint && make test`, website build
-- [ ] Verification agents all PASS
+- [x] Verification agents all PASS (rounds one and two; round three running at
+      the time of writing)
 - [ ] PR opened, CI green
 - [ ] Comment on #127 and #124 with the ids, URLs and reserved order slots
+
+`bin/owl-verify`, built by a verification agent, could not be deleted: `rm` is
+refused in this session. It is untracked and covered by `.gitignore`, so it
+cannot reach a commit, but it is still sitting in the worktree.
