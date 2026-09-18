@@ -32,8 +32,65 @@ Owl speaks to ` + strings.Join(chat.Providers, " and ") + `. Which models a
 provider offers is Owl's to know for Anthropic and yours to say for
 OpenRouter, which carries whatever your account has.`,
 	}
-	cmd.AddCommand(newProvidersAddCmd(env), newProvidersListCmd(env), newProvidersRemoveCmd(env))
+	cmd.AddCommand(newProvidersAddCmd(env), newProvidersListCmd(env),
+		newProvidersRemoveCmd(env), newProvidersSupportedCmd(env))
 	return cmd
+}
+
+// providerAbout is what each provider is, in one line. Which providers there
+// are belongs to internal/chat; how they are described to someone choosing
+// between them is the CLI's, and the wording is the one the providers and
+// providers add help already use, so the two do not drift into saying
+// different things. providersSupportedNoted keeps a provider added later from
+// printing a blank line here.
+var providerAbout = map[string]string{
+	chat.Anthropic:  "The Anthropic API, spoken directly",
+	chat.OpenRouter: "OpenRouter, which speaks the OpenAI shape for any model it offers",
+}
+
+// newProvidersSupportedCmd names the providers Owl drives, whether or not any
+// of them is configured. It is the one providers command that does not ask the
+// daemon: the user it is for has configured nothing and may not have a daemon
+// running at all, which is why owl providers list cannot answer for them.
+func newProvidersSupportedCmd(env Env) *cobra.Command {
+	return &cobra.Command{
+		Use:   "supported",
+		Short: "List the model providers Owl can be configured with",
+		Long: `List the model providers Owl can be configured with.
+
+These are the names "owl providers add <provider>" takes, and they are what
+Owl was built with rather than what anybody configured: this answers before
+there is anything to list, and without a daemon running.
+
+Which models a provider offers is Owl's to know for Anthropic and yours to say
+for OpenRouter, which carries whatever your account has.`,
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			_, _ = fmt.Fprint(env.Stdout, "providers Owl drives:\n\n")
+			w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
+			_, _ = fmt.Fprintln(w, "PROVIDER\tMODELS\tABOUT")
+			for _, name := range chat.Providers {
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", name, providerModels(name), providerAbout[name])
+			}
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(env.Stdout,
+				"\nconfigure one with: owl providers add <provider> --key-stdin < key.txt\n")
+			return nil
+		},
+	}
+}
+
+// providerModels says where a provider's models come from. It is derived from
+// what chat holds rather than written out again, so that it cannot disagree
+// with what owl providers add will accept: a provider with no models of Owl's
+// own is one whose models the user has to name.
+func providerModels(name string) string {
+	if len(chat.DefaultModels[name]) > 0 {
+		return "Owl's own; no --model needed"
+	}
+	return "yours; name them with --model"
 }
 
 func newProvidersAddCmd(env Env) *cobra.Command {
