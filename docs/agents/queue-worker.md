@@ -92,11 +92,11 @@ Re-read the issue once more, top to bottom, and diff your branch against `main`.
 
 ## Step 6 - verification agents
 
-Launch these three agents in parallel with the Agent tool. Give each one the issue number, the branch name, the path to the spec sheet, and the instruction to return a verdict of `PASS` or `FAIL` with a numbered list of findings, each with a file and line. Agents review only; they must not modify files in the repository.
+Launch these three agents in parallel with the Agent tool, each by its `subagent_type`. Their review process and fail criteria live in `.agents/agents/`. Give each one the issue number, the branch name, the path to the spec sheet, and the verdict directory below. Each returns a verdict of `PASS` or `FAIL` with a numbered list of findings, each with a file and line. Agents review only; they must not modify files in the repository.
 
-1. **Security agent.** Review `git diff main...HEAD`. Fail if the change: hard-codes or logs secrets, tokens, or credentials; reads or writes files outside the project worktree, the directories Owl is configured to use, or the OS temp dir; touches keychains, SSH keys, shell profiles, or other user data without the issue asking for it; executes shell commands built from unescaped user or agent input; opens network connections the issue did not call for; or widens file permissions.
-2. **Correctness agent.** Read the issue and its comments, then the diff and the tests. Fail if any requirement from the issue is missing, partially done, or implemented differently from what the issue says; if tests assert the wrong thing or are tautological; if error paths are unhandled; or if the change contradicts `CONTEXT.md` terms or a `docs/adr/` decision.
-3. **Behavior test agent.** Take `tests/behavior/issue-<n>.md` as the source of truth. For every scenario, locate its test, run it, and additionally exercise the feature by hand the way a user would (build the binary, run the command, inspect the output). Fail if any scenario has no test, has a test that does not actually check the Then clause, or behaves differently when exercised manually than the sheet says. Also fail if the sheet itself was weakened since its first commit (`git log -p tests/behavior/issue-<n>.md`).
+1. **Security agent** - `security-reviewer`. Reviews `git diff main...HEAD` for leaked secrets, file access outside the allowed directories, touching user data, shell injection, unrequested network connections and widened permissions.
+2. **Correctness agent** - `correctness-reviewer`. Checks the diff and tests against every requirement in the issue and its comments, for tautological tests, unhandled error paths, and conflicts with `CONTEXT.md` or `docs/adr/`.
+3. **Behavior test agent** - `behavior-verifier`. Takes `tests/behavior/issue-<n>.md` as the source of truth, runs each scenario's test, exercises the feature by hand, and checks the sheet was not weakened since its first commit.
 
 **Collect the verdicts through files, and wait for them inside one turn.** An
 agent's result otherwise reaches you only as a notification, which arrives after
