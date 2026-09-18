@@ -30,10 +30,10 @@ owl add "Bump the Go version in the toolchain line" --no-plan
 Three more flags are worth knowing. `--model` and `--effort` decide, for this
 Job alone, what every phase of it runs as, over what the Project or Owl would
 otherwise choose. `--ttl` is how many Runs the Job may take before it is
-exhausted; it gets ten unless you say otherwise.
+exhausted; it gets three unless you say otherwise.
 
 ```
-owl add "Port the queue tests to table tests" --model anthropic/claude-opus --effort xhigh --ttl 3
+owl add "Port the queue tests to table tests" --model anthropic/claude-opus --effort xhigh --ttl 6
 ```
 
 ## The queue
@@ -43,9 +43,10 @@ owl queue list
 ```
 
 One row per Job waiting, in the order they will run, with the position, the id,
-the Project, the state and the beginning of the prompt. Jobs that have left the
-queue - done, cancelled, blocked - are left out; `--all` brings them back, with
-a dash where their position was.
+the Project, the state and the beginning of the prompt. Only the pending ones
+are listed: a Job that is running, done, cancelled or blocked is not waiting
+for a turn. `--all` brings every Job back, with a dash where a position would
+be.
 
 ```
 owl queue list --all
@@ -165,13 +166,13 @@ owl jobs drop 7 --force
 ## When a Job runs out of attempts
 
 A Run that was interrupted costs an attempt exactly as a failure does, so a Job
-can reach the end of its ten with the work half done. Extending adds to what is
-left rather than replacing it, and a Job that had run out goes back into the
-queue at the place it kept.
+can reach the end of its three with the work half done. Extending adds to what
+is left rather than replacing it, and a Job that had run out goes back into the
+queue at the place it kept. With no `--ttl` it is given three more.
 
 ```
 owl jobs extend 7
-owl jobs extend 7 --ttl 3
+owl jobs extend 7 --ttl 6
 ```
 
 ## Where to go next
