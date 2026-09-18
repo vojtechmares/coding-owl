@@ -87,10 +87,9 @@ gitignored, so nothing of it can be committed by accident and
 Nothing of the issue. If this Job is run again, it should only be to react to
 CI or to review comments on PR #138:
 
-1. `gh pr checks 138 --repo vojtechmares/coding-owl --watch --fail-fast`. The
-   three `TestS*Cask` failures seen locally are the missing Wails toolchain and
-   should not appear in CI; anything else is a real failure to fix on this
-   branch, followed by a fresh verification round.
+1. CI on #138 is **green**: `Build`, `desktop` and `test` all pass, `Deploy`
+   skipped. The three `TestS*Cask` failures seen locally really were the
+   missing Wails toolchain.
 2. Do not merge. AGENTS.md leaves that to the user.
 
 Notes the reviewers raised that were **not** acted on, deliberately, since all
