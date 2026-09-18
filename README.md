@@ -316,7 +316,7 @@ Owl honours the XDG variables on both macOS and Linux:
 | `owl logs <run> [-f]` | The Agent's own structured stream, one event per line |
 | `owl skills add\|list\|update\|remove` | Manage the Skills a Project gives its Agents |
 | `owl models` | The models a Job's phases can run on, aliases and pinned |
-| `owl providers add\|list\|remove` | Model providers the desktop chat speaks to |
+| `owl providers add\|list\|remove\|supported` | Model providers the desktop chat speaks to, and the ones it can be |
 | `owl gc` | Reclaim finished worktrees, report what is unfinished |
 | `owl daemon run\|install\|status` | Run, install and inspect the daemon |
 

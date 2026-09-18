@@ -6,6 +6,14 @@ All notable changes to Coding Owl are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `owl providers supported` names the model providers Owl can be configured
+  with, and how each one's models are decided. It prints what Owl was built
+  with rather than what is configured, so it answers before there is anything
+  to list and without a daemon running - which `owl providers list`, reporting
+  only what is already there, cannot.
+
 ## [0.1.0] - 2026-09-17
 
 ### Added
