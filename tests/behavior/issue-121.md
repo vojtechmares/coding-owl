@@ -55,6 +55,8 @@ the new pages is taken
 Then each resolves to a command path the binary has
 And every flag it passes appears in that command's `--help`
 And no invocation names a subcommand of a command that has none of that name
+And one shown in a fenced block, which is a command a reader is meant to type,
+is given at least as many arguments as its usage line says it needs
 
 ### S5 - the pages link to published pages, not to raw GitHub
 Given the new pages

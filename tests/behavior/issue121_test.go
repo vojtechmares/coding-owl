@@ -189,11 +189,16 @@ func TestS3ManualCoversTheEverydayCommands(t *testing.T) {
 	}
 }
 
-// owlNode is one command of the owl tree: the subcommands it has and the flags
-// its own --help names.
+// owlNode is one command of the owl tree: the subcommands it has, the flags
+// its own --help names and whether each takes a value, and how many arguments
+// its usage line says it needs.
 type owlNode struct {
 	children map[string]*owlNode
-	flags    map[string]bool
+	// flags maps every flag the command has to whether a value follows it, so
+	// that the value is not counted as an argument.
+	flags map[string]bool
+	// needs is how many arguments the usage line shows as required.
+	needs int
 }
 
 // helpSubcommands is what the "Available Commands:" block of a --help lists.
@@ -219,13 +224,13 @@ func helpSubcommands(help string) []string {
 	return out
 }
 
-// helpFlagLine is one line of a Flags block: an optional short form, then the
-// long one.
-var helpFlagLine = regexp.MustCompile(`^\s+(?:(-[a-zA-Z]), )?(--[a-z][a-z0-9-]*)`)
+// helpFlagLine is one line of a Flags block: an optional short form, the long
+// one, and the type of the value it takes, which a boolean flag has none of.
+var helpFlagLine = regexp.MustCompile(`^\s+(?:(-[a-zA-Z]), )?(--[a-z][a-z0-9-]*)( [a-zA-Z0-9]+)?\s{2,}`)
 
-// helpFlags is every flag a --help declares, short forms included. Only the
-// Flags blocks are read: a command's prose mentions flags too, and prose is
-// not what decides whether a flag exists.
+// helpFlags is every flag a --help declares, short forms included, mapped to
+// whether a value follows it. Only the Flags blocks are read: a command's
+// prose mentions flags too, and prose is not what decides whether one exists.
 func helpFlags(help string) map[string]bool {
 	out := map[string]bool{}
 	listing := false
@@ -242,13 +247,36 @@ func helpFlags(help string) map[string]bool {
 			continue
 		}
 		if m := helpFlagLine.FindStringSubmatch(ln); m != nil {
+			takesValue := strings.TrimSpace(m[3]) != ""
 			if m[1] != "" {
-				out[m[1]] = true
+				out[m[1]] = takesValue
 			}
-			out[m[2]] = true
+			out[m[2]] = takesValue
 		}
 	}
 	return out
+}
+
+// usagePlaceholder is one required argument of a usage line. Optional ones are
+// written in square brackets and are not counted.
+var usagePlaceholder = regexp.MustCompile(`<[a-z][a-z-]*>`)
+
+// helpNeeds is how many arguments a command's usage line shows as required.
+// Counting stops at a bare `--`, because what follows it is another tool's
+// command rather than this one's arguments.
+func helpNeeds(help string) int {
+	i := strings.Index(help, "Usage:\n")
+	if i < 0 {
+		return 0
+	}
+	usage := help[i+len("Usage:\n"):]
+	if j := strings.Index(usage, "\n"); j >= 0 {
+		usage = usage[:j]
+	}
+	if j := strings.Index(usage, " -- "); j >= 0 {
+		usage = usage[:j]
+	}
+	return len(usagePlaceholder.FindAllString(usage, -1))
 }
 
 // owlHelp is what the built binary prints for `owl <args...> --help`.
@@ -269,7 +297,7 @@ func owlHelp(t *testing.T, args []string) string {
 func owlTree(t *testing.T, args []string) *owlNode {
 	t.Helper()
 	help := owlHelp(t, args)
-	node := &owlNode{children: map[string]*owlNode{}, flags: helpFlags(help)}
+	node := &owlNode{children: map[string]*owlNode{}, flags: helpFlags(help), needs: helpNeeds(help)}
 	for _, name := range helpSubcommands(help) {
 		if name == "help" || name == "completion" {
 			continue
@@ -325,18 +353,26 @@ func docWords(s string) []docWord {
 // inlineSpan is a Markdown inline code span.
 var inlineSpan = regexp.MustCompile("`([^`\n]+)`")
 
+// docInvocation is one owl command a page shows, and whether it is shown to be
+// run. A line in a fenced block is: it has to be complete, arguments included.
+// An inline span names a command mid-sentence and needs no arguments.
+type docInvocation struct {
+	raw      string
+	runnable bool
+}
+
 // docInvocations is every owl command a page shows: each line of a fenced
 // block that runs one, and each inline span that names one.
-func docInvocations(doc string) []string {
-	var out []string
+func docInvocations(doc string) []docInvocation {
+	var out []docInvocation
 	for _, ln := range fencedLines(doc) {
 		if s := strings.TrimSpace(ln); s == "owl" || strings.HasPrefix(s, "owl ") {
-			out = append(out, s)
+			out = append(out, docInvocation{s, true})
 		}
 	}
 	for _, m := range inlineSpan.FindAllStringSubmatch(doc, -1) {
 		if s := strings.TrimSpace(m[1]); s == "owl" || strings.HasPrefix(s, "owl ") {
-			out = append(out, s)
+			out = append(out, docInvocation{s, false})
 		}
 	}
 	return out
@@ -348,8 +384,9 @@ func docInvocations(doc string) []string {
 var subcommandName = regexp.MustCompile(`^[a-z][a-z-]*$`)
 
 // checkInvocation walks one documented invocation against the real tree.
-func checkInvocation(t *testing.T, root *owlNode, page, raw string) {
+func checkInvocation(t *testing.T, root *owlNode, page string, shown docInvocation) {
 	t.Helper()
+	raw := shown.raw
 	words := docWords(raw)
 	// Everything after a bare `--` belongs to another tool, and a trailing
 	// comment is prose.
@@ -381,14 +418,29 @@ func checkInvocation(t *testing.T, root *owlNode, page, raw string) {
 			return
 		}
 	}
-	for _, w := range words[1:] {
+	// The arguments are what is left once the flags and their values are taken
+	// out, so that `--project my-app` is not read as an argument.
+	args := 0
+	for j := i; j < len(words); j++ {
+		w := words[j]
 		if w.quoted || !strings.HasPrefix(w.text, "-") || w.text == "-" {
+			args++
 			continue
 		}
-		name, _, _ := strings.Cut(w.text, "=")
-		if !node.flags[name] {
+		name, _, hadValue := strings.Cut(w.text, "=")
+		if takesValue, ok := node.flags[name]; !ok {
 			t.Errorf("%s shows `%s`, but `%s` has no %s flag", page, raw, strings.Join(said, " "), name)
+		} else if takesValue && !hadValue {
+			j++
 		}
+	}
+	// Only a command shown in a fenced block is one a reader is meant to type,
+	// so only that one is held to the arguments it needs. This is what catches
+	// the `owl logs -f` the README's quick start carried: a real command with
+	// a real flag, and no Run to print.
+	if shown.runnable && args < node.needs {
+		t.Errorf("%s shows `%s`, but `%s` needs %d argument(s) and is given %d",
+			page, raw, strings.Join(said, " "), node.needs, args)
 	}
 }
 
@@ -400,8 +452,8 @@ func TestS4DocumentedCommandsAreCommandsTheBinaryHas(t *testing.T) {
 		if len(shown) == 0 {
 			t.Errorf("%s shows no owl command at all", page)
 		}
-		for _, raw := range shown {
-			checkInvocation(t, root, page, raw)
+		for _, one := range shown {
+			checkInvocation(t, root, page, one)
 		}
 	}
 }

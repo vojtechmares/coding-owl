@@ -283,6 +283,10 @@ Owl honours the XDG variables on both macOS and Linux:
 Every command talks to the daemon over ConnectRPC on a unix socket. The CLI
 and the desktop app are both clients; the daemon is the single source of truth.
 
+For when to reach for which of them, the manual is in two pages:
+[Working with Jobs](docs/guide/jobs.md) and
+[Projects and Accounts](docs/guide/projects-and-accounts.md).
+
 ## Desktop app
 
 The desktop app is a Wails application with a React frontend. It is a pure
