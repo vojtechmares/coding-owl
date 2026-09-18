@@ -100,9 +100,12 @@ owl account list
 ```
 
 Every Account with its Driver, whether the credential store still holds its
-secret, whether it was recorded as one work may fail over to, and where its
-configuration directory is. An Account that has lost its credential cannot run
-anything, and the listing says so rather than showing a blank.
+secret, whether work on it was recorded as allowed to fail over to another
+Account, and where its configuration directory is. An Account that has lost its
+credential cannot run anything, and the listing says so rather than showing a
+blank. Failover itself is recorded and unused today
+([ADR-0019](../adr/0019-accounts.md)); `--failover` on `owl account add` sets
+the flag and nothing acts on it yet.
 
 ```
 owl account remove work
