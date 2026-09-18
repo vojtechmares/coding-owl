@@ -68,25 +68,37 @@ func TestS1GettingStartedIsTheSixStepHappyPath(t *testing.T) {
 		{"let it run, or make it", "owl start"},
 		{"review what it did", "owl status"},
 	}
-	at := 0
-	for _, s := range steps {
-		i := strings.Index(doc[at:], s.shows)
-		if i < 0 {
-			t.Fatalf("%s does not show %q, for the step that would %s, after the steps before it",
-				gettingStartedPage, s.shows, s.what)
-		}
-		at += i + len(s.shows)
+	// One `##` section per step, in this order, each showing its own command
+	// rather than leaving it to a section further down.
+	sections := docSections(doc)
+	if len(sections) < len(steps) {
+		t.Fatalf("%s has %d `##` sections; the six steps are one each", gettingStartedPage, len(sections))
 	}
-	if n := strings.Count(doc, "\n## "); n < len(steps) {
-		t.Errorf("%s has %d `##` sections; the six steps are one each", gettingStartedPage, n)
-	}
-	shown := strings.Join(fencedLines(doc), "\n")
-	for _, s := range steps {
-		if !strings.Contains(shown, s.shows) {
-			t.Errorf("%s talks about %q but never shows it; the step that would %s needs the command itself",
-				gettingStartedPage, s.shows, s.what)
+	for i, s := range steps {
+		if !strings.Contains(strings.Join(fencedLines(sections[i]), "\n"), s.shows) {
+			t.Errorf("%s does not show %q in its %s section; the step that would %s is where it belongs",
+				gettingStartedPage, s.shows, ordinal(i+1), s.what)
 		}
 	}
+}
+
+// docSections splits a page into its `##` sections in order, dropping whatever
+// stands before the first one.
+func docSections(doc string) []string {
+	parts := strings.Split(doc, "\n## ")
+	if len(parts) < 2 {
+		return nil
+	}
+	return parts[1:]
+}
+
+// ordinal names a section the way a sentence does.
+func ordinal(n int) string {
+	names := []string{"first", "second", "third", "fourth", "fifth", "sixth"}
+	if n >= 1 && n <= len(names) {
+		return names[n-1]
+	}
+	return strconv.Itoa(n) + "th"
 }
 
 // docEntry is one entry of the website's docs collection.
