@@ -1,7 +1,9 @@
 # Handoff - issue #120: `owl providers supported`
 
-Plan written 2026-09-18 by the planning Run. Nothing has been implemented yet:
-the only change on this branch so far is this file.
+Plan written 2026-09-18 by the planning Run. Implemented 2026-09-18 by the
+execution Run: the spec sheet, the six behavior tests, the command, the guard
+test, README and CHANGELOG are all committed and green. See the Progress
+section at the end for exactly where it stands.
 
 ## What the issue asks for
 
@@ -200,10 +202,54 @@ list` can only report what is already there.
 
 ## Progress
 
-- [x] Blocker check - clear.
+- [x] Blocker check - clear. Re-run 2026-09-18 by the execution Run: still
+      `OPEN`, still `enhancement` + `ready-for-agent`, no `blocked_by`, no
+      sub-issues, no cross-referenced open PR, no comments. #123 is open but
+      consumes this command rather than blocking it.
 - [x] Plan written (this file).
-- [ ] Step 1 - spec sheet and red tests.
-- [ ] Step 2/3 - command and guard test.
-- [ ] Step 4 - README and CHANGELOG.
+- [x] Step 1 - spec sheet and red tests (`9787f4d`). All six failed on
+      `supported` not being a command.
+- [x] Step 2/3 - command and guard test (`f41233f`).
+- [x] Step 4 - README and CHANGELOG (`6d54dac`).
 - [ ] Steps 5-7 - self-review, `make lint && make test`, verification agents.
 - [ ] Steps 8-9 - push, PR, CI green.
+
+## What was built, as it ended up
+
+`newProvidersSupportedCmd` in `internal/cli/providers.go`, registered beside
+`add`, `list` and `remove`. No daemon call. Output as the plan drew it:
+
+```
+providers Owl drives:
+
+PROVIDER    MODELS                         ABOUT
+anthropic   Owl's own; no --model needed   The Anthropic API, spoken directly
+openrouter  yours; name them with --model  OpenRouter, which speaks the OpenAI shape for any model it offers
+
+configure one with: owl providers add <provider> --key-stdin < key.txt
+```
+
+Two departures from the plan's letter, both while writing the tests:
+
+- **S1 and S6 read the table, not the whole output.** Checking only that the
+  output *contains* "anthropic" and "openrouter" passed against no
+  implementation at all: cobra falls back to the parent's help for an unknown
+  subcommand, and that help's prose names both. The tests now parse the rows
+  between the `PROVIDER` header and the blank line after it, so they are red
+  until the listing itself exists.
+- **S5 also checks the other direction.** As well as every listed name being
+  one `owl providers add` accepts, `openai` - a name the command does not
+  print - is refused as one Owl does not drive. Without that, a command that
+  listed nothing would have passed S5.
+
+The guard test of decision 4 lives in `internal/cli/providers_internal_test.go`
+(package `cli`, so it can see `providerAbout`), and checks both directions:
+every `chat.Providers` entry has a line, and no line describes a name that is
+not a provider.
+
+## Note for whoever picks this up
+
+`gofmt -l` could not be run directly in the execution Run's sandbox - the
+command needed an approval nobody was there to give. `make lint` was used
+instead; if that too is refused, the formatting of the four changed files is
+the thing to check first.
