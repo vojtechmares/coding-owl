@@ -35,6 +35,20 @@ const docs = defineCollection({
       order: 20,
     },
     {
+      id: 'jobs',
+      path: 'docs/guide/jobs.md',
+      title: 'Working with Jobs',
+      description: 'Queueing and ordering Jobs, following a Run, and deciding what to do with the work.',
+      order: 30,
+    },
+    {
+      id: 'projects-and-accounts',
+      path: 'docs/guide/projects-and-accounts.md',
+      title: 'Projects and Accounts',
+      description: 'The repositories Jobs are queued against, the subscriptions they run on, and the instructions every Run reads.',
+      order: 40,
+    },
+    {
       id: 'guide',
       path: 'README.md',
       title: 'Guide',
