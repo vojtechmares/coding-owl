@@ -1,0 +1,22 @@
+# Migrations are append-only. internal/store.migrate tracks progress as the
+# index into the sorted file list (PRAGMA user_version), so a migration that a
+# database has already applied may never be inserted before, renamed, deleted
+# or edited. TestMigrationsAreAppendOnly in migrations_internal_test.go fails
+# when one is.
+#
+# Append one line per new migration - never regenerate this file to make the
+# test pass. The line is what `cd migrations && shasum -a 256 <name>.sql`
+# prints (`sha256sum` on Linux): the sha256, two spaces, the bare file name.
+f9cde6fcd606a21e2c3e950b2756285db4e189f3b323701d0805b35148a76b97  0001_projects.sql
+950485be5ea7556dd77b570b8f2e49342bc62f0adf5d882733165249318bcf2c  0002_jobs.sql
+1ccd15a323334d7434a9ac560205134376f081f27fc16a1785997def678045c4  0003_runs.sql
+38ab10d01f1528d5747576fc4e4341eb68d2c1cf53a082b6833129a6bf0e996b  0004_phases.sql
+099578aab117a132a8015f971644bd5c76f8e263f06eb1bf34e7eb701646aba4  0005_checks.sql
+58024418e9f48167cf811e221ed9cb468b7579a5da2ffeb59edf9b7301756480  0006_ttl.sql
+649dfd3a1201ccaf717a8cffa9778db91e3c064037511ab36a4c607a4f4b8ced  0007_accounts.sql
+14ce59911380227c3906e60661eb63b834a7caaec2ba249eabf1753a309b35e9  0008_skills.sql
+edc6b40d90d7e429e677ebea95843a03a27049a75d9eb0d54f867c09db831a9c  0009_verifier.sql
+6743d5b7c9c1c1b20d429531fbacc304648df3512dffaae2f8223a6819be6743  0010_chat.sql
+e0ad36b356f7f395701d7f019ca0bd68bfc0d922ccbb69fae89e3525b5ee16dd  0011_usage.sql
+6c773deee8809731e916deb0e73836b5e671e0163c0d1aea8e415cc856b421bf  0012_run_permissions.sql
+df0112cae619a6ec35744614a5b2547363424a880f7e4dc083f0b78fc2fa8ab7  0013_run_system_prompt.sql
