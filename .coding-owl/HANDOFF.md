@@ -145,37 +145,56 @@ against "An OpenAI key is configured the same way", S3 against an invented
   this machine, not the branch: CI installs wails
   (`.github/workflows/ci.yml:90`), and nothing in the diff touches
   `tests/behavior/issue22_test.go` or the desktop build. The ten `TestS123*`
-  scenarios are green.
+  scenarios are green. Run twice, before and after the review fixes, with the
+  same three failures and no others.
 - `website/`: `pnpm install --frozen-lockfile`, `pnpm check` and `pnpm build`
   all green on Node v26.8.2 / pnpm 11.5.2. The built page is
   `dist/docs/chat-providers/index.html`; its ADR links resolved to
   `/docs/decisions/0019-accounts` and `/docs/decisions/0022-desktop-chat`, and
   the guide page's link to it resolved to `/docs/chat-providers`, which is the
-  `repoPath` fix working end to end. Re-run `pnpm build` after the last page
-  edit.
-- `security-reviewer` - **PASS**, three optional notes. Two were taken (the
-  `key.txt` example now carries a warning and a password-manager alternative;
-  `--base-url` now says when http is not enough). The third - clamping a `..`
-  that climbs above the repository root in `repoPath` - was **not** taken: the
-  reviewer itself found it unreachable (the result is only a map key, a regex
-  match, or a suffix on a GitHub URL, never a filesystem path), and diverging
-  from #142's copy of the helper would make that merge worse. Say so in the PR.
+  `repoPath` fix working end to end. Both were run again after the last page
+  edit, still green.
+
+### The three agents
+
+Each was run twice: once on the first implementation, once on HEAD after its
+findings were acted on, because a `PASS` counts only for the commit it saw.
+
+- `security-reviewer` - **PASS** both rounds. Three optional notes; two taken
+  (the `key.txt` example now carries a warning and a `pass show ... |` 
+  alternative; `--base-url` now says when http is not enough). The third -
+  clamping a `..` that climbs above the repository root in `repoPath` - was
+  **not** taken, and on re-review the agent agreed: the result is only a
+  `PUBLISHED` key, an ADR regex match or a suffix on the GitHub blob URL, never
+  a filesystem path, so there is no traversal; and diverging from #142's copy
+  of the helper would make that merge worse.
+- `correctness-reviewer` - **FAIL**, then **PASS**. Its finding was real and
+  worth recording: `claims(body, "account")` could not fail, because S9 already
+  forces the page to carry the help's sentence about "whatever your account
+  has". So the one requirement with no source of truth in `internal/chat` -
+  that a provider is not an Account and not a Driver - was the one requirement
+  nothing checked, which is exactly where the branch had shipped a false
+  statement about where a Driver is chosen. S7 now asserts the distinction and
+  checks `owl account add` and `owl account add --driver` against the binary.
+- `behavior-verifier` - **PASS** on the first round, with notes that led to
+  `claims` matching whole words rather than substrings and the stale-model scan
+  reading the whole page again.
 
 No `$VERDICTS` directory: creating a directory outside the worktree is blocked
 in this session, so the agents returned their verdicts as their final message
-instead of writing files.
+instead of writing files. For the same reason the behavior verifier could not
+build into a scratch directory, so the daemon-driven clauses of S3, S4 and S5
+were confirmed by their tests rather than by hand; it drove the CLI surface and
+the built site by hand.
 
 ## Steps left
 
-1. `correctness-reviewer` and `behavior-verifier` verdicts. Both were launched
-   before the two page edits above, so whatever they say counts for an earlier
-   commit and they have to be re-run on HEAD.
-2. Re-run `pnpm build` in `website/` after the last page edit.
-3. Push, open the PR against `main` with `Closes #123`, and say in the body that
+1. The `behavior-verifier` re-run on HEAD.
+2. Push, open the PR against `main` with `Closes #123`, and say in the body that
    `content.config.ts` and `repo.ts` will conflict with #142 and how to resolve
    it (keep one copy of `repoPath`; keep both `PUBLISHED` entries; keep both
    docs entries and let #142's renumbering win).
-4. Wait for CI with `gh pr checks --watch --fail-fast`. Do not merge.
+3. Wait for CI with `gh pr checks --watch --fail-fast`. Do not merge.
 
 ## Ruled out
 
