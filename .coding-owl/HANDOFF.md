@@ -402,6 +402,11 @@ a command is moved out of its section.
 - [x] Comment on #127 and #124 with the ids, URLs and reserved order slots
 - [ ] Nothing left. The PR waits for a person; do not merge it.
 
+One CI run went red on the way: `TestS13DaemonRestartEndsTheRunsThatWereGoing`
+from issue #11 raced `owl pause` against a Run still in its starting stage. It
+passed on a re-run of the same commit, and on a concurrent run of it, so it is
+intermittent and nothing to do with this branch. Filed as **#143**.
+
 `bin/owl-verify`, built by a verification agent, could not be deleted: `rm` is
 refused in this session. It is untracked and covered by `.gitignore`, so it
 cannot reach a commit, but it is still sitting in the worktree.
