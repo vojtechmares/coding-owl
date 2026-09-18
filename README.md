@@ -297,7 +297,8 @@ CLI can also call.
 It also carries a chat, answered by the daemon. The chat proposes commands and
 runs nothing without consent, and what it can run is a fixed allowlist of
 read-only programs executed directly, without a shell, confined to a Project or
-one of its worktrees.
+one of its worktrees. Which model answers it is configured with `owl providers`:
+see [Chat model providers](docs/guide/chat-providers.md).
 
 Screenshots live in [docs/desktop](docs/desktop).
 

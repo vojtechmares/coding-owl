@@ -38,15 +38,42 @@ func flat(text string) string {
 	return strings.Join(strings.Fields(text), " ")
 }
 
+// breaks are the lines that end a sentence without a full stop: a blank line,
+// a heading, a list item, a fence, a table row. Without them a claim could be
+// read across a code block, or out of two headings that happen to sit side by
+// side, and that is not a claim the page makes.
+var breaks = regexp.MustCompile("(?m)^\\s*$|^\\s*#+ |^\\s*[-*+] |^\\s*```|^\\s*\\|")
+
 // sentences are the sentences of some prose, flattened, for asking whether a
 // claim is made rather than whether two words happen to both appear.
 func sentences(text string) []string {
 	var out []string
-	for _, s := range regexp.MustCompile(`(?:\.|\n\n|:\n)\s`).Split(flat(text), -1) {
-		if s = strings.TrimSpace(s); s != "" {
-			out = append(out, s)
+	var block []string
+	flush := func() {
+		if len(block) == 0 {
+			return
+		}
+		for _, s := range strings.Split(flat(strings.Join(block, " ")), ". ") {
+			if s = strings.TrimSpace(s); s != "" {
+				out = append(out, s)
+			}
+		}
+		block = nil
+	}
+	for _, ln := range strings.Split(text, "\n") {
+		if !breaks.MatchString(ln) {
+			block = append(block, ln)
+			continue
+		}
+		flush()
+		// A heading or a list item is a sentence of its own, not part of the
+		// paragraph on either side of it.
+		if strings.TrimSpace(ln) != "" {
+			block = append(block, strings.TrimLeft(strings.TrimSpace(ln), "#-*+| "))
+			flush()
 		}
 	}
+	flush()
 	return out
 }
 
@@ -164,8 +191,12 @@ func TestS123PageDocumentsEveryProviderAndNoOther(t *testing.T) {
 	// OpenAI is a wire shape OpenRouter speaks, not a provider. Any sentence
 	// naming it has to be about OpenRouter, or the page has invented a third
 	// provider.
-	bare := regexp.MustCompile(`(?i)\bopenai\b(?!/)`)
+	// A model id such as openai/gpt-5 names a model OpenRouter carries, not a
+	// provider, so it is taken out before the name is looked for.
+	bare := regexp.MustCompile(`(?i)\bopenai\b`)
+	ids := regexp.MustCompile(`(?i)\bopenai/`)
 	for _, s := range sentences(body) {
+		s = ids.ReplaceAllString(s, "a-model-of/")
 		if bare.MatchString(s) && !strings.Contains(strings.ToLower(s), "openrouter") {
 			t.Errorf("the page names OpenAI apart from OpenRouter, as if it were a provider: %q", s)
 		}
@@ -182,6 +213,17 @@ func known(name string) bool {
 	return false
 }
 
+// under is the part of the page below one H2, up to the next one.
+func under(t *testing.T, body, heading string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(body, "\n## "+heading+"\n")
+	if !ok {
+		t.Fatalf("%s has no `## %s` section", providersPage, heading)
+	}
+	rest, _, _ = strings.Cut(rest, "\n## ")
+	return rest
+}
+
 func TestS123AnthropicsModelsAreTheOnesOwlKnows(t *testing.T) {
 	body := page(t)
 	defaults := chat.DefaultModels[chat.Anthropic]
@@ -195,11 +237,13 @@ func TestS123AnthropicsModelsAreTheOnesOwlKnows(t *testing.T) {
 		}
 	}
 	// And no model Owl does not offer, which is the drift the issue warns of.
+	// Anthropic's own section, because a model id OpenRouter carries is spelt
+	// the same and is nothing to do with what Owl knows.
 	want := map[string]bool{}
 	for _, model := range defaults {
 		want[model] = true
 	}
-	for _, got := range regexp.MustCompile(`claude-[a-z0-9.-]+`).FindAllString(body, -1) {
+	for _, got := range regexp.MustCompile(`claude-[a-z0-9.-]+`).FindAllString(under(t, body, "Anthropic"), -1) {
 		if !want[got] {
 			t.Errorf("the page lists %s for anthropic, which Owl does not offer: %v", got, defaults)
 		}

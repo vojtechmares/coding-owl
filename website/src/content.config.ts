@@ -21,7 +21,8 @@ const pages = defineCollection({
  *
  * `order` drives /docs and /llms.txt, and is numbered in tens so that a new
  * page slots in without renumbering the rest. Reserved: 10 and 11 for the
- * install pages (#127), 50 and 51 for the configuration pages (#124). The
+ * install pages (#127), 50 and 51 for the configuration pages (#124), 60 for
+ * the Desktop app overview (#122), which links to the chat providers page. The
  * guide is last because it is the whole of the README on one page, no longer
  * the place to start.
  */
@@ -47,6 +48,13 @@ const docs = defineCollection({
       title: 'Projects and Accounts',
       description: 'The repositories Jobs are queued against, the subscriptions they run on, and the instructions every Run reads.',
       order: 40,
+    },
+    {
+      id: 'chat-providers',
+      path: 'docs/guide/chat-providers.md',
+      title: 'Chat model providers',
+      description: 'Where the desktop chat gets its model: Anthropic, OpenRouter, and how a key is configured.',
+      order: 61,
     },
     {
       id: 'guide',
