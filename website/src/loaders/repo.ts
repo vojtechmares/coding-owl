@@ -34,6 +34,7 @@ const PUBLISHED: Record<string, string> = {
   'docs/guide/getting-started.md': '/docs/getting-started',
   'docs/guide/jobs.md': '/docs/jobs',
   'docs/guide/projects-and-accounts.md': '/docs/projects-and-accounts',
+  'docs/guide/chat-providers.md': '/docs/chat-providers',
 };
 
 /**
