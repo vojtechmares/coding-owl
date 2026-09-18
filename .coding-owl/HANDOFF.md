@@ -285,15 +285,56 @@ and #124 naming the ids, URLs and reserved order slots this branch establishes
 (`/docs/getting-started` for #127's forward link; slots 10/11 and 50/51 free).
 A comment only - never relabel, never edit an issue body.
 
+## What the second run did
+
+The plan above held. Everything in it is built, in the commits it names, with
+three corrections worth carrying forward.
+
+**C1 - S4 did not catch the mistake it was written for.** As first committed it
+checked that a documented command and its flags exist, which caught the
+`owl jobs list` class, but `owl logs -f` is a real command with a real flag and
+passed. D6's own example would have survived the test meant to stop it. S4 now
+also reads the required `<placeholder>`s off each command's usage line and
+requires a fenced-block invocation to supply that many arguments, with the
+flags and their values taken out first (the help's Flags block says which flags
+take a value). An inline span naming a command mid-sentence - `owl logs` in
+prose - is exempt, because it is a name, not something to type. The sheet
+gained the matching clause; nothing on it was weakened.
+
+**C2 - the CI step's negative assertion was wrong.** The plan wanted no
+`blob/main/docs/guide/` link anywhere in `dist`. Every docs page footer carries
+exactly that, on purpose: `website/src/pages/docs/[slug].astro` links "Source:"
+at the file the page was read from. The step asserts the three positive links
+instead.
+
+**C3 - `owl account exec`'s usage line ends in `-- <command>...`**, so counting
+placeholders naively would demand two arguments from
+`owl account exec work -- mcp list`, whose tail is another tool's. Both the
+usage line and the documented invocation are cut at a bare `--`.
+
+The website build ran locally after all: `pnpm install --frozen-lockfile`,
+`pnpm check` and `pnpm build` all pass, pnpm 11.5.2, no corepack objection.
+`dist/docs/getting-started/index.html` links `/docs/jobs`,
+`/docs/projects-and-accounts`, `/docs/guide#installing`, `/docs/guide#risks`
+and `/docs/guide#configuration`, and the two manual pages resolve their ADR
+links to `/docs/decisions/*`. D4 works.
+
+`make lint` passes. `make test` fails only
+`TestS1CaskTheDesktopBuildProducesASignedAppInAZip`, `TestS2Cask...` and
+`TestS3Cask...` from issue #22, all three because the `wails` CLI is not
+installed on this machine; they build the desktop release and have nothing to
+do with this branch. Everything else passes, the six new scenarios included.
+
 ## State
 
 - [x] Blocker check
 - [x] Plan written and committed
-- [ ] Spec sheet + red tests
-- [ ] Getting started page
-- [ ] Manual pages
-- [ ] Loader link resolution + PUBLISHED
-- [ ] Website README, /docs subtitle, CI step
-- [ ] `make lint && make test`, website build
+- [x] Spec sheet + red tests
+- [x] Getting started page
+- [x] Manual pages
+- [x] Loader link resolution + PUBLISHED
+- [x] Website README, /docs subtitle, CI step
+- [x] `make lint && make test`, website build
 - [ ] Verification agents all PASS
 - [ ] PR opened, CI green
+- [ ] Comment on #127 and #124 with the ids, URLs and reserved order slots
