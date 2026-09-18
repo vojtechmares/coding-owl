@@ -84,6 +84,22 @@ jobs:
           grep -q 'Sitemap: https://codingowl.dev/sitemap-index.xml' dist/robots.txt
           grep -q '<loc>https://codingowl.dev/docs/guide</loc>' dist/sitemap-0.xml
 
+      # The guide pages link to each other the way GitHub reads them, relative
+      # to the file they are in. Only a build says whether the loader resolved
+      # those to pages of this site; the Go suite can check the sources and not
+      # the output.
+      - name: The guide pages link to each other on the site
+        run: |
+          set -euo pipefail
+          page=dist/docs/getting-started/index.html
+          [[ -f "$page" ]] || { echo "::error::$page is missing"; exit 1; }
+          for href in '"/docs/jobs"' '"/docs/projects-and-accounts"' '"/docs/guide#installing"'; do
+            grep -q "href=$href" "$page" || {
+              echo "::error::$page has no link to $href; the loader sent it to GitHub instead"
+              exit 1
+            }
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: website
