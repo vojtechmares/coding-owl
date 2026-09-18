@@ -230,17 +230,6 @@ func known(name string) bool {
 	return false
 }
 
-// under is the part of the page below one H2, up to the next one.
-func under(t *testing.T, body, heading string) string {
-	t.Helper()
-	_, rest, ok := strings.Cut(body, "\n## "+heading+"\n")
-	if !ok {
-		t.Fatalf("%s has no `## %s` section", providersPage, heading)
-	}
-	rest, _, _ = strings.Cut(rest, "\n## ")
-	return rest
-}
-
 func TestS123AnthropicsModelsAreTheOnesOwlKnows(t *testing.T) {
 	body := page(t)
 	defaults := chat.DefaultModels[chat.Anthropic]
