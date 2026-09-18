@@ -9,9 +9,17 @@ build time by the loaders in `src/loaders/repo.ts`:
 
 | Page | Source |
 | --- | --- |
+| `/docs/getting-started` | `docs/guide/getting-started.md` |
+| `/docs/jobs` | `docs/guide/jobs.md` |
+| `/docs/projects-and-accounts` | `docs/guide/projects-and-accounts.md` |
 | `/docs/guide` | `README.md` |
 | `/docs/decisions/*` | `docs/adr/NNNN-*.md` |
 | `/changelog` | `CHANGELOG.md`, parsed as Keep a Changelog |
+
+A link between two of those files is written the way GitHub reads it, relative
+to the file it is in. The loader resolves it against that file's directory and
+looks the result up in its `PUBLISHED` map, so a page that has a URL here is
+linked here and anything else falls through to GitHub.
 
 Every page is also emitted as an `index.md` sibling, and `worker/index.ts`
 serves whichever of the two the request's `Accept` header prefers, with
