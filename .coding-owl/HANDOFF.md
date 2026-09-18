@@ -214,7 +214,22 @@ list` can only report what is already there.
 - [x] Steps 5-7 - self-review (`a3cb357`), `make lint` green, `make test` green
       apart from three pre-existing failures, and three rounds of the
       verification agents (see below).
-- [ ] Steps 8-9 - push, PR, CI green.
+- [x] Steps 8-9 - pushed, PR #139 opened against `main`, CI green. **Not
+      merged**: a person accepts the work.
+
+## Where it ended
+
+<https://github.com/vojtechmares/coding-owl/pull/139>, `Closes #120`.
+
+CI needed one re-run, and not for anything on this branch:
+`TestS13DaemonRestartEndsTheRunsThatWereGoing` (`tests/behavior/issue11_test.go`)
+failed on the `pull_request` run and passed on the `push` run for the *same*
+commit, `8fc2a19`. It races `owl pause` against a Run whose Agent has not
+started yet. Filed as #140 with both run links rather than worked around here;
+re-running the job was green with no change to the branch.
+
+If this Job is picked up again, there is nothing left to build. What remains is
+whatever review asks for.
 
 ## Verification rounds
 
