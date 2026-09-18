@@ -120,49 +120,9 @@ reads the setting when it starts, so after changing it run
 
 ## Quick start
 
-1. **Add an Account.** An Account is a subscription Owl runs work on, with a
-   tool configuration directory of its own so a night of Owl's work never
-   touches your setup. The token goes to the OS keychain.
-
-   ```
-   owl account add work
-   ```
-
-2. **Register a Project.** The name defaults to the directory basename and the
-   base branch to the repository's current branch.
-
-   ```
-   owl project add ~/code/my-app
-   ```
-
-3. **Tell Owl how to verify work.** Commit a `.coding-owl.yaml` on the base
-   branch (see [Configuration](#configuration)):
-
-   ```yaml
-   apiVersion: codingowl.dev/v1
-   account: work
-   checks:
-     - name: test
-       run: go test ./...
-   ```
-
-4. **Queue a Job.** Inside the Project, or with `--project`:
-
-   ```
-   owl add "Add a --json flag to the status command"
-   ```
-
-5. **Let it run, or make it.** Owl starts work when the machine is idle.
-   `owl start` runs the Job at the head of the queue now, and `owl logs -f`
-   follows the Agent's output.
-
-6. **Review in the morning.**
-
-   ```
-   owl status
-   owl jobs show <job>
-   owl jobs accept <job>   # or: owl jobs drop <job>
-   ```
+Adding an Account, registering a Project, telling Owl how to verify the work,
+queueing a Job, letting it run and reviewing it in the morning, with the
+commands for each: [Getting started](docs/guide/getting-started.md).
 
 ## Configuration
 

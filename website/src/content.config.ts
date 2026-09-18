@@ -16,15 +16,30 @@ const pages = defineCollection({
   }),
 });
 
-/** Documentation lifted from the repository at build time. */
+/**
+ * Documentation lifted from the repository at build time.
+ *
+ * `order` drives /docs and /llms.txt, and is numbered in tens so that a new
+ * page slots in without renumbering the rest. Reserved: 10 and 11 for the
+ * install pages (#127), 50 and 51 for the configuration pages (#124). The
+ * guide is last because it is the whole of the README on one page, no longer
+ * the place to start.
+ */
 const docs = defineCollection({
   loader: repoFiles([
+    {
+      id: 'getting-started',
+      path: 'docs/guide/getting-started.md',
+      title: 'Getting started',
+      description: 'Six steps from a fresh install to reviewing work Owl did while you were away.',
+      order: 20,
+    },
     {
       id: 'guide',
       path: 'README.md',
       title: 'Guide',
       description: 'How Owl works, installing it, a quick start, configuration and the command overview.',
-      order: 1,
+      order: 90,
     },
   ]),
   schema: z.object({
