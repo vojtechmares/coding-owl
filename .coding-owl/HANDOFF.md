@@ -1,307 +1,299 @@
-# Handoff - issue #120: `owl providers supported`
+# Handoff - issue #121
 
-Plan written 2026-09-18 by the planning Run. Implemented 2026-09-18 by the
-execution Run: the spec sheet, the six behavior tests, the command, the guard
-test, README and CHANGELOG are all committed and green. See the Progress
-section at the end for exactly where it stands.
+Docs: CLI manual (happy paths) and a focused Getting started page, split out of
+the all-in-one guide. `vojtechmares/coding-owl#121`, labels `documentation`,
+`ready-for-agent`.
 
-## What the issue asks for
-
-<https://github.com/vojtechmares/coding-owl/issues/120> - `enhancement`,
-`ready-for-agent`, open, no comments.
-
-A first-time user has no way to learn that `anthropic` and `openrouter` are the
-names `owl providers add <provider>` accepts. `owl providers list`
-(`internal/cli/providers.go:101`) only reports what is already **configured**,
-so it is empty for exactly the person who needs the answer. The names are in
-the `providers` command's `Long` prose (`internal/cli/providers.go:24-33`),
-which is discoverable by accident, not a discovery command.
-
-Add `owl providers supported`: it prints the `chat.Providers` list
-(`internal/chat/chat.go:44`) with a short note on each - Anthropic's models are
-Owl's own so `--model` is not needed, OpenRouter's are whatever the user's
-account has so `--model` is required.
-
-The issue says a **docs page** for this is already specced by #123 (open,
-`ready-for-agent`) and must not be duplicated here. #123 will reference this
-command once it exists, so #123 depends on this, not the other way round.
+Branch: `owl/job-4`, cut from `main` and, at the time of planning, identical to
+`origin/main`. Nothing is implemented yet: this commit is the plan.
 
 ## Blocker check - clear
 
 Run on 2026-09-18, all four commands from the Job prompt:
 
-- state `OPEN`, labels `enhancement`, `ready-for-agent` - in the queue.
-- `dependencies/blocked_by`: empty.
-- `sub_issues`: empty.
-- cross-referenced open pull requests: none.
-- prose in the body: names #123 only as work that will *consume* this command.
-  #123 is open, and is not a blocker.
+- state `OPEN`, labels `documentation`, `ready-for-agent` - in the queue.
+- no `blocked_by` dependencies, no sub-issues, no cross-referenced open pull
+  request.
+- no comments on the issue at all, so no blocker written in prose.
+- the body names #127, #124 and #122 under "Related", but as work to coordinate
+  with, not work that must land first. #121's own text says "build this one
+  first, or coordinate closely, since #127 references it as already existing".
+  None of the three has an open pull request, so this branch is the first of the
+  docs restructuring to land and gets to set the conventions the others follow.
 
-## Decisions made without the issue saying
+## What the issue asks for
 
-1. **The command does not talk to the daemon.** `providers list`, `add` and
-   `remove` all go through `withDaemon`. This one prints a compiled-in list, so
-   it must work with no daemon running and nothing configured - that is the
-   whole point of "without configuring one first". A first-time user may not
-   have `owl daemon run` up yet.
-2. **The prose note lives in `internal/cli/providers.go`, not in
-   `internal/chat`.** The issue points at the `providers add` help for "the
-   existing wording to reuse", so the wording is the CLI's. `internal/chat`
-   stays the source of truth for *which* providers exist.
-3. **The `--model` column is derived, not hardcoded.** Whether a provider needs
-   `--model` is exactly `len(chat.DefaultModels[name]) == 0` - that is what
-   `chat.checkModels` (`internal/chat/chat.go:339`) already decides. Deriving it
-   means a provider added later cannot disagree with what `add` will do.
-4. **A guard test covers the prose that is not derived.** Because the note is a
-   CLI-local map, a provider added to `chat.Providers` later could print a blank
-   note. A test in `internal/cli` asserts every entry of `chat.Providers` has
-   one, so that failure is loud rather than silent.
-5. **Stay on branch `owl/job-3`.** AGENTS.md's `feat/issue-<n>-<slug>`
-   convention is for cutting your own branch; Owl put this Run on its Job
-   branch and the Job prompt pushes `HEAD`. Renaming it would fight the
-   harness. The branch is currently at `main` (`fdbb234`), so nothing is
-   stacked.
-6. **README command table and CHANGELOG `[Unreleased]` get one line each.** Both
-   are the repo's habit for a new user-facing command (see the `owl models` and
-   `owl account exec` entries). Neither is a docs page, so neither treads on
-   #123.
+1. A **Getting started** page: README's `## Quick start` (README.md:121-165, the
+   six steps - Account, Project, `.coding-owl.yaml`, queue a Job, let it run,
+   review it) as a page of its own, purely that happy path. #127 links forward
+   to it, so its id and URL are a contract.
+2. **CLI manual page(s)**: the task-oriented happy-path narrative that README's
+   `## Command overview` table (README.md:304-324) does not give - queueing and
+   reordering Jobs, checking status and reviewing, following a Run, and
+   account/project management day to day. "Use judgement on how many pages, the
+   point is narrower scope per page, not exactly two files."
 
-## What is out of scope
+Both sourced from content that already exists, not written fresh.
 
-- A docs page listing supported providers - #123.
-- Anything in the desktop app: the issue asks for a CLI command.
-- Touching `owl providers list`, `add` or `remove` behaviour.
-- Adding a provider, or changing `chat.Providers`.
+## Decisions taken, with reasons
 
-Anything else noticed along the way goes in a new issue, not in this diff.
+**D1 - three new pages, under `docs/guide/`.**
 
-## Design
+| File | id / URL | Title | order |
+| --- | --- | --- | --- |
+| `docs/guide/getting-started.md` | `getting-started` → `/docs/getting-started` | Getting started | 20 |
+| `docs/guide/jobs.md` | `jobs` → `/docs/jobs` | Working with Jobs | 30 |
+| `docs/guide/projects-and-accounts.md` | `projects-and-accounts` → `/docs/projects-and-accounts` | Projects and Accounts | 40 |
 
-`newProvidersSupportedCmd(env Env) *cobra.Command` in
-`internal/cli/providers.go`, registered in `newProvidersCmd`'s `AddCommand`
-alongside `add`, `list` and `remove`. `Use: "supported"`, `Args:
-cobra.NoArgs`, no daemon call, exits 0.
+`docs/guide/` is the directory #127 and #124 both propose; the issue says to use
+the same one. The two manual pages follow the issue's own grouping: it lists
+queueing, reviewing and following a Run together (one Job's life, one page), and
+"account/project management day-to-day" separately. Four pages would split the
+Job narrative mid-story; one page would be the all-in-one guide again.
 
-Output, a `text/tabwriter` table in the same shape as `providers list`
-(`PROVIDER` first) and `owl models` (an `ABOUT` column):
+**D2 - move the quick start out of README, do not copy it.** The issue title is
+"split out of the all-in-one guide", and its Problem section is that the guide
+page is exhaustive. Copying would leave two six-step lists to drift apart, in a
+repository whose website deliberately "never holds a copy of what the repo
+already says" (`website/src/loaders/repo.ts`:1-6). So README's `## Quick start`
+section becomes two or three sentences pointing at
+`docs/guide/getting-started.md`, and the six steps live only on the new page.
 
-```
-providers Owl drives:
+`## Command overview` **stays in README**: the issue calls it "the full command
+list", and says the manual is the narrative it does not provide, not a
+replacement for it. Add one sentence under the table pointing at the manual
+pages.
 
-PROVIDER    MODELS                          ABOUT
-anthropic   Owl's own; no --model needed    The Anthropic API, spoken directly
-openrouter  yours; name them with --model   Whatever your account has, in the OpenAI shape
-
-configure one with: owl providers add <provider> --key-stdin < key.txt
-```
-
-Wording is lifted from the `providers` and `providers add` help
-(`internal/cli/providers.go:31-33`, `:46-55`) and from the doc comments on the
-`Anthropic` and `OpenRouter` constants (`internal/chat/chat.go:36-40`), so the
-two places do not drift into saying different things.
-
-The rows come from ranging over `chat.Providers`, in that order. The `MODELS`
-cell is chosen by `len(chat.DefaultModels[name]) > 0`. The `ABOUT` cell comes
-from a package-level `map[string]string` next to the command. `terminalSafe` is
-not needed: every string is a compiled-in constant, not something a provider or
-a user wrote.
-
-## Behavior spec sheet - `tests/behavior/issue-120.md`
-
-Scenarios to write, each observable from outside by driving the built `owl`
-binary with the `tests/behavior` harness (`newLayout`, `runOwl`, `mustOwl`,
-`runOwlStdin` in `issue2_test.go` / `issue3_test.go` / `issue14_test.go`).
-Tests go in `tests/behavior/issue120_test.go` as `TestS<k>...`.
-
-- **S1 - the names are there before anything is configured, and with no daemon.**
-  Given the built binary, no daemon started and nothing configured. When
-  `owl providers supported` runs. Then it exits 0, names `anthropic` and
-  `openrouter`, and says nothing about a socket or an unreachable daemon.
-  (Contrast: `owl providers list` in the same layout cannot answer.)
-- **S2 - each provider says how its models are decided.** The `anthropic` line
-  says its models are Owl's own and `--model` is not needed; the `openrouter`
-  line says the models are the account's own and names `--model`.
-- **S3 - it says how to configure one.** Output names `owl providers add` and
-  `--key-stdin`, so the discovery command leads to the next step.
-- **S4 - it is discoverable, and takes no arguments.** `owl providers --help`
-  lists `supported` among its commands; `owl providers supported nonsense`
-  exits non-zero.
-- **S5 - what it lists is what `owl providers add` accepts.** For every name the
-  command prints, `owl providers add <name> --key-stdin` against a running
-  daemon is not refused with "is not a provider Owl drives" (it may still be
-  refused for a missing `--model`, which is S2's point and fine). This is the
-  scenario that ties the listing to `chat.Providers` rather than to a second
-  hardcoded list.
-- **S6 - what is configured does not change what is supported.** Given a daemon
-  with `anthropic` configured and `openrouter` not, `owl providers supported`
-  still lists both, and its output is byte-identical to S1's.
-
-Commit the sheet and the six failing tests together, before any implementation.
-The sheet is the contract: never weaken it to make a test pass.
-
-Note for S5: `chat.AddProvider` reaches no network - it only writes the store
-and the credential store - so a provider can be added with no fake server, as
-`TestS2ChatAnOpenRouterProviderCarriesItsModels` already does
-(`tests/behavior/issue18_test.go:268`). Layouts keep credentials in a file, so
-no test touches a real keychain.
-
-## Steps, in order
-
-1. Write `tests/behavior/issue-120.md` with S1-S6 above and
-   `tests/behavior/issue120_test.go` with one failing `TestS<k>` each. Confirm
-   they fail for the right reason (`supported` is not a command). Commit both
-   together: `test(cli): spec owl providers supported`.
-2. Add `newProvidersSupportedCmd` and register it. Red to green, one scenario
-   at a time. Commit: `feat(cli): add owl providers supported`.
-3. Add the guard test in `internal/cli` (decision 4): every `chat.Providers`
-   entry has a note. Commit with step 2 or just after.
-4. README: add `owl providers supported` to the command-overview table row at
-   `README.md:319`. CHANGELOG: one bullet under `[Unreleased]`. Commit:
-   `docs(cli): record owl providers supported`.
-5. Self-review: re-read the issue and `git diff main...HEAD`. Every requirement
-   has a scenario, every scenario a passing test, nothing out of scope changed.
-6. `make lint && make test` - `go vet ./...`, `gofmt -l .` empty, `buf lint`,
-   `go test ./...`. Both must be green before the PR.
-7. Run the three verification agents (`security-reviewer`,
-   `correctness-reviewer`, `behavior-verifier`) in parallel per AGENTS.md, each
-   writing to a fresh per-round directory outside the repo; wait with
-   `.agents/skills/bdd/scripts/wait-verdicts.sh`. Fix findings and re-run until
-   all three `PASS` on the commit they saw.
-8. `git push -u origin HEAD`, then open the PR against `main` with the body
-   below. Do **not** merge - a person accepts the work.
-9. `gh pr checks --watch --fail-fast`; fix on the branch and push until green.
-
-Keep this file current as each step lands: the next Run starts with no memory
-of this one.
-
-## PR body
+**D3 - ordering, with slots reserved for #127 and #124.** The docs collection's
+`order` field drives both `/docs` and `/llms.txt`. Renumber in tens so the
+sibling issues slot in without touching existing entries, and record the
+reserved slots as a comment in `content.config.ts`:
 
 ```
-Closes #120
-
-## What changed
-
-`owl providers supported` lists the providers Owl drives - the `chat.Providers`
-list - with a note on how each one's models are decided, so the names
-`owl providers add` accepts are discoverable before anything is configured. It
-needs no daemon and no configured provider, which is the point: `owl providers
-list` can only report what is already there.
-
-## Decisions made on my own
-
-- The command prints from the compiled-in list rather than asking the daemon,
-  so it answers with nothing configured and the daemon not running.
-- Whether a provider needs `--model` is derived from `chat.DefaultModels`, the
-  same thing `chat.checkModels` decides, rather than a second hardcoded list.
-- The prose note lives in the CLI, reusing the `providers add` help's wording;
-  a test asserts every `chat.Providers` entry has one, so a provider added
-  later cannot print a blank note.
-- README and CHANGELOG get one line each, as every other new command does. The
-  docs page stays with #123, which this does not duplicate.
+10  Install CLI              (#127, reserved)
+11  Install Desktop app      (#127, reserved)
+20  Getting started          (this issue)
+30  Working with Jobs        (this issue)
+40  Projects and Accounts    (this issue)
+50  Project configuration    (#124, reserved)
+51  Daemon configuration     (#124, reserved)
+90  Guide (README)           (existing, moved from 1)
 ```
 
-## Progress
+The guide moves to the end because it stops being the entry point and becomes
+the whole thing on one page. Until #127 lands there is no install page, so the
+Getting started page opens by pointing at the guide's Installing section.
 
-- [x] Blocker check - clear. Re-run 2026-09-18 by the execution Run: still
-      `OPEN`, still `enhancement` + `ready-for-agent`, no `blocked_by`, no
-      sub-issues, no cross-referenced open PR, no comments. #123 is open but
-      consumes this command rather than blocking it.
-- [x] Plan written (this file).
-- [x] Step 1 - spec sheet and red tests (`9787f4d`). All six failed on
-      `supported` not being a command.
-- [x] Step 2/3 - command and guard test (`f41233f`).
-- [x] Step 4 - README and CHANGELOG (`6d54dac`).
-- [x] Steps 5-7 - self-review (`a3cb357`), `make lint` green, `make test` green
-      apart from three pre-existing failures, and three rounds of the
-      verification agents (see below).
-- [x] Steps 8-9 - pushed, PR #139 opened against `main`, CI green. **Not
-      merged**: a person accepts the work.
-
-## Where it ended
-
-<https://github.com/vojtechmares/coding-owl/pull/139>, `Closes #120`.
-
-CI needed one re-run, and not for anything on this branch:
-`TestS13DaemonRestartEndsTheRunsThatWereGoing` (`tests/behavior/issue11_test.go`)
-failed on the `pull_request` run and passed on the `push` run for the *same*
-commit, `8fc2a19`. It races `owl pause` against a Run whose Agent has not
-started yet. Filed as #140 with both run links rather than worked around here;
-re-running the job was green with no change to the branch.
-
-If this Job is picked up again, there is nothing left to build. What remains is
-whatever review asks for.
-
-## Verification rounds
-
-The agents could not be given a `$VERDICTS` directory: this sandbox refuses to
-create directories outside the worktree, and a verdict file must not be written
-inside the repo. They returned their verdicts as their final messages instead,
-which is what their own spec says to do when no directory is given.
-
-- **Round 1, on `a3cb357`.** security `PASS`, correctness `PASS` (four notes),
-  behavior `FAIL`. The behavior findings were both real: S2 only complained if
-  the `anthropic` line *asked* for `--model`, so a line reading "Owl's own"
-  passed while telling the user nothing about omitting it; S4 looked for the
-  word "supported" anywhere in the help, which the `Long` prose alone
-  satisfies - exactly the discoverable-by-accident state the issue exists to
-  end. Fixed in `b0a43ae`, along with correctness's notes on S5 passing
-  vacuously and the truncated README row. Both tightened assertions were
-  checked against deliberately weakened builds and did fail on them.
-- **Round 2, on `b0a43ae`.** All three `PASS`. Both reviewers independently
-  raised the same remaining note: S1's third Then clause held only because
-  `providers list` never got as far as printing. Closed in `21112ac`.
-- **Round 3, on `21112ac`.** Re-run because a `PASS` counts only for the commit
-  it saw.
-
-One note was raised and deliberately not acted on: the `MODELS` column header
-is reused from `owl providers list`, where it holds model IDs, while here it
-holds a sentence about where the models come from. The table shape was chosen
-to match its sibling tables, and the correctness reviewer agreed on the second
-pass that printing IDs there would drift from the issue rather than towards it.
-
-## What was built, as it ended up
-
-`newProvidersSupportedCmd` in `internal/cli/providers.go`, registered beside
-`add`, `list` and `remove`. No daemon call. Output as the plan drew it:
+**D4 - links are written repo-relative, and the loader is taught to resolve
+them.** `rewriteRepoLinks` in `website/src/loaders/repo.ts`:35-43 looks a link
+target up in `PUBLISHED` verbatim, so `../../README.md` written in
+`docs/guide/getting-started.md` - the form GitHub needs - misses the map and
+falls through to a raw GitHub URL. Fix: resolve the target against
+`path.posix.dirname(file.path)` (normalised) before the ADR and `PUBLISHED`
+lookups. `README.md` from the repo root still resolves to itself, so nothing
+existing changes. Then add to `PUBLISHED`:
 
 ```
-providers Owl drives:
-
-PROVIDER    MODELS                         ABOUT
-anthropic   Owl's own; no --model needed   The Anthropic API, spoken directly
-openrouter  yours; name them with --model  OpenRouter, which speaks the OpenAI shape for any model it offers
-
-configure one with: owl providers add <provider> --key-stdin < key.txt
+'README.md': '/docs/guide'
+'docs/guide/getting-started.md': '/docs/getting-started'
+'docs/guide/jobs.md': '/docs/jobs'
+'docs/guide/projects-and-accounts.md': '/docs/projects-and-accounts'
 ```
 
-Three departures from the plan's letter, all in the tests rather than the
-command:
+The `README.md` entry is what makes `../../README.md#configuration` land on
+`/docs/guide#configuration` instead of GitHub. This is the `PUBLISHED` work the
+issue's "Where to look" asks for.
 
-- **S1 and S6 read the table, not the whole output.** Checking only that the
-  output *contains* "anthropic" and "openrouter" passed against no
-  implementation at all: cobra falls back to the parent's help for an unknown
-  subcommand, and that help's prose names both. The tests now parse the rows
-  between the `PROVIDER` header and the blank line after it, so they are red
-  until the listing itself exists.
-- **S5 also checks the other direction.** As well as every listed name being
-  one `owl providers add` accepts, `openai` - a name the command does not
-  print - is refused as one Owl does not drive. Without that, a command that
-  listed nothing would have passed S5.
-- **Every Then clause is asserted positively.** The first draft of S2, S4, S5
-  and S1 all had assertions phrased as "do not complain unless", which pass on
-  output that breaks the clause. The verification agents caught three of them;
-  they now assert what the sheet says rather than the absence of its opposite.
-  If you add a scenario here, write the assertion the same way and check it
-  against a deliberately broken build.
+**D5 - the manual is sourced from the cobra help text, not invented.** Every
+command already carries a `Long` description written in the project's voice:
+`internal/cli/queue.go`:33-45 (`owl add`), :167-170 (`reorder`),
+`internal/cli/run.go`:36-41 (`start`), :74-78 (`logs`), :143-152 (`pause`),
+:162-165 (`resume`), :216-223 (`accept`), :232-239 (`drop`), :250-255
+(`extend`), :286-293 (`jobs show`), plus README's Account sections
+(README.md:246-292). Read those and narrate them; do not describe a flag without
+finding it in the source first. Flags that exist today: `owl add` has
+`--project --plan --no-plan --model --effort --ttl`; `owl queue list` has
+`--all`; `owl logs` has `--follow/-f`; `owl jobs accept|drop` have `--force`;
+`owl jobs extend` has `--ttl`; `owl project add` has `--name --base-branch`;
+`owl account add` has `--driver --failover --token-stdin`; **`owl status` has no
+flags**.
 
-The guard test of decision 4 lives in `internal/cli/providers_internal_test.go`
-(package `cli`, so it can see `providerAbout`), and checks both directions:
-every `chat.Providers` entry has a line, and no line describes a name that is
-not a provider.
+**D6 - two accuracy fixes carried into the new page.** README's quick start step
+5 says `owl logs -f`, but `owl logs` takes exactly one argument
+(`internal/cli/run.go`:79) - the new page says `owl logs <run> -f`, which is
+also what `owl start` prints (run.go:62). Step 3's `[Configuration](#configuration)`
+is an in-page anchor that stops working once the steps leave README; it becomes
+`../../README.md#configuration`. S4 below is the test that catches the first
+kind of mistake.
 
-## Note for whoever picks this up
+**D7 - use the glossary's words.** Project, Job, Run, Handoff, Idle,
+Verification, Account, Agent, Skill, Standing instructions - capitalised as
+`CONTEXT.md` capitalises them, which is what README already does. Avoid "task",
+"ticket", "cleanup", "quota". Nothing here contradicts an ADR; ADR-0025 (queue
+order, no priority) and ADR-0013 (Verification gates completion) are the two the
+manual narrates, so link or paraphrase rather than restate.
 
-`gofmt -l` could not be run directly in the execution Run's sandbox - the
-command needed an approval nobody was there to give. `make lint` was used
-instead; if that too is refused, the formatting of the four changed files is
-the thing to check first.
+## Out of scope
+
+README's `## Installing` (#127), `## Configuration` (#124) and `## Desktop app`
+(#122) stay where they are. If something else turns up, open an issue; do not
+widen this diff.
+
+## Behavior spec sheet - `tests/behavior/issue-121.md`
+
+Write the sheet first, then one failing `TestS<k>` per scenario in
+`tests/behavior/issue121_test.go`, and commit the two together while they are
+red. `repoDir` (package-level, `tests/behavior/issue2_test.go`:41,50) is the
+repository root, and `owlBin` is the binary TestMain builds - S4 needs both.
+Precedent for behaviour tests that read the repository rather than drive the
+daemon: `TestS3AppUsesOnlySharedClient` and `TestS10ThemeIsOneTokensFile` in
+`tests/behavior/issue9_test.go`.
+
+- **S1 - Getting started is a page of its own, and it is the six-step happy
+  path.** Given the repository, when `docs/guide/getting-started.md` is read,
+  then it is titled `# Getting started` and walks, in this order, adding an
+  Account, registering a Project, committing `.coding-owl.yaml`, queueing a Job,
+  letting it run or starting it, and reviewing it - each step showing the
+  command that does it.
+- **S2 - the new pages are published pages with URLs of their own.** Given
+  `website/src/content.config.ts`, when the `docs` collection is read, then it
+  registers `getting-started`, `jobs` and `projects-and-accounts`, each with a
+  title, a description, a source path under `docs/guide/` that exists on disk,
+  and an order; the orders are distinct and put all three ahead of `guide`.
+- **S3 - the manual covers the everyday commands, in the areas the issue
+  names.** Given `docs/guide/jobs.md` and `docs/guide/projects-and-accounts.md`,
+  when they are read, then between them they show `owl add`, `owl queue list`,
+  `owl queue reorder`, `owl queue remove`, `owl status`, `owl jobs show`,
+  `owl jobs accept`, `owl jobs drop`, `owl jobs extend`, `owl logs` with `-f`,
+  `owl start`, `owl pause`, `owl resume`, the `owl project` verbs and the
+  `owl account` verbs - the Job page carrying the Job ones and the other page
+  carrying Projects and Accounts.
+- **S4 - every command the new pages show is a command the binary has, with the
+  flags it shows.** Given the built `owl` binary, when every `owl …` line in a
+  fenced block and every `` `owl …` `` inline span in the three new pages is
+  taken, then each resolves to a real command path and every flag it passes
+  appears in that command's `--help`.
+- **S5 - the pages link to published pages, not to raw GitHub.** Given the three
+  new pages, when their relative Markdown links are resolved against the
+  directory each file is in, then every target exists in the repository, and
+  every target that has a published page - `README.md` and the three new files -
+  is in `PUBLISHED` in `website/src/loaders/repo.ts`.
+- **S6 - the guide no longer carries a second copy of the quick start.** Given
+  `README.md`, when it is read, then it has no six-step quick-start list and no
+  `## Quick start` heading followed by numbered steps; it points at
+  `docs/guide/getting-started.md` instead, and that link is one the loader
+  republishes rather than sending to GitHub.
+
+### How to write S4 (the one with teeth)
+
+1. Build the command tree once: run `owl --help`, parse the `Available
+   Commands:` block, recurse into each child with `owl <path…> --help`. Cache
+   it. `--help` is served by cobra locally and needs no daemon - confirm that
+   early, and if some command does reach for the socket, fall back to parsing
+   `Use:` strings out of `internal/cli/*.go`.
+2. For each documented invocation: drop everything from a bare `--` onwards
+   (`owl account exec work -- mcp add …` hands the rest to the tool), then cut
+   at a `#` comment. Walk the tree while the next word is a child's name.
+3. Fail when the node reached still has children and the next word looks like a
+   command (`^[a-z][a-z-]*$`) but is not one of them - that is the `owl jobs
+   list` class of mistake. A placeholder (`<job>`), a flag, a path, a quoted
+   string or a number ends the walk legitimately.
+4. Collect `-x` and `--flag` tokens from the words before the `--`, strip
+   `=value`, and require each to appear in the `--help` output of the command
+   path they were used on.
+5. Write each documented command on its own line rather than as a `# or: …`
+   comment, so the parser and the reader see the same thing.
+
+## File-by-file plan
+
+- `tests/behavior/issue-121.md` - the sheet above. New.
+- `tests/behavior/issue121_test.go` - `TestS1…` to `TestS6…`. New.
+- `docs/guide/getting-started.md` - new. `# Getting started`, one `##` per step,
+  lifted from README.md:121-165 with D6's two fixes, opening with a line
+  pointing at `../../README.md#installing` and closing by pointing at
+  `jobs.md`.
+- `docs/guide/jobs.md` - new. `# Working with Jobs`. Sections: queueing
+  (`owl add`, what `--project`, `--no-plan`, `--ttl` are for), the queue
+  (`owl queue list`, `reorder`, `remove`; first in first out, no priority,
+  ADR-0025), running now and giving the machine back (`owl start`, `owl pause`,
+  `owl resume`), following a Run (`owl logs <run> -f`), the morning after
+  (`owl status`, `owl jobs show`), and keeping or refusing the work
+  (`owl jobs accept`, `owl jobs drop`, `--force`, `owl jobs extend`).
+- `docs/guide/projects-and-accounts.md` - new. `# Projects and Accounts`.
+  Registering and moving Projects (`owl project add|list|show|rename|move|
+  remove`, what `owl project show` answers), Accounts (`owl account add|list|
+  remove`, the keychain, `owl account exec` and its `--` passthrough, the MCP
+  user-scope note from README.md:262-267), and standing instructions
+  (`owl account instructions show|set|edit`, README.md:269-292).
+- `README.md` - replace `## Quick start` (121-165) with a short pointer; add one
+  sentence under the command table (after 324) pointing at the manual pages.
+- `website/src/content.config.ts` - three new `repoFiles` entries, `guide`
+  renumbered to 90, and the reserved-slot comment from D3.
+- `website/src/loaders/repo.ts` - resolve link targets against the source file's
+  directory (D4); four new `PUBLISHED` entries.
+- `website/src/pages/docs/index.astro`:41 - the subtitle says "Two places to
+  start", which stops being true. Reword without a count.
+- `website/README.md`:10-14 - add the three pages to the Page/Source table.
+- `.github/workflows/website.yml` - one extra step after the build, in the shape
+  of the two already there: assert `dist/docs/getting-started/index.html`
+  contains `href="/docs/jobs"` and `href="/docs/guide` and that no
+  `blob/main/docs/guide/` link survives anywhere in `dist`. This is the only
+  end-to-end proof that D4's rewrite works, since the Go suite cannot run Astro.
+  Drop this step if it fights you; the Go tests still cover the source side.
+
+## Commits (small, Conventional, `--signoff`)
+
+1. `docs(agents): plan issue #121` - this file. (done)
+2. `test(docs): spec sheet and failing tests for the CLI manual pages` - sheet +
+   red tests together.
+3. `docs(guide): add the getting started page` - page, registration, README
+   trim.
+4. `docs(guide): add the CLI manual pages` - the two manual pages and their
+   registration.
+5. `fix(website): resolve repo links relative to the file they are in` -
+   `repo.ts` plus the `PUBLISHED` entries.
+6. `ci(website): check the docs pages link to published pages` - the workflow
+   step, if it lands.
+7. `docs(website): list the new guide pages` - website README table and the
+   `/docs` subtitle.
+
+## Verifying before the PR
+
+1. `make lint && make test` from the repository root. That is what CI runs.
+2. `cd website && pnpm install --frozen-lockfile && pnpm check && pnpm build`.
+   node 26.8.2 and pnpm 12.4.2 are on this machine; `packageManager` pins pnpm
+   11.5.2, so corepack may object, and the install needs the network, which the
+   sandbox may refuse. If it will not run locally, say so and lean on CI:
+   `.github/workflows/website.yml` builds on every pull request touching
+   `docs/**` or `website/**`, which this one does.
+3. Then the three verification agents from `.agents/agents/` in parallel -
+   `security-reviewer`, `correctness-reviewer`, `behavior-verifier` - into a
+   fresh `${TMPDIR:-/tmp}/owl-verify/issue-121/round-<r>`, waited on with
+   `.agents/skills/bdd/scripts/wait-verdicts.sh`. Re-run after any change; a
+   PASS counts only for the commit it saw.
+
+## Finishing
+
+`git push -u origin HEAD`, then `gh pr create --repo vojtechmares/coding-owl
+--base main` with a body starting `Closes #121`, the decisions above under
+"Decisions made on my own", and the verification verdicts. Wait for CI with
+`gh pr checks --watch --fail-fast` - both `ci` and `website` will run. **Do not
+merge**; a person accepts the work.
+
+One last piece of coordination the issue explicitly asks for: comment on #127
+and #124 naming the ids, URLs and reserved order slots this branch establishes
+(`/docs/getting-started` for #127's forward link; slots 10/11 and 50/51 free).
+A comment only - never relabel, never edit an issue body.
+
+## State
+
+- [x] Blocker check
+- [x] Plan written and committed
+- [ ] Spec sheet + red tests
+- [ ] Getting started page
+- [ ] Manual pages
+- [ ] Loader link resolution + PUBLISHED
+- [ ] Website README, /docs subtitle, CI step
+- [ ] `make lint && make test`, website build
+- [ ] Verification agents all PASS
+- [ ] PR opened, CI green
