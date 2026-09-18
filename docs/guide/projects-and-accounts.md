@@ -100,9 +100,9 @@ owl account list
 ```
 
 Every Account with its Driver, whether the credential store still holds its
-secret, and where its configuration directory is. An Account that has lost its
-credential cannot run anything, and the listing says so rather than showing a
-blank.
+secret, whether it was recorded as one work may fail over to, and where its
+configuration directory is. An Account that has lost its credential cannot run
+anything, and the listing says so rather than showing a blank.
 
 ```
 owl account remove work
