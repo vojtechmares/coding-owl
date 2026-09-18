@@ -75,7 +75,8 @@ that is not there is the dangerous direction, and that is the one guarded.
 ### S7 - it says what a provider is not
 Given `CONTEXT.md`, where Account and Driver are defined
 When the page is read
-Then it distinguishes a chat model provider from an Agent's Account and from a Driver
+Then it distinguishes a chat model provider from an Agent's Account and from a Driver, saying what each of those is and where it is configured instead
+And the commands it names for those are ones the binary really has
 And links to `CONTEXT.md`
 And repeats the chat's own framing: it reads what Owl knows and never acts (ADR-0022)
 

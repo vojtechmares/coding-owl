@@ -116,9 +116,10 @@ something on the same machine, such as a proxy you are running yourself.
 owl providers list
 ```
 
-reports each configured provider with the models it offers and where it is
-reached, and nothing else: a key is never printed. With none configured it says
-so, and how to configure one.
+reports each configured provider with the models it offers and, where
+`--base-url` named somewhere, that url - `(none)` for a provider on its own
+default. It prints nothing else: a key is never printed. With none configured
+it says so, and how to configure one.
 
 ```
 owl providers remove openrouter
