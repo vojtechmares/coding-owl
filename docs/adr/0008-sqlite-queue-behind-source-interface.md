@@ -1,6 +1,9 @@
 # ADR-0008: Work queue is local SQLite behind a `Source` interface
 
 - **Status:** Accepted
+- **Amended:** 2026-09-18, to name the migration strategy this record called for
+  and never described. It said only that one was needed, so the append-only
+  policy the runner depends on had to be reconstructed from the code.
 - **Date:** 2026-09-09
 
 ## Context
@@ -32,7 +35,16 @@ introducing a second path into the scheduler.
 - Single-writer access matches the daemon's shape exactly; the CLI and GUI
   reach it through the API, never by opening the database.
 - A schema migration strategy is needed from the very first release, because
-  this file lives on user machines across upgrades.
+  this file lives on user machines across upgrades. It is hand-rolled and
+  deliberately small: `.sql` files embedded in the binary under
+  `internal/store/migrations/`, applied in file name order, with progress
+  tracked in SQLite's own `PRAGMA user_version` as the index into that sorted
+  list. The version therefore records how many migrations have been applied,
+  not which ones, which is correct only while the list is **append-only** - a
+  migration is added at the end and never inserted between others, renamed,
+  deleted or edited. `internal/store/migrations.sha256` records what has
+  shipped and `TestMigrationsAreAppendOnly` fails when the policy is broken,
+  so the rule does not live only in a maintainer's head (ADR-0017).
 - Because future sources converge on the queue, scheduling, idle gating, and
   pause/resume stay one code path forever.
 
@@ -46,3 +58,10 @@ for the history and status queries the CLI and GUI both want.
 
 **Polling GitHub directly with no local queue.** Rejected. It couples the MVP
 to one forge and leaves offline and ad-hoc prompts with nowhere to live.
+
+**A migration library such as `golang-migrate` or `goose`.** Not adopted. The
+hand-rolled runner is correct under the append-only policy, and it is a few
+dozen lines with no dependency and no extra table in the database. Swapping it
+once v0.1.0 is on user machines would need a back-fill of its own bookkeeping
+from the `user_version` those databases already carry, so it is not free later
+either. Revisiting this is a new issue with an ADR of its own.
