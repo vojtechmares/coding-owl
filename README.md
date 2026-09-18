@@ -349,6 +349,7 @@ proto/, gen/      ConnectRPC service definitions and generated code
 deploy/launchd    the launchd agent template
 docs/adr          architecture decision records
 docs/agents       how AI agents work on this repository
+docs/guide        getting started and the CLI manual
 tests/behavior    end-to-end behaviour scenarios
 ```
 
