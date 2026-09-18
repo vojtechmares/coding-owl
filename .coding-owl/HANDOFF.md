@@ -28,8 +28,13 @@ the letter; the differences are recorded under "Changes to the plan" below.
       `scripts/build-desktop-release.sh`.
 - [x] the D3 follow-up issue: filed as
       https://github.com/vojtechmares/coding-owl/issues/137
-- [ ] the three verification agents, all `PASS` - round 1 running
-- [ ] push and open the pull request
+- [x] the three verification agents, round 1, all `PASS` on `8b7221f`:
+      behavior-verifier with no findings at all, security-reviewer and
+      correctness-reviewer with notes only. Verdicts in
+      `dist/owl-verify/issue-108/round-1/` (gitignored, so they do not survive
+      a fresh clone - the PR body carries the summary).
+- [x] pushed and opened https://github.com/vojtechmares/coding-owl/pull/138.
+      Not merged: that is the user's call.
 
 Commits on the branch, oldest first:
 
@@ -79,19 +84,30 @@ gitignored, so nothing of it can be committed by accident and
 
 ## What is left
 
-Steps 5 to 8 of the previous plan:
+Nothing of the issue. If this Job is run again, it should only be to react to
+CI or to review comments on PR #138:
 
-5. `make lint && make test`.
-6. `behavior-verifier`, `security-reviewer`, `correctness-reviewer` in parallel
-   into `${TMPDIR:-/tmp}/owl-verify/issue-108/round-<r>`, waited on with
-   `.agents/skills/bdd/scripts/wait-verdicts.sh "$VERDICTS" behavior security
-   correctness`. Fix findings in code or tests, never in the sheet.
-7. File the D3 follow-up: rule 2 is implemented exactly as the issue words it -
-   "anything not in the manifest sorts strictly after every entry that is" - so
-   a migration appended without its manifest line still passes, and stays
-   editable forever. The stricter rule (fail when a migration on disk has no
-   manifest line) would close that, but it contradicts a sentence the issue
-   wrote, so it belongs in its own issue.
-8. `git push -u origin HEAD`, then the pull request against `main`, body
-   starting `Closes #108`, with "Decisions made on my own" covering D1, D2, D3,
-   D4, D6 and D7. Do not merge it.
+1. `gh pr checks 138 --repo vojtechmares/coding-owl --watch --fail-fast`. The
+   three `TestS*Cask` failures seen locally are the missing Wails toolchain and
+   should not appear in CI; anything else is a real failure to fix on this
+   branch, followed by a fresh verification round.
+2. Do not merge. AGENTS.md leaves that to the user.
+
+Notes the reviewers raised that were **not** acted on, deliberately, since all
+three verdicts were `PASS`:
+
+- The "sorts before" message always names the greatest recorded migration
+  rather than the recorded migration the inserted file actually sorts before.
+  Accurate for the rule as written, marginally less direct for a developer who
+  inserted at 0005.
+- The missing-manifest, malformed-line and empty-manifest paths are handled and
+  carry the policy text, but no scenario exercises them. The issue does not ask
+  for it.
+- S2 and S7 share one nested `go test` run through a package-level `sync.Once`
+  that captures the first test's `*testing.T`, which makes them order-coupled.
+  Harmless as written: S7 only reads captured strings, and a `Fatal` inside the
+  `Do` leaves S7 with zero values that fail its own assertions loudly.
+- `.gitignore` has no catch-all for local secret files, so a developer's
+  untracked `.env` would be copied into the scenario's `t.TempDir()` (0700,
+  removed after the test). Out of scope here; a `.gitignore` change of its own
+  if anyone wants it.
