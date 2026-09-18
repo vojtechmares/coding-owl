@@ -136,22 +136,46 @@ hand and each caught its drift: S9 against a reworded lifted sentence, S2
 against "An OpenAI key is configured the same way", S3 against an invented
 `claude-sonnet-3-7`. The mutations were reverted.
 
+## Verification so far
+
+- `make lint` - green.
+- `make test` - everything green except three scenarios of issue #22
+  (`TestS1CaskTheDesktopBuildProducesASignedAppInAZip`, `TestS2Cask...`,
+  `TestS3Cask...`), which fail with "the wails CLI is not installed". That is
+  this machine, not the branch: CI installs wails
+  (`.github/workflows/ci.yml:90`), and nothing in the diff touches
+  `tests/behavior/issue22_test.go` or the desktop build. The ten `TestS123*`
+  scenarios are green.
+- `website/`: `pnpm install --frozen-lockfile`, `pnpm check` and `pnpm build`
+  all green on Node v26.8.2 / pnpm 11.5.2. The built page is
+  `dist/docs/chat-providers/index.html`; its ADR links resolved to
+  `/docs/decisions/0019-accounts` and `/docs/decisions/0022-desktop-chat`, and
+  the guide page's link to it resolved to `/docs/chat-providers`, which is the
+  `repoPath` fix working end to end. Re-run `pnpm build` after the last page
+  edit.
+- `security-reviewer` - **PASS**, three optional notes. Two were taken (the
+  `key.txt` example now carries a warning and a password-manager alternative;
+  `--base-url` now says when http is not enough). The third - clamping a `..`
+  that climbs above the repository root in `repoPath` - was **not** taken: the
+  reviewer itself found it unreachable (the result is only a map key, a regex
+  match, or a suffix on a GitHub URL, never a filesystem path), and diverging
+  from #142's copy of the helper would make that merge worse. Say so in the PR.
+
+No `$VERDICTS` directory: creating a directory outside the worktree is blocked
+in this session, so the agents returned their verdicts as their final message
+instead of writing files.
+
 ## Steps left
 
-1. `make lint && make test` green. (`make lint` was green at the docs commit;
-   the full `make test` run is the next thing.)
-2. `website/`: `pnpm install --frozen-lockfile && pnpm check && pnpm build`.
-   The website workflow builds on any PR touching `docs/**` or `website/**`, and
-   a bad `content.config.ts` entry fails it. If pnpm or Node is not on this
-   machine, say so plainly in the PR rather than claiming it was checked.
-3. The three agents in `.agents/agents/` in parallel, fixing until all three
-   `PASS` (`.agents/skills/bdd/scripts/wait-verdicts.sh` waits). A `PASS` counts
-   only for the commit it saw.
-4. Push, open the PR against `main` with `Closes #123`, and say in the body that
+1. `correctness-reviewer` and `behavior-verifier` verdicts. Both were launched
+   before the two page edits above, so whatever they say counts for an earlier
+   commit and they have to be re-run on HEAD.
+2. Re-run `pnpm build` in `website/` after the last page edit.
+3. Push, open the PR against `main` with `Closes #123`, and say in the body that
    `content.config.ts` and `repo.ts` will conflict with #142 and how to resolve
    it (keep one copy of `repoPath`; keep both `PUBLISHED` entries; keep both
    docs entries and let #142's renumbering win).
-5. Wait for CI with `gh pr checks --watch --fail-fast`. Do not merge.
+4. Wait for CI with `gh pr checks --watch --fail-fast`. Do not merge.
 
 ## Ruled out
 
