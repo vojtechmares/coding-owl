@@ -77,14 +77,30 @@ func sentences(text string) []string {
 	return out
 }
 
+// word is how one of those words is looked for: whole, where it is made of
+// word characters, so "no" is not found inside "know" or "not". A flag or a
+// command with punctuation in it is looked for as it is written.
+func word(w string) *regexp.Regexp {
+	w = strings.ToLower(w)
+	pattern := regexp.QuoteMeta(w)
+	if regexp.MustCompile(`^\w.*\w$|^\w$`).MatchString(w) {
+		pattern = `\b` + pattern + `\b`
+	}
+	return regexp.MustCompile(pattern)
+}
+
 // claims reports whether some sentence of the page makes one claim: it carries
 // every one of those words. A claim spread over two sentences is not one the
 // page makes.
 func claims(text string, words ...string) bool {
+	res := make([]*regexp.Regexp, len(words))
+	for i, w := range words {
+		res[i] = word(w)
+	}
 	for _, s := range sentences(strings.ToLower(text)) {
 		all := true
-		for _, w := range words {
-			if !strings.Contains(s, strings.ToLower(w)) {
+		for _, re := range res {
+			if !re.MatchString(s) {
 				all = false
 				break
 			}
@@ -238,13 +254,16 @@ func TestS123AnthropicsModelsAreTheOnesOwlKnows(t *testing.T) {
 		}
 	}
 	// And no model Owl does not offer, which is the drift the issue warns of.
-	// Anthropic's own section, because a model id OpenRouter carries is spelt
-	// the same and is nothing to do with what Owl knows.
+	// The whole page, not only Anthropic's section, so a name left behind
+	// anywhere on it is caught. A model id OpenRouter carries is spelt the same
+	// but is qualified by the vendor it comes from, and is nothing to do with
+	// what Owl knows, so those are taken out first.
 	want := map[string]bool{}
 	for _, model := range defaults {
 		want[model] = true
 	}
-	for _, got := range regexp.MustCompile(`claude-[a-z0-9.-]+`).FindAllString(under(t, body, "Anthropic"), -1) {
+	ours := regexp.MustCompile(`[a-z0-9]+/claude-[a-z0-9.-]+`).ReplaceAllString(body, "a-model-of/theirs")
+	for _, got := range regexp.MustCompile(`claude-[a-z0-9.-]+`).FindAllString(ours, -1) {
 		if !want[got] {
 			t.Errorf("the page lists %s for anthropic, which Owl does not offer: %v", got, defaults)
 		}
@@ -399,9 +418,20 @@ func TestS123PageSaysWhatAProviderIsNot(t *testing.T) {
 	// And those are the commands the binary really has, so the distinction
 	// cannot be drawn against a command nobody can run.
 	accounts := mustOwl(t, l, "account", "--help").stdout
-	if _, commands, ok := strings.Cut(accounts, "Available Commands:"); !ok {
+	_, commands, ok := strings.Cut(accounts, "Available Commands:")
+	if !ok {
 		t.Fatalf("owl account --help lists no commands:\n%s", accounts)
-	} else if commands, _, _ = strings.Cut(commands, "\nFlags:"); !strings.Contains(commands, "add") {
+	}
+	commands, _, _ = strings.Cut(commands, "\nFlags:")
+	// The name a line starts with, rather than the word anywhere in it: a
+	// subcommand's own summary could say "added" and prove nothing.
+	var hasAdd bool
+	for _, ln := range strings.Split(commands, "\n") {
+		if name, _, _ := strings.Cut(strings.TrimSpace(ln), " "); name == "add" {
+			hasAdd = true
+		}
+	}
+	if !hasAdd {
 		t.Errorf("the page says an Account is configured with `owl account add`, "+
 			"which the binary does not have:\n%s", commands)
 	}
