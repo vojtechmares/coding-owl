@@ -110,8 +110,10 @@ func TestS2ProvidersSupportedSaysHowEachOnesModelsAreDecided(t *testing.T) {
 	out := supported(t, l)
 
 	anthropic := providerLine(t, out, "anthropic")
-	if strings.Contains(anthropic, "--model") && !strings.Contains(anthropic, "no --model") {
-		t.Errorf("the anthropic line asks for --model, which Owl does not need:\n%s", anthropic)
+	// Said outright, not merely left unsaid: a line that never mentions the
+	// flag leaves the user no better off than before.
+	if !strings.Contains(anthropic, "no --model") {
+		t.Errorf("the anthropic line does not say --model is not needed:\n%s", anthropic)
 	}
 	if !strings.Contains(anthropic, "Owl") {
 		t.Errorf("the anthropic line does not say its models are Owl's own:\n%s", anthropic)
@@ -142,8 +144,17 @@ func TestS4ProvidersSupportedIsDiscoverableAndTakesNoArguments(t *testing.T) {
 
 	help := mustOwl(t, l, "providers", "--help").stdout
 
-	if !strings.Contains(help, "supported") {
-		t.Errorf("owl providers --help does not list the supported command:\n%s", help)
+	// In the list of commands, beside the other three - not somewhere in the
+	// prose, which is the discoverable-by-accident state this command exists
+	// to end.
+	_, commands, found := strings.Cut(help, "Available Commands:")
+	if !found {
+		t.Fatalf("owl providers --help lists no commands at all:\n%s", help)
+	}
+	for _, want := range []string{"add", "list", "remove", "supported"} {
+		if !strings.Contains(commands, "\n  "+want+" ") {
+			t.Errorf("owl providers --help does not list %q among its commands:\n%s", want, commands)
+		}
 	}
 	res := runOwl(t, l, "providers", "supported", "nonsense")
 	if res.code == 0 {
@@ -164,10 +175,17 @@ func TestS5ProvidersSupportedListsWhatProvidersAddAccepts(t *testing.T) {
 	for _, name := range names {
 		// A refusal for a missing --model is fine and is S2's point; a refusal
 		// that says Owl does not drive it at all means the listing and what
-		// `add` accepts have come apart.
+		// `add` accepts have come apart. Any other refusal is checked too, so
+		// that a daemon which answered nothing useful cannot pass this by
+		// failing every add for some third reason.
 		res := runOwlStdin(t, l, "sk-test", "providers", "add", name, "--key-stdin")
 		if strings.Contains(res.stderr, notDriven) {
 			t.Errorf("owl providers supported lists %q, which owl providers add refuses:\n%s", name, res.stderr)
+			continue
+		}
+		if res.code != 0 && !strings.Contains(res.stderr, "--model") {
+			t.Errorf("owl providers add %s failed for something other than the models it wants:\n%s",
+				name, res.stderr)
 		}
 	}
 	// And the other way round: a name it did not print is not one Owl drives.
