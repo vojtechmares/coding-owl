@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
-	"sort"
-	"strings"
 	"testing"
 )
 
@@ -19,17 +17,22 @@ func migrateBefore(t *testing.T, path, migration string) {
 		t.Fatalf("opening %s: %v", path, err)
 	}
 	defer func() { _ = db.Close() }()
-	entries, err := migrationsFS.ReadDir("migrations")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".sql") && e.Name() < migration {
-			names = append(names, e.Name())
+	// The schema version is the index of the named migration in the sorted
+	// list, not the number of files that happen to sort before it: a test that
+	// asks to stop before a migration that is not there must say so rather than
+	// quietly test some other schema.
+	all := migrationNames(t)
+	idx := -1
+	for i, name := range all {
+		if name == migration {
+			idx = i
+			break
 		}
 	}
-	sort.Strings(names)
+	if idx < 0 {
+		t.Fatalf("migrateBefore: no migration named %s, so it cannot stop before it", migration)
+	}
+	names := all[:idx]
 	for _, name := range names {
 		text, err := migrationsFS.ReadFile("migrations/" + name)
 		if err != nil {
@@ -39,7 +42,7 @@ func migrateBefore(t *testing.T, path, migration string) {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
-	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", len(names))); err != nil {
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", idx)); err != nil {
 		t.Fatal(err)
 	}
 	for _, stmt := range []string{
