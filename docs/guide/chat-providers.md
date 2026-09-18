@@ -2,7 +2,7 @@
 
 The desktop app carries a chat, and a model answers it. This page is about
 where that model comes from: what a provider is here, how its key is
-configured, and what each of the two Owl drives needs from you.
+configured, and what each of the two providers Owl drives needs from you.
 
 ## What `owl providers` is for
 
@@ -32,7 +32,7 @@ The three are easy to run together and mean different things
 | --- | --- | --- |
 | Model provider | Where the desktop chat's model comes from | `owl providers add` |
 | Account | The subscription Owl runs an Agent as, with its own tool configuration and its own rate limits | `owl account add` |
-| Driver | The plugin that knows how to operate one coding tool, such as Claude Code | Per Project, in its manifest |
+| Driver | The plugin that knows how to operate one coding tool, such as Claude Code | `owl account add --driver` |
 
 An Account and a Driver are about work Owl does for you while you are away. A
 model provider is only about the conversation you have with Owl afterwards:
