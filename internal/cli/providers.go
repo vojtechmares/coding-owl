@@ -41,8 +41,8 @@ OpenRouter, which carries whatever your account has.`,
 // are belongs to internal/chat; how they are described to someone choosing
 // between them is the CLI's, and the wording is the one the providers and
 // providers add help already use, so the two do not drift into saying
-// different things. providersSupportedNoted keeps a provider added later from
-// printing a blank line here.
+// different things. TestProvidersSupportedNotesEveryProvider keeps a provider
+// added to chat later from printing a blank line here.
 var providerAbout = map[string]string{
 	chat.Anthropic:  "The Anthropic API, spoken directly",
 	chat.OpenRouter: "OpenRouter, which speaks the OpenAI shape for any model it offers",
@@ -75,7 +75,7 @@ for OpenRouter, which carries whatever your account has.`,
 			if err := w.Flush(); err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(env.Stdout,
+			_, _ = fmt.Fprint(env.Stdout,
 				"\nconfigure one with: owl providers add <provider> --key-stdin < key.txt\n")
 			return nil
 		},
