@@ -211,8 +211,38 @@ list` can only report what is already there.
       `supported` not being a command.
 - [x] Step 2/3 - command and guard test (`f41233f`).
 - [x] Step 4 - README and CHANGELOG (`6d54dac`).
-- [ ] Steps 5-7 - self-review, `make lint && make test`, verification agents.
+- [x] Steps 5-7 - self-review (`a3cb357`), `make lint` green, `make test` green
+      apart from three pre-existing failures, and three rounds of the
+      verification agents (see below).
 - [ ] Steps 8-9 - push, PR, CI green.
+
+## Verification rounds
+
+The agents could not be given a `$VERDICTS` directory: this sandbox refuses to
+create directories outside the worktree, and a verdict file must not be written
+inside the repo. They returned their verdicts as their final messages instead,
+which is what their own spec says to do when no directory is given.
+
+- **Round 1, on `a3cb357`.** security `PASS`, correctness `PASS` (four notes),
+  behavior `FAIL`. The behavior findings were both real: S2 only complained if
+  the `anthropic` line *asked* for `--model`, so a line reading "Owl's own"
+  passed while telling the user nothing about omitting it; S4 looked for the
+  word "supported" anywhere in the help, which the `Long` prose alone
+  satisfies - exactly the discoverable-by-accident state the issue exists to
+  end. Fixed in `b0a43ae`, along with correctness's notes on S5 passing
+  vacuously and the truncated README row. Both tightened assertions were
+  checked against deliberately weakened builds and did fail on them.
+- **Round 2, on `b0a43ae`.** All three `PASS`. Both reviewers independently
+  raised the same remaining note: S1's third Then clause held only because
+  `providers list` never got as far as printing. Closed in `21112ac`.
+- **Round 3, on `21112ac`.** Re-run because a `PASS` counts only for the commit
+  it saw.
+
+One note was raised and deliberately not acted on: the `MODELS` column header
+is reused from `owl providers list`, where it holds model IDs, while here it
+holds a sentence about where the models come from. The table shape was chosen
+to match its sibling tables, and the correctness reviewer agreed on the second
+pass that printing IDs there would drift from the issue rather than towards it.
 
 ## What was built, as it ended up
 
@@ -229,7 +259,8 @@ openrouter  yours; name them with --model  OpenRouter, which speaks the OpenAI s
 configure one with: owl providers add <provider> --key-stdin < key.txt
 ```
 
-Two departures from the plan's letter, both while writing the tests:
+Three departures from the plan's letter, all in the tests rather than the
+command:
 
 - **S1 and S6 read the table, not the whole output.** Checking only that the
   output *contains* "anthropic" and "openrouter" passed against no
@@ -241,6 +272,12 @@ Two departures from the plan's letter, both while writing the tests:
   one `owl providers add` accepts, `openai` - a name the command does not
   print - is refused as one Owl does not drive. Without that, a command that
   listed nothing would have passed S5.
+- **Every Then clause is asserted positively.** The first draft of S2, S4, S5
+  and S1 all had assertions phrased as "do not complain unless", which pass on
+  output that breaks the clause. The verification agents caught three of them;
+  they now assert what the sheet says rather than the absence of its opposite.
+  If you add a scenario here, write the assertion the same way and check it
+  against a deliberately broken build.
 
 The guard test of decision 4 lives in `internal/cli/providers_internal_test.go`
 (package `cli`, so it can see `providerAbout`), and checks both directions:
