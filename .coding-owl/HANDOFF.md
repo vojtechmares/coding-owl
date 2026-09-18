@@ -332,8 +332,11 @@ moved the branch each time. The agents could not be given a `$VERDICTS`
 directory - this session may only write inside the worktree - so each returned
 its verdict as its final message instead.
 
-**The one real finding, round one, correctness: the manual stated a wrong
-default.** `--ttl` gets three Runs, not ten: `queue.DefaultTTL` is 3
+Rounds one and three each turned up one real error, both in the manual's prose
+and neither catchable by S4, which walks commands and flags and not sentences
+about them. Rounds two and four were clean.
+
+**Round one, correctness: the manual stated a wrong default.** `--ttl` gets three Runs, not ten: `queue.DefaultTTL` is 3
 (`internal/queue/queue.go`:48), applied by `Add` (:184) and by `Extend` (:344)
 whenever the flag is unset. D5 said to narrate from the cobra help, and the
 cobra help is itself stale - `internal/cli/queue.go`:44,79 and
@@ -352,6 +355,19 @@ three-line pointer - a regression this work created, so it was repaired here
 "Get started" button above it still points at the guide's Installing section,
 which is #127's to move). And `owl account list` prints a failover column the
 page's list of columns left out.
+
+**Round three, correctness: closing that second note introduced a worse error
+than the one it closed.** The new sentence said the flagged Account was one
+work may fail over *to*. `--failover` records the opposite - the flagged
+Account is the source (`internal/cli/account.go`:131, and the same gloss in
+`proto/codingowl/v1/account.proto`:62, `internal/store/accounts.go`:32 and
+`internal/account/account.go`:66, all citing ADR-0019). Backwards is worse than
+absent: a reader would have set the flag on the spare Account. Fixed in
+`6210574`.
+
+Worth carrying forward: an omission is not always worth closing in a hurry, and
+a sentence added to satisfy a reviewer's note deserves the same check against
+the source as the rest of the page.
 
 **Two left alone, on purpose.** The Account sections of
 `projects-and-accounts.md` are near-verbatim copies of README.md:206-252, which
@@ -377,8 +393,7 @@ a command is moved out of its section.
 - [x] Loader link resolution + PUBLISHED
 - [x] Website README, /docs subtitle, CI step
 - [x] `make lint && make test`, website build
-- [x] Verification agents all PASS (rounds one and two; round three running at
-      the time of writing)
+- [x] Verification agents all PASS, on commit `6210574`, after four rounds
 - [ ] PR opened, CI green
 - [ ] Comment on #127 and #124 with the ids, URLs and reserved order slots
 
