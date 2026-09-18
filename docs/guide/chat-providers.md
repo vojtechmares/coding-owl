@@ -54,6 +54,15 @@ It is put in the credential store; the database records only that it is there.
 Configuring a provider that is already configured replaces it, which is how a
 key is rotated.
 
+A file is only one way to get the key onto standard input, and the least safe:
+keep it outside every Project so it cannot be committed, and delete it once the
+provider is configured. Anything that prints the key will do instead, which is
+what a password manager is for:
+
+```
+pass show anthropic/api-key | owl providers add anthropic --key-stdin
+```
+
 The credential store is the OS keychain where there is one, and a file under
 the data home readable only by its owner where there is not - a continuous
 integration runner, say. The daemon's own configuration chooses, and says which
@@ -97,7 +106,9 @@ Requests go to `https://openrouter.ai/api/v1` unless `--base-url` says
 otherwise. A base url has to be somewhere a request can be sent: http or https,
 with a host, and without a query, a fragment, or a name and password - every
 request puts a path after it, and a credential in a url would end up in the
-database and in a listing, which is not where one lives.
+database and in a listing, which is not where one lives. Owl accepts http as
+well as https, but the key goes on every request, so http belongs only to
+something on the same machine, such as a proxy you are running yourself.
 
 ## Listing and removing
 
