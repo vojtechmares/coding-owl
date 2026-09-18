@@ -27,14 +27,29 @@ function splitTitle(source: string): { title: string | undefined; body: string }
  */
 const REPO_URL = 'https://github.com/vojtechmares/coding-owl/blob/main';
 const PUBLISHED: Record<string, string> = {
+  'README.md': '/docs/guide',
   'CHANGELOG.md': '/changelog',
   'docs/adr/README.md': '/docs/decisions',
   'docs/adr': '/docs/decisions',
+  'docs/guide/getting-started.md': '/docs/getting-started',
+  'docs/guide/jobs.md': '/docs/jobs',
+  'docs/guide/projects-and-accounts.md': '/docs/projects-and-accounts',
 };
 
-function rewriteRepoLinks(body: string): string {
+/**
+ * Resolves a link target the way whoever wrote it meant it: relative to the
+ * file it is written in, which is what GitHub reads it as too. A page under
+ * `docs/guide/` says `../../README.md`; only after resolving is that the same
+ * `README.md` the map is keyed by.
+ */
+function repoPath(from: string, target: string): string {
+  const dir = path.posix.dirname(from);
+  return path.posix.normalize(path.posix.join(dir, target)).replace(/\/$/, '');
+}
+
+function rewriteRepoLinks(body: string, from: string): string {
   return body.replace(/\]\(((?![a-z]+:|\/|#)[^)\s]+?)(#[^)]*)?\)/g, (_, target: string, hash = '') => {
-    const clean = target.replace(/^\.\//, '').replace(/\/$/, '');
+    const clean = repoPath(from, target);
     const adr = clean.match(/^docs\/adr\/(\d{4}-[a-z0-9-]+)\.md$/);
     if (adr) return `](/docs/decisions/${adr[1]}${hash})`;
     if (PUBLISHED[clean]) return `](${PUBLISHED[clean]}${hash})`;
@@ -78,6 +93,7 @@ export function repoFiles(files: RepoFile[]): Loader {
         // the same heading twice; the page's own H1 stands in for it.
         const body = rewriteRepoLinks(
           rest.replace(new RegExp(`^##\\s+${escapeRegExp(data.title)}\\s*\\n+`), ''),
+          file.path,
         );
         store.set({
           id: file.id,
