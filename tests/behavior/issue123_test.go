@@ -154,12 +154,13 @@ func TestS123PageIsInTheRepositoryAndPublished(t *testing.T) {
 	// how GitHub reads them too, so the rewriter has to resolve them that way
 	// before looking them up. The website is not built by `make test`, so what
 	// it is made of is checked on disk, as issue #9's and #18's frontend
-	// scenarios do.
-	if !strings.Contains(loader, "function repoPath(") {
-		t.Error("repo.ts does not resolve a link target relative to the file it is written in")
-	}
-	if !regexp.MustCompile(`rewriteRepoLinks\(\s*body:\s*string,\s*from:\s*string`).MatchString(loader) {
+	// scenarios do - the two things any resolution needs, rather than the name
+	// this one happens to give its helper.
+	if !regexp.MustCompile(`(?s)rewriteRepoLinks\(.{0,300}?file\.path`).MatchString(loader) {
 		t.Error("rewriteRepoLinks is not told which file the links it rewrites are written in")
+	}
+	if !regexp.MustCompile(`path(?:\.posix)?\.dirname\(`).MatchString(loader) {
+		t.Error("repo.ts never takes the directory of that file, so it cannot resolve a link against it")
 	}
 }
 
@@ -382,13 +383,33 @@ func TestS123EverySubcommandThePageNamesIsReal(t *testing.T) {
 
 func TestS123PageSaysWhatAProviderIsNot(t *testing.T) {
 	body := page(t)
+	l := newLayout(t)
 
-	if !claims(body, "account") {
-		t.Errorf("%s does not distinguish a chat model provider from an Agent's Account", providersPage)
+	// The distinction, not the word. A page that merely says "account"
+	// somewhere says nothing: what it has to say is what an Account is and
+	// where one is configured, which is somewhere else entirely.
+	if !claims(body, "account", "subscription", "owl account add") {
+		t.Errorf("%s does not say what an Agent's Account is and where it is configured, "+
+			"so it does not distinguish one from a model provider", providersPage)
 	}
-	if !claims(body, "driver") {
-		t.Errorf("%s does not distinguish a chat model provider from a Driver", providersPage)
+	if !claims(body, "driver", "coding tool", "owl account add --driver") {
+		t.Errorf("%s does not say what a Driver is and where it is chosen, "+
+			"so it does not distinguish one from a model provider", providersPage)
 	}
+	// And those are the commands the binary really has, so the distinction
+	// cannot be drawn against a command nobody can run.
+	accounts := mustOwl(t, l, "account", "--help").stdout
+	if _, commands, ok := strings.Cut(accounts, "Available Commands:"); !ok {
+		t.Fatalf("owl account --help lists no commands:\n%s", accounts)
+	} else if commands, _, _ = strings.Cut(commands, "\nFlags:"); !strings.Contains(commands, "add") {
+		t.Errorf("the page says an Account is configured with `owl account add`, "+
+			"which the binary does not have:\n%s", commands)
+	}
+	if !strings.Contains(mustOwl(t, l, "account", "add", "--help").stdout, "--driver") {
+		t.Errorf("the page says a Driver is chosen with `owl account add --driver`, " +
+			"which takes no such flag")
+	}
+
 	if !strings.Contains(body, "CONTEXT.md") {
 		t.Errorf("%s does not link to CONTEXT.md, where Account and Driver are defined", providersPage)
 	}
