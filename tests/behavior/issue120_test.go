@@ -96,9 +96,15 @@ func TestS1ProvidersSupportedNamesThemWithNothingConfigured(t *testing.T) {
 		}
 	}
 	// The gap this fills: the command that lists what is configured cannot
-	// answer the question at all here.
+	// answer the question at all here. With no daemon to ask, it fails
+	// outright - and even if it could be asked, what it reports is what is
+	// configured, which is nothing.
 	configured := runOwl(t, l, "providers", "list")
-	if configured.code == 0 && strings.Contains(configured.stdout, "openrouter") {
+	if configured.code == 0 {
+		t.Errorf("owl providers list answered with no daemon up, so it could have filled this gap:\n%s",
+			configured.stdout)
+	}
+	if strings.Contains(configured.stdout, "openrouter") {
 		t.Errorf("owl providers list already names the supported providers, so nothing was missing:\n%s",
 			configured.stdout)
 	}
