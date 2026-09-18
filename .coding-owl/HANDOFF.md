@@ -394,8 +394,13 @@ a command is moved out of its section.
 - [x] Website README, /docs subtitle, CI step
 - [x] `make lint && make test`, website build
 - [x] Verification agents all PASS, on commit `6210574`, after four rounds
-- [ ] PR opened, CI green
-- [ ] Comment on #127 and #124 with the ids, URLs and reserved order slots
+- [x] PR opened - **#142** - and CI green: `test`, `desktop` and the website
+      `Build` all pass, `Deploy` skipped as it is for a pull request. The three
+      `issue22_test.go` cask scenarios that fail locally pass in CI, which
+      confirms the local failures were the missing `wails` CLI and nothing on
+      this branch.
+- [x] Comment on #127 and #124 with the ids, URLs and reserved order slots
+- [ ] Nothing left. The PR waits for a person; do not merge it.
 
 `bin/owl-verify`, built by a verification agent, could not be deleted: `rm` is
 refused in this session. It is untracked and covered by `.gitignore`, so it
