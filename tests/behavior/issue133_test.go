@@ -303,9 +303,11 @@ func TestS10TheAgentIsToldWhatItsJobWasQueuedBehind(t *testing.T) {
 	for _, want := range []string{
 		// Its own work first.
 		"the client change",
-		// What it was queued behind: the Job, its state, and its prompt.
-		"job " + blocking,
-		"done",
+		// What it was queued behind: the Job, its state, and its prompt. The
+		// state is asserted in the phrase that carries it - the word "done"
+		// alone appears in the execution prompt's own boilerplate, so it
+		// would pass for a note that dropped the state entirely.
+		"job " + blocking + ", which is done",
 		"the api change",
 	} {
 		if !strings.Contains(prompt, want) {
