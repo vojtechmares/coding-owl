@@ -348,6 +348,94 @@ func TestAddRefusesAttemptsThatAreNotANumberOfRuns(t *testing.T) {
 	}
 }
 
+func TestAddQueuesAJobBehindOneThatIsThere(t *testing.T) {
+	svc, dir := oneProject(t)
+	first, err := svc.Add(context.Background(), queue.AddRequest{Prompt: "the api change", WorkingDir: dir})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	second, err := svc.Add(context.Background(), queue.AddRequest{
+		Prompt: "the client change", WorkingDir: dir, BlockedBy: first.ID,
+	})
+
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if second.BlockedBy != first.ID {
+		t.Errorf("the job waits for %d, want job %d", second.BlockedBy, first.ID)
+	}
+	// It is queued behind it rather than held out of the queue: being waited
+	// on is a skip reason, not a state (ADR-0025).
+	if second.State != queue.StatePending || second.Position != 2 {
+		t.Errorf("the job is %s at position %d, want pending at 2", second.State, second.Position)
+	}
+}
+
+func TestAddRefusesAJobToWaitForThatIsNotThere(t *testing.T) {
+	svc, dir := oneProject(t)
+
+	_, err := svc.Add(context.Background(), queue.AddRequest{
+		Prompt: "work", WorkingDir: dir, BlockedBy: 999,
+	})
+
+	var invalid *queue.InvalidError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Add waiting for job 999 = %v, want an InvalidError", err)
+	}
+	if !strings.Contains(err.Error(), "999") {
+		t.Errorf("the error %q does not name the job that is not there", err)
+	}
+	// And nothing was queued behind the refusal.
+	js, err := svc.List(context.Background(), true)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(js) != 0 {
+		t.Errorf("the refusal queued %d jobs: %+v", len(js), js)
+	}
+}
+
+func TestAddRefusesADependencyThatIsNotAJobID(t *testing.T) {
+	svc, dir := oneProject(t)
+
+	_, err := svc.Add(context.Background(), queue.AddRequest{
+		Prompt: "work", WorkingDir: dir, BlockedBy: -1,
+	})
+
+	var invalid *queue.InvalidError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Add waiting for job -1 = %v, want an InvalidError", err)
+	}
+	if !strings.Contains(err.Error(), "count from one") {
+		t.Errorf("the error %q does not say job ids count from one", err)
+	}
+}
+
+func TestAddAllowsWaitingForAJobThatIsAlreadyDone(t *testing.T) {
+	svc, dir := oneProject(t)
+	first, err := svc.Add(context.Background(), queue.AddRequest{Prompt: "the api change", WorkingDir: dir})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, err := svc.Cancel(context.Background(), first.ID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	// The rule is that the Job exists, not that it is unfinished: a Job that
+	// has already left the queue is simply never waited for.
+	second, err := svc.Add(context.Background(), queue.AddRequest{
+		Prompt: "the client change", WorkingDir: dir, BlockedBy: first.ID,
+	})
+
+	if err != nil {
+		t.Fatalf("Add behind a job that has left the queue = %v, want it queued", err)
+	}
+	if second.BlockedBy != first.ID {
+		t.Errorf("the job waits for %d, want job %d", second.BlockedBy, first.ID)
+	}
+}
+
 func TestExtendAddsTheDefaultAttemptsWhenNoNumberIsAskedFor(t *testing.T) {
 	svc, dir := oneProject(t)
 	queued, err := svc.Add(context.Background(), queue.AddRequest{Prompt: "work", WorkingDir: dir, TTL: 1})
