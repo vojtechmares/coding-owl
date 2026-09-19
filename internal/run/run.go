@@ -550,7 +550,7 @@ func (s *Service) start(ctx context.Context, by Freezer) (job queue.Job, run Run
 
 	// The prompt is built after the worktree exists, because an execution Run
 	// reads the handoff that is in it.
-	prompt, err := s.promptFor(phase, j)
+	prompt, err := s.promptFor(ctx, phase, j)
 	if err != nil {
 		return queue.Job{}, Run{}, false, err
 	}
@@ -636,9 +636,10 @@ func phaseOf(j store.Job) Phase {
 // promptFor builds what the Agent is asked to do this Run. The execution
 // prompt carries the handoff as it stands in the Job's worktree, so a Run
 // reads what the last one left - and what the user edited since (ADR-0026).
-func (s *Service) promptFor(phase Phase, j store.Job) (string, error) {
+func (s *Service) promptFor(ctx context.Context, phase Phase, j store.Job) (string, error) {
+	work := s.workFor(ctx, j)
 	if phase == PhasePlan {
-		return planPrompt(j.Prompt), nil
+		return planPrompt(work), nil
 	}
 	handoff, err := readHandoff(j.Worktree)
 	if err != nil {
@@ -653,7 +654,28 @@ func (s *Service) promptFor(phase Phase, j store.Job) (string, error) {
 	if strings.TrimSpace(handoff) == "" {
 		handoff, source = j.Plan, "the plan this job was given"
 	}
-	return executePrompt(j.Prompt, handoff, source), nil
+	return executePrompt(work, handoff, source), nil
+}
+
+// workFor is the Job's prompt, with what it was queued behind said after it: a
+// Job that waits for another is told which one, the state it is in and what it
+// was asked to do (ADR-0025). The note comes after the work so that the
+// Agent's own task is still the first thing it reads.
+//
+// A blocking Job that cannot be read does not fail the Run. The Job's own work
+// is still the work, and losing the context it was queued behind is not a
+// reason to spend one of its attempts.
+func (s *Service) workFor(ctx context.Context, j store.Job) string {
+	if j.BlockedBy == 0 {
+		return j.Prompt
+	}
+	b, err := s.opts.Store.GetJob(ctx, j.BlockedBy)
+	if err != nil {
+		s.opts.Logger.Debug("the job this one was queued behind could not be read",
+			"job", j.ID, "blocked_by", j.BlockedBy, "error", err)
+		return j.Prompt
+	}
+	return j.Prompt + "\n\n" + blockedByNote(b)
 }
 
 // readHandoff reads a Job's handoff from its worktree. A Job that has none yet
