@@ -265,6 +265,147 @@ func TestShowFallsBackToDefaults(t *testing.T) {
 	}
 }
 
+// unconfigured registers a Project whose repository carries no Owl file, so
+// discovery falls through to the config-home fallback of ADR-0014 form 4.
+func (f *fixture) unconfigured(t *testing.T, name string) {
+	t.Helper()
+	dir := f.repo(t, name)
+	if _, err := f.svc.Add(ctx, project.AddRequest{Path: dir}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+}
+
+// showStray is the near-miss configuration Show reports for the Project.
+func (f *fixture) showStray(t *testing.T, name string) string {
+	t.Helper()
+	d, err := f.svc.Show(ctx, name)
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	return d.StrayConfig
+}
+
+func TestShowReportsANearMissInTheConfigHome(t *testing.T) {
+	f := newFixture(t)
+	f.unconfigured(t, "api")
+	stray := filepath.Join(f.configHome, "api", ".coding-owl.yaml")
+	writeFile(t, stray, owlConfig("stray/"))
+
+	d, err := f.svc.Show(ctx, "api")
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	if d.StrayConfig != stray {
+		t.Errorf("StrayConfig = %q, want %q", d.StrayConfig, stray)
+	}
+	// Reported, never loaded: the defaults are still what is in force.
+	if d.ConfigSource != "" || d.Config.BranchPrefix != "owl/" {
+		t.Errorf("a near miss was loaded: source %q, prefix %q", d.ConfigSource, d.Config.BranchPrefix)
+	}
+}
+
+func TestShowReportsNoNearMissForFilesThatAreNotOne(t *testing.T) {
+	f := newFixture(t)
+	f.unconfigured(t, "api")
+	// Owl writes the lockfile into this directory itself, so it is never a
+	// near miss; a file that is not YAML at all was never a candidate.
+	writeFile(t, filepath.Join(f.configHome, "api", skill.LockName), lockOf("pinned"))
+	writeFile(t, filepath.Join(f.configHome, "api", "notes.txt"), "remember this\n")
+	if err := os.MkdirAll(filepath.Join(f.configHome, "api", "sub.yaml"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := f.showStray(t, "api"); got != "" {
+		t.Errorf("StrayConfig = %q, want none of these reported", got)
+	}
+}
+
+func TestShowReportsNoNearMissWhenTheFallbackWasLoaded(t *testing.T) {
+	f := newFixture(t)
+	f.unconfigured(t, "api")
+	writeFile(t, filepath.Join(f.configHome, "api", "config.yaml"), owlConfig("fallback/"))
+	writeFile(t, filepath.Join(f.configHome, "api", ".coding-owl.yaml"), owlConfig("stray/"))
+
+	if got := f.showStray(t, "api"); got != "" {
+		t.Errorf("StrayConfig = %q, want nothing: a configuration was found", got)
+	}
+}
+
+func TestShowReportsNoNearMissWhenAnInRepoFormWon(t *testing.T) {
+	// Discovery never reaches form 4 when an in-repo form exists, so a file
+	// left in the config home could not have been used whatever its name.
+	f := newFixture(t)
+	dir := f.repo(t, "api")
+	f.commit(t, dir, ".coding-owl.yaml", owlConfig("root/"))
+	if _, err := f.svc.Add(ctx, project.AddRequest{Path: dir}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	writeFile(t, filepath.Join(f.configHome, "api", ".coding-owl.yaml"), owlConfig("stray/"))
+
+	if got := f.showStray(t, "api"); got != "" {
+		t.Errorf("StrayConfig = %q, want nothing: the in-repo form won", got)
+	}
+}
+
+func TestShowReportsOneNearMissByPreference(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		files []string
+		want  string
+	}{
+		{"the dotted in-repo name first", []string{"a.yaml", "coding-owl.yaml", ".coding-owl.yaml"}, ".coding-owl.yaml"},
+		{"then the undotted one", []string{"a.yaml", "config.yml", "coding-owl.yaml"}, "coding-owl.yaml"},
+		{"then the right name with the wrong extension", []string{"a.yaml", "zz.yml", "config.yml"}, "config.yml"},
+		{"anything else sorts", []string{"zz.yaml", "mid.yml", "aa.yaml"}, "aa.yaml"},
+		{"and the extension may be upper case", []string{"Owl.YAML"}, "Owl.YAML"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.unconfigured(t, "api")
+			for _, n := range c.files {
+				writeFile(t, filepath.Join(f.configHome, "api", n), owlConfig("stray/"))
+			}
+
+			want := filepath.Join(f.configHome, "api", c.want)
+			if got := f.showStray(t, "api"); got != want {
+				t.Errorf("StrayConfig = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestShowReportsNoNearMissWhenTheDirectoryCannotBeListed(t *testing.T) {
+	// A diagnostic that turns a working `owl project show` into a failure is
+	// worse than the problem it reports, so an unreadable directory - or one
+	// that was never created - reports nothing rather than erroring.
+	f := newFixture(t)
+	f.unconfigured(t, "api")
+
+	if got := f.showStray(t, "api"); got != "" {
+		t.Errorf("StrayConfig = %q, want nothing: there is no such directory", got)
+	}
+
+	if os.Geteuid() == 0 {
+		t.Skip("root lists a directory it has no read bit for anyway")
+	}
+	// Search-only, so discovery still reaches past the absent config.yaml but
+	// the listing behind the report cannot be made.
+	dir := filepath.Join(f.configHome, "api")
+	writeFile(t, filepath.Join(dir, ".coding-owl.yaml"), owlConfig("stray/"))
+	if err := os.Chmod(dir, 0o111); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	d, err := f.svc.Show(ctx, "api")
+	if err != nil {
+		t.Fatalf("Show failed over a directory it could not list: %v", err)
+	}
+	if d.StrayConfig != "" {
+		t.Errorf("StrayConfig = %q, want nothing: the directory cannot be listed", d.StrayConfig)
+	}
+}
+
 func TestShowReadsTheBaseBranchNotTheWorktree(t *testing.T) {
 	f := newFixture(t)
 	dir := f.repo(t, "api")
