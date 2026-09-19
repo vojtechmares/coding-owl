@@ -3,6 +3,8 @@
 - **Status:** Accepted
 - **Amended:** 2026-09-12, to write the three settings as the files spell them.
   It wrote them in snake_case, which no file Owl reads uses.
+- **Amended:** 2026-09-19, to change the global and per-Account defaults. See the
+  note under Decision.
 - **Date:** 2026-09-09
 - **Supersedes:** the "one Run at a time" clause of ADR-0011
 
@@ -31,6 +33,16 @@ Three caps; the scheduler takes the minimum that applies.
 Raising the global alone therefore parallelises *across* Projects, never within
 one. Per-Project is raised deliberately, once a Project's checks are known to be
 hermetic.
+
+> **Amended 2026-09-19.** The defaults of the global and per-Account caps
+> change: `maxParallelRuns` in the daemon file now defaults to **2**, and
+> `accounts.<name>.maxParallel` to **1**. A person runs several Accounts in
+> order to run them side by side, and under the original defaults that took
+> three numbers kept in sync by hand. Two Accounts now run side by side out of
+> the box, one Run each, while the global cap still bounds host load: a third
+> Account shares those two slots until the global cap is raised. The
+> per-Project default of 1 is unchanged, so two Runs still never share a
+> repository unless a Project says they may.
 
 ## Consequences
 

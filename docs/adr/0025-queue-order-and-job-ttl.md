@@ -1,6 +1,7 @@
 # ADR-0025: Queue order and Job attempt limits
 
 - **Status:** Accepted
+- **Amended:** 2026-09-19, by ADR-0039: each Account may have one Focus.
 - **Date:** 2026-09-09
 
 ## Context
@@ -23,6 +24,10 @@ its position and is reconsidered on the next tick.
 
 There is no priority field. Urgency is expressed with `owl queue reorder`, and
 a re-attempt never changes a Job's position.
+
+> **Amended 2026-09-19.** One exception: each Account may have a Focus, a
+> Project whose Jobs are scanned ahead of the rest (ADR-0039). Within each part
+> the order is still FIFO.
 
 ### Attempt limit
 
