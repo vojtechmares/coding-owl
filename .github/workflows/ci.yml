@@ -76,7 +76,7 @@ jobs:
 
       # pnpm comes before Node so that Node's cache can be keyed on pnpm's
       # store; the version is the one package.json pins.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: cmd/owl-desktop/frontend/package.json
 
