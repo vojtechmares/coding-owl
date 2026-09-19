@@ -137,21 +137,22 @@ func generate(t *testing.T) {
 	}
 }
 
-// accepts reports whether an anyOf branch of that JSON type is there, which is
-// how the settings read as whatever was written say they take two forms.
-func accepts(t *testing.T, s object, jsonType string) bool {
+// branch is the anyOf branch of that JSON type, or nil when there is none.
+// The settings read as whatever was written say they take two forms that way,
+// and each form carries the bound the parser puts on it.
+func branch(t *testing.T, s object, jsonType string) map[string]any {
 	t.Helper()
 	branches, ok := s["anyOf"].([]any)
 	if !ok {
-		return false
+		return nil
 	}
 	for _, b := range branches {
-		branch, ok := b.(map[string]any)
-		if ok && branch["type"] == jsonType {
-			return true
+		form, ok := b.(map[string]any)
+		if ok && form["type"] == jsonType {
+			return form
 		}
 	}
-	return false
+	return nil
 }
 
 func TestS1SchemasArePublishedWithTheSite(t *testing.T) {
@@ -224,7 +225,13 @@ func TestS3MakeGenerateRegeneratesThem(t *testing.T) {
 		if err := os.Remove(path); err != nil {
 			t.Fatalf("removing %s: %v", rel, err)
 		}
-		t.Cleanup(func() { _ = os.WriteFile(path, data, 0o644) })
+		// Put it back whatever happens, and say so if that fails: a tracked
+		// file left missing in the worktree is the test's own mess.
+		t.Cleanup(func() {
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				t.Errorf("restoring %s: %v", rel, err)
+			}
+		})
 	}
 
 	generate(t)
@@ -287,7 +294,80 @@ func TestS5AKeyTheDecoderWouldRefuseIsInvalid(t *testing.T) {
 			t.Errorf("%s: these objects do not say additionalProperties: false, "+
 				"so the schema accepts keys the decoder refuses: %v", rel, open)
 		}
+		// Closing every object is only half of it: a key the schema names that
+		// the decoder has no field for would be offered in an editor and
+		// refused on load. Property names come off the shapes by reflection,
+		// but the generator also writes a few by hand, and those are the ones
+		// that could say something the decoder does not.
+		for _, name := range everyPropertyName(root) {
+			if !written[name] {
+				t.Errorf("%s: names the key %q, which is not a yaml tag on the "+
+					"shapes in %s, so the decoder would refuse it", rel, name, shapesFile)
+			}
+		}
 	}
+}
+
+// shapesFile holds the on-disk shapes the schemas are generated from. The
+// scenarios read its yaml tags out of the source because the shapes are
+// unexported, which is also what keeps this check independent of the
+// reflection the generator itself does.
+const shapesFile = "internal/config/config.go"
+
+// fixedKeys are the property names Owl fixes rather than reads off a field:
+// the phases a Job passes through, and the ceilings an Account may be held to.
+// They are map keys in the Go shapes, so they carry no yaml tag of their own.
+var fixedKeys = []string{"plan", "execute", "fiveHourMax", "weeklyMax"}
+
+// written is every key a configuration file may carry, by name.
+var written = writableKeys()
+
+func writableKeys() map[string]bool {
+	out := map[string]bool{}
+	for _, name := range fixedKeys {
+		out[name] = true
+	}
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		return out
+	}
+	source, err := os.ReadFile(filepath.Join(root, shapesFile))
+	if err != nil {
+		return out
+	}
+	tag := regexp.MustCompile("yaml:\"([^\",]+)")
+	for _, m := range tag.FindAllStringSubmatch(string(source), -1) {
+		out[m[1]] = true
+	}
+	return out
+}
+
+// everyPropertyName is every key named under a `properties` anywhere in a
+// schema.
+func everyPropertyName(node any) []string {
+	var out []string
+	switch n := node.(type) {
+	case map[string]any:
+		for key, child := range n {
+			if key == "properties" {
+				if props, ok := child.(map[string]any); ok {
+					for name := range props {
+						out = append(out, name)
+					}
+				}
+			}
+			if key == "const" || key == "enum" || key == "default" {
+				continue
+			}
+			out = append(out, everyPropertyName(child)...)
+		}
+	case []any:
+		for _, item := range n {
+			out = append(out, everyPropertyName(item)...)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // openObjects returns the paths of every subschema that declares properties
@@ -298,9 +378,8 @@ func openObjects(node any, path string) []string {
 	if !ok {
 		var out []string
 		if list, ok := node.([]any); ok {
-			for i, item := range list {
+			for _, item := range list {
 				out = append(out, openObjects(item, path)...)
-				_ = i
 			}
 		}
 		return out
@@ -369,11 +448,33 @@ func TestS7WhateverWasWrittenTakesANumberOrAString(t *testing.T) {
 		"the daemon schema's maxParallelRuns":  at(t, daemon, "maxParallelRuns"),
 		"an account's maxParallel":             at(t, daemon, "accounts", "*", "maxParallel"),
 	} {
-		if !accepts(t, s, "integer") {
+		whole := branch(t, s, "integer")
+		if whole == nil {
 			t.Errorf("%s does not accept an integer: %v", what, s)
+		} else if whole["minimum"] != float64(1) {
+			t.Errorf("%s accepts an integer with minimum %v, want 1: "+
+				"a run count is at least one", what, whole["minimum"])
 		}
-		if !accepts(t, s, "string") {
+		digits := branch(t, s, "string")
+		if digits == nil {
 			t.Errorf("%s does not accept a string: %v", what, s)
+		} else {
+			pattern, ok := digits["pattern"].(string)
+			if !ok {
+				t.Errorf("%s takes any string at all, not a string of digits", what)
+			} else {
+				re, err := regexp.Compile(pattern)
+				switch {
+				case err != nil:
+					t.Errorf("%s has a pattern that is not a regexp: %v", what, err)
+				case !re.MatchString("2"):
+					t.Errorf("%s does not accept the string %q", what, "2")
+				case re.MatchString("two"):
+					t.Errorf("%s accepts the string %q, which is not a number of runs", what, "two")
+				case re.MatchString("0"):
+					t.Errorf("%s accepts the string %q, which the parser refuses", what, "0")
+				}
+			}
 		}
 		if s["type"] != nil {
 			t.Errorf("%s pins a single type %v, which is not what the parser reads", what, s["type"])
