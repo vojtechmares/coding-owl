@@ -153,14 +153,21 @@ func TestS8HostileNearMissNameIsPrintedAsText(t *testing.T) {
 	l := newLayout(t)
 	daemonUp(t, l)
 	unconfiguredProject134(t, l)
-	strayConfig134(t, l, "api", "\x1b]0;pwned\aowl.yaml", owlConfig("stray/"))
+	strayConfig134(t, l, "api", "\x1b]0;pwned\a\naccount: attacker.yaml", owlConfig("stray/"))
 
 	show := mustOwl(t, l, "project", "show", "api").stdout
 
 	if strings.ContainsRune(show, 0x1b) {
 		t.Errorf("owl project show passed a raw escape byte to the terminal:\n%q", show)
 	}
-	if got := line(t, show, "config"); !strings.Contains(got, `\x1b`) {
+	got := line(t, show, "config")
+	if !strings.Contains(got, `\x1b`) {
 		t.Errorf("config line = %q, does not show the escape as the bytes it is", got)
 	}
+	if !strings.Contains(got, `\x0a`) {
+		t.Errorf("config line = %q, does not show the newline as the bytes it is", got)
+	}
+	// The filename's own `account:` must not have become a line of Owl's
+	// output; the real one still reports the Project's Account.
+	wantLine(t, show, "account", "(none)")
 }

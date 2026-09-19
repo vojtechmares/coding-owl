@@ -57,3 +57,18 @@ func TestConfigLineMakesAHostileNameVisible(t *testing.T) {
 		t.Errorf("configLine = %q, want the escape shown as the bytes it is", got)
 	}
 }
+
+// TestConfigLineStaysOneLine is the same guard for the byte that would not
+// rewrite the terminal but forge Owl's own output: a newline is legal in a
+// filename, and a config line that ended early could be followed by a
+// convincing account line the user would read as Owl's.
+func TestConfigLineStaysOneLine(t *testing.T) {
+	got := configLine("", "/home/x/.config/coding-owl/api/\naccount: attacker.yaml")
+
+	if strings.Contains(got, "\n") {
+		t.Errorf("configLine produced more than one line: %q", got)
+	}
+	if !strings.Contains(got, `\x0a`) {
+		t.Errorf("configLine = %q, want the newline shown as the bytes it is", got)
+	}
+}

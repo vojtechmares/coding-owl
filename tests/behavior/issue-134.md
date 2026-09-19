@@ -85,7 +85,11 @@ Then the `config` line names `coding-owl.yaml`, the likelier near miss, and not
 
 ### S8 - a hostile filename reaches the terminal as text
 Given the Project of S1 whose configuration directory holds a `*.yaml` file
-    whose name contains an ANSI escape sequence
+    whose name contains an ANSI escape sequence and a newline - both legal
+    bytes in a filename on macOS and Linux
 When `owl project show <name>` runs
 Then the output carries no raw `0x1b` byte
 And the escape is shown as `\x1b`, the bytes it is
+And the newline is shown as `\x0a` rather than ending the line: the `config`
+    line is one line, and the file cannot forge another (such as an `account`
+    line of its own)

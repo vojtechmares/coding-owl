@@ -30,7 +30,9 @@ const configHomeFileName = "config.yaml"
 // question, and this is where it gets answered (issue #134).
 //
 // The file name and its directory come from the user's filesystem rather than
-// from Owl, so they are printed as the bytes they are.
+// from Owl, so they are printed as the bytes they are - a newline included,
+// which is a legal byte in a filename and would otherwise let one end this
+// line early and forge the rest of the output.
 func configLine(source, stray string) string {
 	switch {
 	case source != "":
@@ -39,7 +41,7 @@ func configLine(source, stray string) string {
 		return noConfigFound
 	default:
 		return fmt.Sprintf("%s - found %s in %s, but this location expects %s",
-			noConfigFound, terminalSafe(filepath.Base(stray)), terminalSafe(filepath.Dir(stray)), configHomeFileName)
+			noConfigFound, terminalSafeLine(filepath.Base(stray)), terminalSafeLine(filepath.Dir(stray)), configHomeFileName)
 	}
 }
 
@@ -135,7 +137,7 @@ func newProjectShowCmd(env Env) *cobra.Command {
 The config line names the file the configuration was read from. In-repo
 files are read from the Project's base branch, never from a working tree,
 so editing one on another branch changes nothing here. When no file was
-found at all, it also names any file left unused in the Project's
+found at all, it also names a file left unused in the Project's
 configuration directory under the config home, which reads config.yaml and
 no other name.`,
 		Args: cobra.ExactArgs(1),

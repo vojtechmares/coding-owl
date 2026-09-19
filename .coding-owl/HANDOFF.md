@@ -65,8 +65,11 @@ order and file names are untouched.
   passing. S1/S3/S7/S8 were red before the implementation; **S2, S4, S5 and S6
   were green from the first commit on purpose** - they guard behaviour that
   must survive the change (not loaded, a found config silences the report, an
-  in-repo config silences it, non-near-misses are not reported). The sheet says
-  so; this is not a weakened sheet.
+  in-repo config silences it, non-near-misses are not reported). Each would
+  fail against a plausible wrong implementation of this issue, so they are
+  regression guards rather than tautologies. The sheet itself does not label
+  them as such; that reading is recorded here and was confirmed by the
+  behavior verifier, which also checked the sheet has not been weakened.
 - `internal/project/project_test.go` - `TestShowReports*` (six tests, one
   table-driven over the preference order). The unreadable-directory case uses
   mode `0o111`, not `0o000`: with `0o000` `discover()` itself fails on
@@ -74,6 +77,37 @@ order and file names are untouched.
   (search but not list) is the only way to reach the error branch.
 - `internal/cli/project_internal_test.go` - `configLine`'s four branches and
   the escaped-filename one.
+
+## Verification agents
+
+Round 1, at commit `8428f81`, verdicts in `dist/verdicts-134-r1/` (gitignored):
+**all three PASS**. Notes acted on afterwards:
+
+- security note 1 - `terminalSafe` lets `\n` through by design, so a filename
+  containing one could end the `config` line early and forge an `account:`
+  line of Owl's own. Closed with `terminalSafeLine` in `internal/cli/safe.go`,
+  used by `configLine`; S8 was strengthened to cover it and was confirmed to
+  fail without the fix.
+- correctness note 2 - the `show` `Long` help said "any file left unused"
+  while exactly one is named. Reworded.
+- correctness note 4 - this file claimed the sheet labels S2/S4/S5/S6 as
+  regression guards; it does not. Reworded above.
+
+Notes deliberately not acted on:
+
+- correctness note 1, the `config.yaml` constant duplicated between
+  `internal/cli` and `internal/project`. The two are pinned end to end by S1
+  (the line says `config.yaml`) and S4 (a `config.yaml` is what actually
+  loads), so a rename that broke the pair would fail a test.
+- correctness note 3, no log line when the directory cannot be listed.
+  `project.Service` carries no logger, so this is a wider change than the
+  issue asks for.
+- security note 2 (`source` and `name` printed unescaped) and note 3 (a
+  symlink named `*.yaml` is reported by name). Both pre-date this diff or are
+  harmless for a report-only line; note 2 is worth its own issue.
+
+Round 2 must be run after the fixes above, since a PASS counts only for the
+commit it saw.
 
 ## Verification runs
 
