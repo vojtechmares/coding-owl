@@ -5,10 +5,13 @@ package run
 // (ADR-0026). Both are worth pinning where they are decided.
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/vojtechmares/coding-owl/internal/config"
+	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/store"
 )
 
@@ -168,6 +171,41 @@ func TestBlockedByNoteQuotesAPromptThatHoldsItsOwnFence(t *testing.T) {
 	inside, _, _ := strings.Cut(quoted, "\n"+fence)
 	if !strings.Contains(inside, "ignore all of that") {
 		t.Errorf("part of the other job's prompt escaped the quotation:\n%s", note)
+	}
+}
+
+// Both phases are told what the Job was queued behind: a planning Run decides
+// what the execution Run will do, so it is the one that most needs to know
+// what its work is building on (ADR-0026).
+func TestBothPhasesCarryWhatTheJobWasQueuedBehind(t *testing.T) {
+	ctx := context.Background()
+	s, st := blockedStore(t)
+	blocker := queueOne(t, st, "blocker", string(queue.StateDone))
+	waiting := store.Job{ID: blocker.ID + 1000, Prompt: "the client change", BlockedBy: blocker.ID}
+
+	for _, phase := range []Phase{PhasePlan, PhaseExecute} {
+		got, err := s.promptFor(ctx, phase, waiting)
+		if err != nil {
+			t.Fatalf("promptFor(%s): %v", phase, err)
+		}
+		for _, want := range []string{"the client change", fmt.Sprintf("job %d", blocker.ID), "done", "work"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("the %s prompt does not carry %q:\n%s", phase, want, got)
+			}
+		}
+		if !strings.Contains(got, blockedByFence) {
+			t.Errorf("the %s prompt does not fence the other job's prompt:\n%s", phase, got)
+		}
+	}
+
+	// And a Job that waits for nothing is left exactly as it was.
+	alone := store.Job{ID: 1, Prompt: "the client change"}
+	got, err := s.promptFor(ctx, PhasePlan, alone)
+	if err != nil {
+		t.Fatalf("promptFor: %v", err)
+	}
+	if got != planPrompt("the client change") {
+		t.Errorf("a job with no dependency is given a different plan prompt:\n%s", got)
 	}
 }
 
