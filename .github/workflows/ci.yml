@@ -57,6 +57,14 @@ jobs:
       - name: Generated code is current
         run: buf generate && git diff --exit-code -- gen
 
+      # The schemas an editor reads are generated from the structs the decoder
+      # reads into, so one that has not been regenerated would tell a user
+      # their file is fine when Owl will refuse it (issue #129).
+      - name: Configuration schemas are current
+        run: |
+          go run ./internal/config/schemagen
+          git diff --exit-code -- website/public/schema
+
       - name: buf breaking against main
         run: |
           if git cat-file -e origin/main:buf.yaml 2>/dev/null; then

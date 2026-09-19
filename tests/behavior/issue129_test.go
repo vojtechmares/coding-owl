@@ -479,21 +479,31 @@ func TestS11TheDocumentedConfigurationSatisfiesItsSchema(t *testing.T) {
 }
 
 // documentedConfigs pulls the project and daemon YAML examples out of the
-// README's Configuration section. They are the two fenced yaml blocks that
-// open with the apiVersion line, in that order.
+// README. Each is the first fenced yaml block under its own heading, which is
+// how they are told apart from the smaller snippets elsewhere on the page.
 func documentedConfigs(t *testing.T, readme string) (string, string) {
 	t.Helper()
+	return exampleUnder(t, readme, "### Project configuration"),
+		exampleUnder(t, readme, "### Daemon configuration")
+}
+
+// exampleUnder is the first fenced yaml block after a heading and before the
+// next one at the same level.
+func exampleUnder(t *testing.T, readme, heading string) string {
+	t.Helper()
+	_, after, found := strings.Cut(readme, heading+"\n")
+	if !found {
+		t.Fatalf("README.md has no %q heading", heading)
+	}
+	if next := strings.Index(after, "\n### "); next >= 0 {
+		after = after[:next]
+	}
 	fence := regexp.MustCompile("(?s)```yaml\n(.*?)```")
-	var configs []string
-	for _, m := range fence.FindAllStringSubmatch(readme, -1) {
-		if strings.HasPrefix(strings.TrimSpace(m[1]), "apiVersion:") {
-			configs = append(configs, m[1])
-		}
+	m := fence.FindStringSubmatch(after)
+	if m == nil {
+		t.Fatalf("README.md shows no yaml under %q", heading)
 	}
-	if len(configs) < 2 {
-		t.Fatalf("README.md documents %d configuration files, want the project's and the daemon's", len(configs))
-	}
-	return configs[0], configs[1]
+	return m[1]
 }
 
 // documentedKeys are the dotted paths of the mapping keys in a YAML document,
@@ -501,7 +511,7 @@ func documentedConfigs(t *testing.T, readme string) (string, string) {
 // the list belongs to, which is how the schema nests them too. Comments and
 // list items that are not mappings are skipped.
 func documentedKeys(doc string) []string {
-	keyRE := regexp.MustCompile(`^(\s*)(?:- )?([A-Za-z_][A-Za-z0-9_]*):(?:\s|$)`)
+	keyRE := regexp.MustCompile(`^(\s*)(- )?([A-Za-z_][A-Za-z0-9_]*):(?:\s|$)`)
 	var out []string
 	var stack []struct {
 		indent int
@@ -515,11 +525,15 @@ func documentedKeys(doc string) []string {
 		if m == nil {
 			continue
 		}
-		indent := len(m[1])
+		// A list item's dash stands where its first key's indentation would
+		// be, so the keys after it line up two columns further in. Counting
+		// the dash keeps the item's keys siblings of one another rather than
+		// making the rest children of the first.
+		indent := len(m[1]) + len(m[2])
 		for len(stack) > 0 && stack[len(stack)-1].indent >= indent {
 			stack = stack[:len(stack)-1]
 		}
-		path := m[2]
+		path := m[3]
 		if len(stack) > 0 {
 			path = stack[len(stack)-1].key + "." + path
 		}

@@ -129,6 +129,20 @@ commands for each: [Getting started](docs/guide/getting-started.md).
 Every config file carries `apiVersion: codingowl.dev/v1`. Owl refuses a file
 whose version or keys it does not recognise rather than guessing.
 
+Both file kinds have a JSON schema, generated from the same structs Owl
+decodes them with, so an editor can complete the keys and underline a
+misspelled one where you type it rather than leaving it for `owl project show`
+to refuse. Point your editor at one with a comment on the first line - VS Code,
+Neovim and the JetBrains editors all read it through the YAML language server:
+
+```yaml
+# yaml-language-server: $schema=https://codingowl.dev/schema/project.json
+```
+
+```yaml
+# yaml-language-server: $schema=https://codingowl.dev/schema/daemon.json
+```
+
 ### Project configuration
 
 Discovered in this order, first match wins:

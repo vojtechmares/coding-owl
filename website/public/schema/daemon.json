@@ -1,0 +1,200 @@
+{
+  "$id": "https://codingowl.dev/schema/daemon.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "The daemon's `config.yaml` in the configuration home. See https://github.com/vojtechmares/coding-owl#daemon-configuration.",
+  "properties": {
+    "accounts": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "limits": {
+            "additionalProperties": false,
+            "description": "What this Account is held to, as percentages of its rate-limit windows, counting what you spent yourself.",
+            "properties": {
+              "fiveHourMax": {
+                "anyOf": [
+                  {
+                    "exclusiveMinimum": 0,
+                    "maximum": 100,
+                    "type": "number"
+                  },
+                  {
+                    "pattern": "^\\s*([0-9]+(\\.[0-9]+)?|\\.[0-9]+)\\s*%?\\s*$",
+                    "type": "string"
+                  }
+                ],
+                "description": "The share of the five-hour window Owl will not schedule past."
+              },
+              "weeklyMax": {
+                "anyOf": [
+                  {
+                    "exclusiveMinimum": 0,
+                    "maximum": 100,
+                    "type": "number"
+                  },
+                  {
+                    "pattern": "^\\s*([0-9]+(\\.[0-9]+)?|\\.[0-9]+)\\s*%?\\s*$",
+                    "type": "string"
+                  }
+                ],
+                "description": "The share of the weekly window Owl will not schedule past."
+              }
+            },
+            "type": "object"
+          },
+          "maxParallel": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "pattern": "^\\s*[0-9]+\\s*$",
+                "type": "string"
+              }
+            ],
+            "description": "How many Runs may draw on this Account at once. Unset is unlimited, because the Ceiling already governs burn rate."
+          }
+        },
+        "type": "object"
+      },
+      "description": "What each Account is held to. The key is the Account's name.",
+      "type": "object"
+    },
+    "apiVersion": {
+      "const": "codingowl.dev/v1",
+      "description": "The only apiVersion Owl recognises.",
+      "type": "string"
+    },
+    "claudePath": {
+      "description": "Where the coding tool is, when the daemon's PATH does not say. An absolute path.",
+      "pattern": "^$|^/",
+      "type": "string"
+    },
+    "credentialStore": {
+      "description": "Where an Account's secret is kept. The default is the keychain on macOS.",
+      "enum": [
+        "file",
+        "keychain"
+      ],
+      "type": "string"
+    },
+    "garbageCollection": {
+      "additionalProperties": false,
+      "description": "How often Owl reconciles the worktrees on disk against the Jobs in its database.",
+      "properties": {
+        "interval": {
+          "description": "How often finished worktrees are reclaimed, like `1h`.",
+          "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+          "type": "string"
+        },
+        "reviewAfter": {
+          "description": "How long a Job may wait for a decision before it is reported.",
+          "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "graceWindow": {
+      "description": "How long a Run is given to finish after Owl asks it to stop, like `15m`.",
+      "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+      "type": "string"
+    },
+    "idle": {
+      "additionalProperties": false,
+      "description": "When the machine counts as idle, and so when Owl may work.",
+      "properties": {
+        "after": {
+          "description": "How long without keyboard or mouse input counts as idle, like `10m`.",
+          "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+          "type": "string"
+        },
+        "interval": {
+          "description": "How often the machine is read. At least `50ms`.",
+          "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+          "type": "string"
+        },
+        "requirePower": {
+          "description": "Whether the machine must be on AC power.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "maxParallelRuns": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "How many Runs may go at once. At least one; stopping the daemon is how nothing runs."
+    },
+    "phases": {
+      "additionalProperties": false,
+      "description": "What each phase of a Job runs as, and how long it may take.",
+      "properties": {
+        "execute": {
+          "additionalProperties": false,
+          "properties": {
+            "effort": {
+              "description": "How hard this phase thinks, like `xhigh`.",
+              "type": "string"
+            },
+            "model": {
+              "description": "What this phase runs as, like `anthropic/claude-opus`. `owl models` lists them.",
+              "type": "string"
+            },
+            "stall": {
+              "description": "The longest this phase's Agent may go without saying anything, like `15m`.",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "type": "string"
+            },
+            "timeout": {
+              "description": "The longest this phase's Agent may run at all, like `4h`.",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "plan": {
+          "additionalProperties": false,
+          "properties": {
+            "effort": {
+              "description": "How hard this phase thinks, like `xhigh`.",
+              "type": "string"
+            },
+            "model": {
+              "description": "What this phase runs as, like `anthropic/claude-opus`. `owl models` lists them.",
+              "type": "string"
+            },
+            "stall": {
+              "description": "The longest this phase's Agent may go without saying anything, like `15m`.",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "type": "string"
+            },
+            "timeout": {
+              "description": "The longest this phase's Agent may run at all, like `4h`.",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "apiVersion"
+  ],
+  "title": "Coding Owl daemon configuration",
+  "type": "object"
+}

@@ -32,5 +32,11 @@ lint:
 	test -z "$$(gofmt -l .)"
 	buf lint
 
+# The generated protobuf code, and the JSON schemas of the configuration files
+# that the website publishes (issue #129). CI runs both again and fails on a
+# difference, so a struct that changes without its schema being regenerated is
+# caught in the pull request rather than by a user whose editor is quietly
+# wrong.
 generate:
 	buf generate
+	go run ./internal/config/schemagen
