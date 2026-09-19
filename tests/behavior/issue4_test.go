@@ -22,12 +22,13 @@ import (
 
 // queueRow is one row of owl queue list output.
 type queueRow struct {
-	position, id, project, state, prompt string
+	position, id, project, state, labels, prompt string
 }
 
-// queueRowRE splits a row into its four fixed columns and the prompt, which
-// is last because it is the only column that may contain spaces.
-var queueRowRE = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)$`)
+// queueRowRE splits a row into its five fixed columns and the prompt, which
+// is last because it is the only column that may contain spaces. Labels are a
+// fixed column because a label carries no whitespace (issue #132).
+var queueRowRE = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)$`)
 
 // emptyQueue is what owl queue list prints when nothing is queued.
 const emptyQueue = "queue is empty"
@@ -45,7 +46,7 @@ func queueList(t *testing.T, l *layout, flags ...string) []queueRow {
 		if m == nil {
 			t.Fatalf("cannot parse queue row %q in:\n%s", ln, out)
 		}
-		rows = append(rows, queueRow{m[1], m[2], m[3], m[4], strings.TrimSpace(m[5])})
+		rows = append(rows, queueRow{m[1], m[2], m[3], m[4], m[5], strings.TrimSpace(m[6])})
 	}
 	return rows
 }
