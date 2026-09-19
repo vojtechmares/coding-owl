@@ -45,16 +45,18 @@ Commits on this branch, in order:
 ## Decisions taken, and why - these go in the PR body
 
 **D1 - the skip reason says "waits for", not "blocked by".** `blocked` is a Job
-*state* in this codebase meaning "stuck on something wrong with the work"
-(ADR-0025, `CONTEXT.md`), and `owl status` prints a `blocked:` section of Jobs
-in it. A dependent Job is `pending` with nothing wrong with it. The reason is
-`it waits for job 5 (review)` - the parenthesised state is exactly what the
-issue asked for. The flag stays `--blocked-by` and the field stays `BlockedBy`:
-that is the issue's own spelling of the user-facing surface.
+*state*: ADR-0027 lists it in the state set and ADR-0025 line 53 says outright
+that "blocked means something is wrong". `owl status` prints a `blocked:`
+section of Jobs in it. A dependent Job is `pending` with nothing wrong with it,
+so `blocked by job 5` in the passed-over REASON column would read as though its
+state were `blocked`. The reason is `it waits for job 5 (review)` - the
+parenthesised state is exactly what the issue asked for. The flag stays
+`--blocked-by` and the field stays `BlockedBy`: that is the issue's own spelling
+of the user-facing surface.
 
-There is a real glossary gap - "a Job that waits for another Job" has no
-`CONTEXT.md` term. `CONTEXT.md` is not in the issue's "Where to look" list, so
-it was **not** edited here; raise it in the PR body as a follow-up.
+Checked and **not** a finding: `CONTEXT.md` defines no Job states at all - the
+state vocabulary lives in ADR-0025 and ADR-0027 - so there is no glossary term
+this contradicts and nothing to add there. Do not edit `CONTEXT.md` for this.
 
 **D2 - `Clears` is `false`, against the issue's explicit `Clears: true`.** The
 one knowing departure from the issue's text.
@@ -161,10 +163,11 @@ Not part of #133, not to be fixed in this diff.
 5. Push, `gh pr create --base main` with `Closes #133`, the decisions above
    under "Decisions made on my own" (D1, D2, D12 and the handoff commit pair
    are what a reviewer will ask about), and the #131 relationship in prose.
-6. The follow-up issue for the `.gitignore`/`recordPlan` interaction, and one
-   for the `CONTEXT.md` glossary gap in D1.
-7. `gh pr checks --watch --fail-fast`. Fix on the branch until green.
+6. `gh pr checks --watch --fail-fast`. Fix on the branch until green.
    **Do not merge.**
+
+**Done already:** the follow-up issue for the `.gitignore`/`recordPlan`
+interaction is filed as **#167**. Do not file it again.
 
 ## Environment note for the next run
 
@@ -180,7 +183,8 @@ migration is ever added from here.
 - **Refusing a `--blocked-by` that names a `done` Job.** D11.
 - **Cycle detection.** D9.
 - **A `REFERENCES jobs(id)` foreign key.** D8.
-- **Editing `CONTEXT.md`.** D1: a real gap, but out of this issue's scope.
+- **Editing `CONTEXT.md`.** D1: it defines no Job states, so there is nothing
+  there to contradict or extend.
 - **A reason column on `owl queue list`.** The issue points at `owl status`.
 - **Anything in `cmd/owl-desktop/`.** Out of scope by the issue, and it already
   renders passed-over Jobs and their reasons through `GetOverview`.
