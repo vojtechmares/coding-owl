@@ -61,7 +61,9 @@ func TestS1BlockedByQueuesAJobBehindAnotherByItsID(t *testing.T) {
 
 	res := addJob(t, l, r.dir, "the client change", "--no-plan", "--blocked-by", first)
 
-	if !strings.Contains(res.stdout, "job "+first) {
+	// The whole phrase, and to the end of the line: "job 1" alone would be
+	// satisfied by "job 10" in a queue that had got that far.
+	if !strings.Contains(res.stdout, "waiting for job "+first+"\n") {
 		t.Errorf("owl add says %q, want it to name the job the new one waits for", res.stdout)
 	}
 	second := queued(t, res)
@@ -314,16 +316,19 @@ func TestS10TheAgentIsToldWhatItsJobWasQueuedBehind(t *testing.T) {
 			t.Errorf("the agent's prompt does not carry %q:\n%s", want, prompt)
 		}
 	}
-	// And the quoted prompt is fenced off from Owl's own words, so that a
+	// And the other Job's prompt is fenced off from Owl's own words, so that a
 	// prompt somebody else wrote cannot be read as instructions to this Agent.
-	fenced := false
-	for _, ln := range strings.Split(prompt, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(ln), "-----") {
-			fenced = true
-		}
+	// The fence is named rather than matched as "a line of dashes": the quoted
+	// handoff has one of those too, and a check that took either would pass
+	// for a blocking prompt that was spliced in unfenced.
+	const fence = "----- queued behind -----"
+	_, quoted, ok := strings.Cut(prompt, fence+"\n")
+	if !ok {
+		t.Fatalf("the blocking job's prompt is spliced into the agent's prompt rather than fenced:\n%s", prompt)
 	}
-	if !fenced {
-		t.Errorf("the blocking job's prompt is spliced into the agent's prompt rather than fenced:\n%s", prompt)
+	inside, _, _ := strings.Cut(quoted, "\n"+fence)
+	if strings.TrimSpace(inside) != "the api change" {
+		t.Errorf("the fences hold %q, want the blocking job's prompt:\n%s", inside, prompt)
 	}
 }
 
