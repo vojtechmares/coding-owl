@@ -5,6 +5,7 @@
 # local agent state
 .claude/*.local.md
 .claude/settings.local.json
+.coding-owl/HANDOFF.md
 
 # agent worktrees
 .claude/worktrees/
