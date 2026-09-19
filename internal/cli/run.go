@@ -328,6 +328,11 @@ func printJob(env Env, d client.JobDetails) {
 	} {
 		_, _ = fmt.Fprintf(env.Stdout, "%s: %s\n", kv[0], terminalSafe(kv[1]))
 	}
+	// Only for a Job that has a dependency: a row saying "none" on every other
+	// Job is noise on a report that is already long.
+	if d.Job.BlockedBy != 0 {
+		_, _ = fmt.Fprintf(env.Stdout, "waiting for: job %d\n", d.Job.BlockedBy)
+	}
 	if reason := whyHere(d); reason != "" {
 		_, _ = fmt.Fprintf(env.Stdout, "reason: %s\n", terminalSafe(reason))
 	}

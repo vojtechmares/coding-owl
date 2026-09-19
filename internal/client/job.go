@@ -50,6 +50,9 @@ type Job struct {
 	Position int
 	// Created is when the Job was first produced.
 	Created time.Time
+	// BlockedBy is the Job this one waits for, and zero when it waits for
+	// none. The scheduler passes this Job over until that one is done.
+	BlockedBy int64
 }
 
 // AddJobRequest is what owl add carries. Project is optional: empty means the
@@ -67,6 +70,9 @@ type AddJobRequest struct {
 	// TTL is how many Runs the Job may take. Zero asks for no particular
 	// number and takes the daemon's default of ten.
 	TTL int
+	// BlockedBy names another Job this one waits for, by its id. That Job has
+	// to be queued already; zero asks for no dependency.
+	BlockedBy int64
 }
 
 // AddJob queues a Job.
@@ -89,6 +95,7 @@ func (c *Client) AddJob(ctx context.Context, req AddJobRequest) (Job, error) {
 		Model:      req.Model,
 		Effort:     req.Effort,
 		Ttl:        int32(req.TTL),
+		BlockedBy:  req.BlockedBy,
 	}))
 	if err != nil {
 		return Job{}, c.wrap(err)
@@ -201,6 +208,7 @@ func jobFromProto(j *codingowlv1.Job) Job {
 		Account:   j.GetAccount(),
 		Position:  int(j.GetPosition()),
 		Created:   j.GetCreated().AsTime(),
+		BlockedBy: j.GetBlockedBy(),
 	}
 }
 

@@ -27,6 +27,7 @@ func newAddCmd(env Env) *cobra.Command {
 	var projectName, model, effort string
 	var plan, noPlan bool
 	var ttl int
+	var blockedBy int64
 	cmd := &cobra.Command{
 		Use:   "add <prompt>",
 		Short: "Queue a Job against a Project",
@@ -42,7 +43,12 @@ plan becomes the handoff on the Job's branch. Pass --no-plan for work that
 needs no thinking through first.
 
 A Job may take ten Runs before it is exhausted; --ttl says how many it
-gets, and owl jobs extend gives it more.`,
+gets, and owl jobs extend gives it more.
+
+--blocked-by names another Job, already queued, that this one waits for.
+The scheduler passes the Job over until that one is done, leaving it where
+it is in the queue, and the Agent that eventually runs it is told what it
+was queued behind.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if plan && noPlan {
@@ -53,6 +59,11 @@ gets, and owl jobs extend gives it more.`,
 			if cmd.Flags().Changed("ttl") && ttl < 1 {
 				return fmt.Errorf("attempts count from one; --ttl %d is not a number of runs a job can take", ttl)
 			}
+			// Zero is how the daemon is told there is no dependency, so an
+			// explicit --blocked-by 0 is refused rather than read as one.
+			if cmd.Flags().Changed("blocked-by") && blockedBy < 1 {
+				return fmt.Errorf("job ids count from one; --blocked-by %d is not one", blockedBy)
+			}
 			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
 				j, err := c.AddJob(ctx, client.AddJobRequest{
 					Project:    projectName,
@@ -62,11 +73,19 @@ gets, and owl jobs extend gives it more.`,
 					Model:      model,
 					Effort:     effort,
 					TTL:        ttl,
+					BlockedBy:  blockedBy,
 				})
 				if err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(env.Stdout, "queued job %d in %s at position %d\n", j.ID, j.Project, j.Position)
+				waiting := ""
+				if j.BlockedBy != 0 {
+					// A dependency you cannot see is one you cannot correct,
+					// so the confirmation says what the Job waits for.
+					waiting = fmt.Sprintf(", waiting for job %d", j.BlockedBy)
+				}
+				_, _ = fmt.Fprintf(env.Stdout, "queued job %d in %s at position %d%s\n",
+					j.ID, j.Project, j.Position, waiting)
 				return nil
 			})
 		},
@@ -77,6 +96,7 @@ gets, and owl jobs extend gives it more.`,
 	cmd.Flags().StringVar(&model, "model", "", "model every phase of this Job runs as (default: what the Project or Owl says)")
 	cmd.Flags().StringVar(&effort, "effort", "", "effort every phase of this Job runs at (default: what the Project or Owl says)")
 	cmd.Flags().IntVar(&ttl, "ttl", 0, "how many Runs the Job may take before it is exhausted (default: ten)")
+	cmd.Flags().Int64Var(&blockedBy, "blocked-by", 0, "Job this one waits for; it is passed over until that Job is done")
 	return cmd
 }
 
