@@ -8,9 +8,10 @@ Branch: `owl/job-25`, cut from `origin/main` (`b2bfd3e`).
 
 ## State right now
 
-**Implemented, `make lint` green, `make test` green except three unrelated
-tests.** Left to do: the three verification agents, then push and open the PR.
-See "Steps left".
+**Done bar the pull request.** Implemented, `make lint` green, `make test`
+green except three unrelated tests, and all three verification agents `PASS`
+over two rounds. Left to do: push the branch and open the PR. See "Steps
+left".
 
 Blocker check re-run at the start of this Run: state `OPEN`, labels `bug` +
 `ready-for-agent`, no `blocked_by`, no open sub-issues, no open
@@ -106,8 +107,31 @@ Notes deliberately not acted on:
   symlink named `*.yaml` is reported by name). Both pre-date this diff or are
   harmless for a report-only line; note 2 is worth its own issue.
 
-Round 2 must be run after the fixes above, since a PASS counts only for the
-commit it saw.
+Round 2, at commit `7bacc5a`, verdicts in `dist/verdicts-134-r2/`: **all three
+PASS, no findings.** The behavior verifier confirmed the S8 change strengthens
+the sheet rather than weakening it, and the security reviewer confirmed
+`terminalSafe` is byte-for-byte unchanged for its existing callers. The only
+commits after `7bacc5a` are this record and the PR, neither of which touches
+reviewed code.
+
+Round 2 notes left on the record, none acted on:
+
+- a broken symlink named `config.yaml` makes `discover()` fall through while
+  the name skip keeps it out of the report, so the user sees a bare `(none)`
+  with a file plainly there. Outside the trigger the issue names ("at least
+  one **other** `*.yaml`/`*.yml` file"), so it is not this diff's to fix.
+- `terminalSafeLine` leaves U+2028/U+2029 intact; no terminal breaks a line on
+  them, and Go does not either.
+- `\x%02x` formats the rune, so U+0085 prints as `\x85` though its bytes are
+  `c2 85`. Pre-existing in `terminalSafe`.
+- `name` and `path` on the `owl project show` output are still printed
+  unescaped. Pre-existing, unchanged here, worth its own issue.
+
+Both rounds noted that driving the built binary by hand under an isolated XDG
+layout is auto-denied in this session; the behavior harness execs the real
+binary and a real daemon over a socket, which is the same path, so the
+verifier accepted it as the manual exercise. One scratch binary is left at
+`dist/verdicts-134-r2-scratch-owl`; `dist/` is gitignored.
 
 ## Verification runs
 
@@ -161,13 +185,13 @@ commit it saw.
 
 ## Steps left
 
-1. Run the three verification agents in `.agents/agents/` in parallel against
-   the current commit, verdicts in a fresh directory **outside** the repo, and
-   wait with `.agents/skills/bdd/scripts/wait-verdicts.sh`. Fix findings and
-   re-run until all three `PASS` for the commit they saw.
-2. `git push -u origin HEAD`, then `gh pr create --repo vojtechmares/coding-owl
+1. `git push -u origin HEAD`, then `gh pr create --repo vojtechmares/coding-owl
    --base main`, body starting `Closes #134`, with the decisions above. **Do
    not merge.**
+2. Wait for CI with `gh pr checks --watch --fail-fast`. If the three
+   `issue22_test.go` cask tests fail there too, that is a real failure rather
+   than this machine's missing `wails`; anything else in `tests/behavior` or
+   `internal/cli` is this diff's.
 
 ## Gotchas found on the way
 
