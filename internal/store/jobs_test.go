@@ -524,3 +524,64 @@ func TestS3JobIsMovedInTheQueueOnlyFromTheStateTheMoveNames(t *testing.T) {
 		t.Errorf("moving a pending job as pending = %v, want it moved", err)
 	}
 }
+
+func TestUpsertJobCarriesTheJobItWaitsFor(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+
+	first, err := s.UpsertJob(ctx, job("first", "a"))
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	waiting := job("second", "b")
+	waiting.BlockedBy = first.ID
+	second, err := s.UpsertJob(ctx, waiting)
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+
+	if second.BlockedBy != first.ID {
+		t.Errorf("the queued job waits for job %d, want job %d", second.BlockedBy, first.ID)
+	}
+	// And it survives the round trip, rather than only the insert's own read.
+	got, err := s.GetJob(ctx, second.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if got.BlockedBy != first.ID {
+		t.Errorf("GetJob says the job waits for %d, want job %d", got.BlockedBy, first.ID)
+	}
+	// A Job that waits for nothing says so with zero, which is what the
+	// migration leaves on every row that was already there.
+	if first.BlockedBy != 0 {
+		t.Errorf("a job added with no dependency waits for job %d, want none", first.BlockedBy)
+	}
+}
+
+func TestUpsertJobDoesNotRewriteWhatAQueuedJobWaitsFor(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	first, err := s.UpsertJob(ctx, job("first", "a"))
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	waiting := job("second", "b")
+	waiting.BlockedBy = first.ID
+	if _, err := s.UpsertJob(ctx, waiting); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+
+	// Producing the same reference again rewrites the prompt of a Job still in
+	// the queue, and nothing else (ADR-0032).
+	again, err := s.UpsertJob(ctx, job("rewritten", "b"))
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+
+	if again.Prompt != "rewritten" {
+		t.Errorf("prompt = %q, want the second production's", again.Prompt)
+	}
+	if again.BlockedBy != first.ID {
+		t.Errorf("the job now waits for %d, want the job %d it was queued behind", again.BlockedBy, first.ID)
+	}
+}
