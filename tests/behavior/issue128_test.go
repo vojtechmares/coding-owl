@@ -39,20 +39,28 @@ const gridSide = 16
 // different picture is hundreds away.
 const sameArtwork = 12
 
-// readImage decodes a PNG under the repository. It fails the scenario outright
-// when it is not there or is not an image: every measurement of it would be
-// vacuously true.
-func readImage(t *testing.T, rel string) image.Image {
+// readImage decodes a PNG under the repository, and says what it decoded it
+// as. It fails the scenario outright when the file is not there or is not an
+// image: every measurement of it would be vacuously true.
+func readImage(t *testing.T, rel string) (image.Image, string) {
 	t.Helper()
 	f, err := os.Open(filepath.Join(repoDir, rel))
 	if err != nil {
 		t.Fatalf("opening %s: %v", rel, err)
 	}
 	defer func() { _ = f.Close() }()
-	img, _, err := image.Decode(f)
+	img, format, err := image.Decode(f)
 	if err != nil {
 		t.Fatalf("%s is not an image Go can read: %v", rel, err)
 	}
+	return img, format
+}
+
+// picture is readImage for the scenarios that only measure what is in the
+// file, not what it was encoded as.
+func picture(t *testing.T, rel string) image.Image {
+	t.Helper()
+	img, _ := readImage(t, rel)
 	return img
 }
 
@@ -149,10 +157,16 @@ func visibleLuma(img image.Image) (mean, nearWhite float64) {
 }
 
 func TestS1IconIsWhereWailsLooksForItAtTheMasterSize(t *testing.T) {
-	img := readImage(t, appIcon)
+	img, format := readImage(t, appIcon)
 
 	b := img.Bounds()
 
+	// Named rather than assumed: Go picks the decoder by content, so a file
+	// called appicon.png that is really a JPEG would decode here and be
+	// refused by wails build instead.
+	if format != "png" {
+		t.Errorf("%s decodes as %s, not png, which is what Wails takes", appIcon, format)
+	}
 	if b.Dx() != iconSize || b.Dy() != iconSize {
 		t.Errorf("%s is %dx%d, want %dx%d: Wails generates the platform icons from this master",
 			appIcon, b.Dx(), b.Dy(), iconSize, iconSize)
@@ -160,7 +174,7 @@ func TestS1IconIsWhereWailsLooksForItAtTheMasterSize(t *testing.T) {
 }
 
 func TestS2IconIsNoLongerTheWailsPlaceholder(t *testing.T) {
-	img := readImage(t, appIcon)
+	img := picture(t, appIcon)
 
 	mean, nearWhite := visibleLuma(img)
 
@@ -177,8 +191,8 @@ func TestS2IconIsNoLongerTheWailsPlaceholder(t *testing.T) {
 }
 
 func TestS3IconIsTheCodingOwlLogo(t *testing.T) {
-	icon := readImage(t, appIcon)
-	logo := readImage(t, logoSource)
+	icon := picture(t, appIcon)
+	logo := picture(t, logoSource)
 
 	gap := widestGap(coarse(icon, gridSide), coarse(logo, gridSide))
 
@@ -189,7 +203,7 @@ func TestS3IconIsTheCodingOwlLogo(t *testing.T) {
 }
 
 func TestS4IconStillReadsAtTheSizesItIsDrawn(t *testing.T) {
-	img := readImage(t, appIcon)
+	img := picture(t, appIcon)
 
 	for _, side := range []int{16, 32} {
 		if got := spread(img, side); got <= 20 {
@@ -211,7 +225,10 @@ func TestS5PackagedAppCarriesTheIcon(t *testing.T) {
 		t.Fatalf("make desktop: %v", err)
 	}
 
-	bundles, _ := filepath.Glob(filepath.Join(repoDir, "cmd", "owl-desktop", "build", "bin", "*.app"))
+	bundles, err := filepath.Glob(filepath.Join(repoDir, "cmd", "owl-desktop", "build", "bin", "*.app"))
+	if err != nil {
+		t.Fatalf("looking for the app bundle: %v", err)
+	}
 	if len(bundles) == 0 {
 		t.Fatal("make desktop left no app bundle under cmd/owl-desktop/build/bin")
 	}
@@ -222,7 +239,7 @@ func TestS5PackagedAppCarriesTheIcon(t *testing.T) {
 	}
 
 	packaged := largestPNGIn(t, data)
-	logo := readImage(t, logoSource)
+	logo := picture(t, logoSource)
 
 	gap := widestGap(coarse(packaged, gridSide), coarse(logo, gridSide))
 	if gap > sameArtwork {
