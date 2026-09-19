@@ -54,6 +54,7 @@ func (s *projectService) GetProject(ctx context.Context, req *connect.Request[co
 			Source:       d.ConfigSource,
 			BranchPrefix: d.Config.BranchPrefix,
 			Account:      d.Config.Account,
+			StrayConfig:  d.StrayConfig,
 		},
 	}), nil
 }

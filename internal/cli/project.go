@@ -16,6 +16,33 @@ import (
 // found anywhere in the discovery order and the defaults apply.
 const noConfigFound = "(none)"
 
+// configHomeFileName is the only name the config-home fallback directory reads
+// (ADR-0014 form 4). It is spelled out here rather than imported so that the
+// wording of one line does not make the CLI depend on internal/project; the
+// daemon hands over the path of the file it found instead, not a sentence.
+const configHomeFileName = "config.yaml"
+
+// configLine is what owl project show prints after `config:`. A Project whose
+// configuration was found is answered with the file it came from, which is
+// what ADR-0014 requires of this command. One that has none says so, and says
+// what is sitting unused in its configuration directory when something is:
+// four discovery locations make "why is my config not picked up" a support
+// question, and this is where it gets answered (issue #134).
+//
+// The file name and its directory come from the user's filesystem rather than
+// from Owl, so they are printed as the bytes they are.
+func configLine(source, stray string) string {
+	switch {
+	case source != "":
+		return source
+	case stray == "":
+		return noConfigFound
+	default:
+		return fmt.Sprintf("%s - found %s in %s, but this location expects %s",
+			noConfigFound, terminalSafe(filepath.Base(stray)), terminalSafe(filepath.Dir(stray)), configHomeFileName)
+	}
+}
+
 func newProjectCmd(env Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "project",
@@ -107,7 +134,10 @@ func newProjectShowCmd(env Env) *cobra.Command {
 
 The config line names the file the configuration was read from. In-repo
 files are read from the Project's base branch, never from a working tree,
-so editing one on another branch changes nothing here.`,
+so editing one on another branch changes nothing here. When no file was
+found at all, it also names any file left unused in the Project's
+configuration directory under the config home, which reads config.yaml and
+no other name.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
@@ -115,16 +145,12 @@ so editing one on another branch changes nothing here.`,
 				if err != nil {
 					return err
 				}
-				source := d.Config.Source
-				if source == "" {
-					source = noConfigFound
-				}
 				for _, kv := range [][2]string{
 					{"name", d.Project.Name},
 					{"path", d.Project.Path},
 					{"base branch", d.Project.BaseBranch},
 					{"registered", d.Project.Registered.UTC().Format(time.RFC3339)},
-					{"config", source},
+					{"config", configLine(d.Config.Source, d.Config.StrayConfig)},
 					{"branch prefix", d.Config.BranchPrefix},
 					{"account", orNone(d.Config.Account)},
 				} {
