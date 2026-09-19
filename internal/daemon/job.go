@@ -33,6 +33,7 @@ func (s *jobService) AddJob(ctx context.Context, req *connect.Request[codingowlv
 		Model:   req.Msg.GetModel(),
 		Effort:  req.Msg.GetEffort(),
 		TTL:     int(req.Msg.GetTtl()),
+		Labels:  req.Msg.GetLabels(),
 	})
 	if err != nil {
 		return nil, rpcError(err)
@@ -41,7 +42,7 @@ func (s *jobService) AddJob(ctx context.Context, req *connect.Request[codingowlv
 }
 
 func (s *jobService) ListJobs(ctx context.Context, req *connect.Request[codingowlv1.ListJobsRequest]) (*connect.Response[codingowlv1.ListJobsResponse], error) {
-	js, err := s.jobs.List(ctx, req.Msg.GetAll())
+	js, err := s.jobs.List(ctx, req.Msg.GetAll(), req.Msg.GetLabels()...)
 	if err != nil {
 		return nil, rpcError(err)
 	}
@@ -74,6 +75,22 @@ func (s *jobService) ExtendJob(ctx context.Context, req *connect.Request[codingo
 		return nil, rpcError(err)
 	}
 	return connect.NewResponse(&codingowlv1.ExtendJobResponse{Job: toJobProto(j)}), nil
+}
+
+func (s *jobService) AddJobLabels(ctx context.Context, req *connect.Request[codingowlv1.AddJobLabelsRequest]) (*connect.Response[codingowlv1.AddJobLabelsResponse], error) {
+	j, err := s.jobs.AddLabels(ctx, req.Msg.GetId(), req.Msg.GetLabels())
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return connect.NewResponse(&codingowlv1.AddJobLabelsResponse{Job: toJobProto(j)}), nil
+}
+
+func (s *jobService) RemoveJobLabels(ctx context.Context, req *connect.Request[codingowlv1.RemoveJobLabelsRequest]) (*connect.Response[codingowlv1.RemoveJobLabelsResponse], error) {
+	j, err := s.jobs.RemoveLabels(ctx, req.Msg.GetId(), req.Msg.GetLabels())
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return connect.NewResponse(&codingowlv1.RemoveJobLabelsResponse{Job: toJobProto(j)}), nil
 }
 
 func (s *jobService) StartRun(ctx context.Context, _ *connect.Request[codingowlv1.StartRunRequest]) (*connect.Response[codingowlv1.StartRunResponse], error) {
@@ -326,6 +343,7 @@ func toJobProto(j queue.Job) *codingowlv1.Job {
 		Reason:    j.Reason,
 		Ttl:       int32(j.TTL),
 		Account:   j.Account,
+		Labels:    j.Labels,
 		Position:  int32(j.Position),
 		Created:   timestamppb.New(j.Created),
 	}

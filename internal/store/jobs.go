@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -56,6 +58,10 @@ type Job struct {
 	// configuration at its first Run and unchanged afterwards (ADR-0023). It
 	// is empty until the Job has run.
 	Account string
+	// Labels are the names the Job carries, in order and each one once. They
+	// live in a table of their own, so they are read alongside the Job rather
+	// than scanned out of its row.
+	Labels []string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -67,10 +73,112 @@ type Job struct {
 const jobColumns = `id, source, source_ref, project, prompt, state, branch, worktree,
 	planned, plan, model, effort, reason, ttl, account, position, created`
 
+// querier is what reading labels needs of a database or a transaction, so
+// that one read serves a plain query and one taken inside a write.
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// attachLabels fills in the Labels of every Job in jobs. It is one query for
+// the whole page rather than one per Job, so that listing the queue costs the
+// same two queries however long it is.
+func attachLabels(ctx context.Context, q querier, jobs []Job) error {
+	if len(jobs) == 0 {
+		return nil
+	}
+	at := make(map[int64]int, len(jobs))
+	args := make([]any, 0, len(jobs))
+	for i := range jobs {
+		jobs[i].Labels = nil
+		at[jobs[i].ID] = i
+		args = append(args, jobs[i].ID)
+	}
+	rows, err := q.QueryContext(ctx,
+		`SELECT job_id, label FROM job_labels WHERE job_id IN (`+placeholders(len(args))+`) ORDER BY label`,
+		args...)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id int64
+		var label string
+		if err := rows.Scan(&id, &label); err != nil {
+			return err
+		}
+		if i, ok := at[id]; ok {
+			jobs[i].Labels = append(jobs[i].Labels, label)
+		}
+	}
+	return rows.Err()
+}
+
+// placeholders renders n bind markers for an IN clause. The values are always
+// numbers this package produced, but they go on the wire as parameters all
+// the same: no query in here is built by pasting a value into it.
+func placeholders(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
+}
+
+// JobLabels returns the labels a Job carries, in order. A Job that carries
+// none, and one that does not exist, both come back empty: the caller that
+// needs to tell them apart reads the Job.
+func (s *Store) JobLabels(ctx context.Context, id int64) ([]string, error) {
+	jobs := []Job{{ID: id}}
+	if err := attachLabels(ctx, s.db, jobs); err != nil {
+		return nil, err
+	}
+	return jobs[0].Labels, nil
+}
+
+// AddJobLabels gives a Job labels it does not already carry, and leaves the
+// ones it does exactly as they are: carrying a label is a fact about the Job,
+// not a count of how often it was asked for.
+func (s *Store) AddJobLabels(ctx context.Context, id int64, labels []string) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		return insertLabels(ctx, tx, id, labels)
+	})
+}
+
+// RemoveJobLabels takes labels off a Job, and reports how many rows it
+// removed so that a caller can tell a label that was there from one that was
+// not.
+func (s *Store) RemoveJobLabels(ctx context.Context, id int64, labels []string) (int, error) {
+	if len(labels) == 0 {
+		return 0, nil
+	}
+	args := make([]any, 0, len(labels)+1)
+	args = append(args, id)
+	for _, l := range labels {
+		args = append(args, l)
+	}
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM job_labels WHERE job_id = ? AND label IN (`+placeholders(len(labels))+`)`, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
+// insertLabels writes a Job's labels inside a transaction, ignoring the ones
+// it already carries.
+func insertLabels(ctx context.Context, tx *sql.Tx, id int64, labels []string) error {
+	for _, label := range labels {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO job_labels (job_id, label) VALUES (?, ?)`, id, label); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // UpsertJob produces j. A Job with that source and reference is not made
 // twice: the second production rewrites the prompt of the Job already in the
 // queue, and leaves a Job that has left the queue exactly as it is (ADR-0032).
-// The Job as it stands afterwards is returned.
+// Labels the production carries are added to whatever the Job already has,
+// because owl jobs label add may have put them there since. The Job as it
+// stands afterwards is returned.
 func (s *Store) UpsertJob(ctx context.Context, j Job) (Job, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -96,10 +204,17 @@ func (s *Store) UpsertJob(ctx context.Context, j Job) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
+	if err := insertLabels(ctx, tx, out.ID, j.Labels); err != nil {
+		return Job{}, err
+	}
+	labelled := []Job{out}
+	if err := attachLabels(ctx, tx, labelled); err != nil {
+		return Job{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return Job{}, err
 	}
-	return out, nil
+	return labelled[0], nil
 }
 
 // GetJob returns the Job of that id, or ErrJobNotFound.
@@ -109,21 +224,66 @@ func (s *Store) GetJob(ctx context.Context, id int64) (Job, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, fmt.Errorf("%w: %d", ErrJobNotFound, id)
 	}
-	return j, err
+	if err != nil {
+		return Job{}, err
+	}
+	jobs := []Job{j}
+	if err := attachLabels(ctx, s.db, jobs); err != nil {
+		return Job{}, err
+	}
+	return jobs[0], nil
 }
 
 // ListQueue returns the Jobs waiting in that state, in queue order. A Job
 // being run keeps its position (ADR-0025) but is no longer waiting, so the
 // state is what decides membership of the queue rather than the position.
-func (s *Store) ListQueue(ctx context.Context, state string) ([]Job, error) {
+// Jobs carrying every one of labels, when any are given: repeating a label
+// narrows the answer rather than widening it.
+func (s *Store) ListQueue(ctx context.Context, state string, labels ...string) ([]Job, error) {
+	where, args := carryingAll(labels)
 	return s.listJobs(ctx,
-		`SELECT `+jobColumns+` FROM jobs WHERE position IS NOT NULL AND state = ? ORDER BY position, id`,
-		state)
+		`SELECT `+jobColumns+` FROM jobs WHERE position IS NOT NULL AND state = ?`+where+
+			` ORDER BY position, id`,
+		append([]any{state}, args...)...)
 }
 
-// ListAllJobs returns every Job whatever its state, the queue first.
-func (s *Store) ListAllJobs(ctx context.Context) ([]Job, error) {
-	return s.listJobs(ctx, `SELECT `+jobColumns+` FROM jobs ORDER BY position IS NULL, position, id`)
+// ListAllJobs returns every Job whatever its state, the queue first, and
+// narrows to the Jobs carrying every one of labels when any are given.
+func (s *Store) ListAllJobs(ctx context.Context, labels ...string) ([]Job, error) {
+	where, args := carryingAll(labels)
+	return s.listJobs(ctx,
+		`SELECT `+jobColumns+` FROM jobs WHERE 1 = 1`+where+
+			` ORDER BY position IS NULL, position, id`, args...)
+}
+
+// carryingAll is the clause that keeps only the Jobs carrying every one of
+// labels, with the arguments it binds. No label means no clause, so an
+// unfiltered listing pays nothing for the feature.
+func carryingAll(labels []string) (string, []any) {
+	if len(labels) == 0 {
+		return "", nil
+	}
+	args := make([]any, 0, len(labels))
+	for _, l := range labels {
+		args = append(args, l)
+	}
+	// Counting the distinct labels matched is what makes this "all of them"
+	// rather than "any of them", and what stops a label given twice from
+	// counting twice.
+	return ` AND (SELECT COUNT(DISTINCT label) FROM job_labels
+	           WHERE job_id = jobs.id AND label IN (` + placeholders(len(labels)) + `)) = ` +
+		strconv.Itoa(len(distinct(labels))), args
+}
+
+// distinct is labels without repeats, in the order they were given.
+func distinct(labels []string) []string {
+	out := make([]string, 0, len(labels))
+	for _, l := range labels {
+		if !slices.Contains(out, l) {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // SetJobState moves a Job to another state, leaving its place in the queue
@@ -196,7 +356,14 @@ func (s *Store) affectOneJob(ctx context.Context, id int64, query string, args .
 }
 
 func (s *Store) listJobs(ctx context.Context, query string, args ...any) ([]Job, error) {
-	return scanJobs(s.db.QueryContext(ctx, query, args...))
+	jobs, err := scanJobs(s.db.QueryContext(ctx, query, args...))
+	if err != nil {
+		return nil, err
+	}
+	if err := attachLabels(ctx, s.db, jobs); err != nil {
+		return nil, err
+	}
+	return jobs, nil
 }
 
 // scanJobs reads a query's Jobs, taking the query's own error so that a caller
@@ -405,8 +572,15 @@ func (s *Store) ExtendJob(ctx context.Context, id int64, add int, pending, exhau
 			 WHERE id = ? RETURNING `+jobColumns,
 			add, maxAttempts, exhausted, pending, id)
 		var err error
-		j, err = scanJob(row)
-		return err
+		if j, err = scanJob(row); err != nil {
+			return err
+		}
+		extended := []Job{j}
+		if err := attachLabels(ctx, tx, extended); err != nil {
+			return err
+		}
+		j = extended[0]
+		return nil
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, fmt.Errorf("%w: %d", ErrJobNotFound, id)

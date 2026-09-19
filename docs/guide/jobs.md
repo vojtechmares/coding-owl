@@ -36,6 +36,34 @@ exhausted; it gets three unless you say otherwise.
 owl add "Port the queue tests to table tests" --model anthropic/claude-opus --effort xhigh --ttl 6
 ```
 
+## Labels
+
+A label is a name saying what kind of work a Job is. They are yours to invent,
+a Job may carry any number, and `--label` gives it one at queue time, repeated
+once per label:
+
+```
+owl add "Fix the flaky socket test" --label bug --label flaky
+```
+
+Labels change afterwards too, and each command takes one label or several:
+
+```
+owl jobs label add 7 urgent
+owl jobs label remove 7 flaky bug
+```
+
+Adding a label a Job already carries does nothing and is not an error, since
+what you asked for is that the Job carry it. Removing one it does not carry is
+refused, because the likeliest reason to ask is a typo. A label is trimmed of
+the whitespace a shell leaves around it and may not hold any inside, so that a
+Job's labels read as one field wherever they are printed beside something else.
+
+A label narrows what is listed and nothing else. The scheduler does not read
+one, so labelling a Job does not move it up the queue - `owl queue reorder`
+does that, and it is the only thing that does
+([ADR-0025](../adr/0025-queue-order-and-job-ttl.md)).
+
 ## The queue
 
 ```
@@ -43,13 +71,22 @@ owl queue list
 ```
 
 One row per Job waiting, in the order they will run, with the position, the id,
-the Project, the state and the beginning of the prompt. Only the pending ones
-are listed: a Job that is running, done, cancelled or blocked is not waiting
-for a turn. `--all` brings every Job back, with a dash where a position would
-be.
+the Project, the state, the labels it carries and the beginning of the prompt.
+A Job carrying no labels shows a dash. Only the pending ones are listed: a Job
+that is running, done, cancelled or blocked is not waiting for a turn. `--all`
+brings every Job back, with a dash where a position would be.
 
 ```
 owl queue list --all
+```
+
+`--label` narrows the listing to the Jobs carrying that label, and repeating it
+narrows further: a Job is listed only if it carries every label named. It
+applies to `--all` in the same way.
+
+```
+owl queue list --label bug
+owl queue list --label bug --label urgent
 ```
 
 The queue is first in, first out, and there is no priority: moving a Job is how

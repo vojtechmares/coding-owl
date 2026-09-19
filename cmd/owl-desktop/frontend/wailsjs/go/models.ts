@@ -362,6 +362,7 @@ export namespace client {
 	    Reason: string;
 	    TTL: number;
 	    Account: string;
+	    Labels: string[];
 	    Position: number;
 	    // Go type: time
 	    Created: any;
@@ -385,6 +386,7 @@ export namespace client {
 	        this.Reason = source["Reason"];
 	        this.TTL = source["TTL"];
 	        this.Account = source["Account"];
+	        this.Labels = source["Labels"];
 	        this.Position = source["Position"];
 	        this.Created = this.convertValues(source["Created"], null);
 	    }

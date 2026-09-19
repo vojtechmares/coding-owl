@@ -23,8 +23,23 @@ const noPosition = "-"
 // short, so that one long prompt cannot push the other columns off screen.
 const promptWidth = 60
 
+// noLabels stands in for the labels of a Job carrying none. An empty cell
+// would run its neighbours together, since the listing is a table.
+const noLabels = "-"
+
+// labelCell renders a Job's labels as one cell. A label carries no
+// whitespace, so joining them with a comma leaves the column readable as one
+// field.
+func labelCell(labels []string) string {
+	if len(labels) == 0 {
+		return noLabels
+	}
+	return terminalSafe(strings.Join(labels, ","))
+}
+
 func newAddCmd(env Env) *cobra.Command {
 	var projectName, model, effort string
+	var labels []string
 	var plan, noPlan bool
 	var ttl int
 	cmd := &cobra.Command{
@@ -42,7 +57,12 @@ plan becomes the handoff on the Job's branch. Pass --no-plan for work that
 needs no thinking through first.
 
 A Job may take ten Runs before it is exhausted; --ttl says how many it
-gets, and owl jobs extend gives it more.`,
+gets, and owl jobs extend gives it more.
+
+--label gives the Job a name saying what kind of work it is, repeated once
+per label. Labels are yours to invent, mean nothing to the scheduler, and
+narrow owl queue list through its own --label. owl jobs label add and
+owl jobs label remove change them afterwards.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if plan && noPlan {
@@ -62,6 +82,7 @@ gets, and owl jobs extend gives it more.`,
 					Model:      model,
 					Effort:     effort,
 					TTL:        ttl,
+					Labels:     labels,
 				})
 				if err != nil {
 					return err
@@ -77,6 +98,7 @@ gets, and owl jobs extend gives it more.`,
 	cmd.Flags().StringVar(&model, "model", "", "model every phase of this Job runs as (default: what the Project or Owl says)")
 	cmd.Flags().StringVar(&effort, "effort", "", "effort every phase of this Job runs at (default: what the Project or Owl says)")
 	cmd.Flags().IntVar(&ttl, "ttl", 0, "how many Runs the Job may take before it is exhausted (default: ten)")
+	cmd.Flags().StringArrayVar(&labels, "label", nil, "a name saying what kind of work the Job is; repeat for more than one")
 	return cmd
 }
 
@@ -106,13 +128,18 @@ func newQueueCmd(env Env) *cobra.Command {
 
 func newQueueListCmd(env Env) *cobra.Command {
 	var all bool
+	var labels []string
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List the queued Jobs in the order they will run",
-		Args:  cobra.NoArgs,
+		Long: `List the queued Jobs in the order they will run.
+
+--label narrows the listing to the Jobs carrying that label. Repeating it
+narrows further: a Job is listed only if it carries every label named.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
-				jobs, err := c.ListJobs(ctx, all)
+				jobs, err := c.ListJobs(ctx, all, labels...)
 				if err != nil {
 					return err
 				}
@@ -121,19 +148,21 @@ func newQueueListCmd(env Env) *cobra.Command {
 					return nil
 				}
 				w := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
-				_, _ = fmt.Fprintln(w, "POSITION\tID\tPROJECT\tSTATE\tPROMPT")
+				_, _ = fmt.Fprintln(w, "POSITION\tID\tPROJECT\tSTATE\tLABELS\tPROMPT")
 				for _, j := range jobs {
 					position := noPosition
 					if j.Position > 0 {
 						position = strconv.Itoa(j.Position)
 					}
-					_, _ = fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%s\n", position, j.ID, j.Project, j.State, promptCell(j.Prompt))
+					_, _ = fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%s\t%s\n",
+						position, j.ID, j.Project, j.State, labelCell(j.Labels), promptCell(j.Prompt))
 				}
 				return w.Flush()
 			})
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "list every Job, including those that have left the queue")
+	cmd.Flags().StringArrayVar(&labels, "label", nil, "list only the Jobs carrying this label; repeat to narrow further")
 	return cmd
 }
 

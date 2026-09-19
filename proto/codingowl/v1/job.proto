@@ -40,6 +40,10 @@ service JobService {
   // ExtendJob gives a Job more attempts, returning it to the queue if it had
   // run out (ADR-0025).
   rpc ExtendJob(ExtendJobRequest) returns (ExtendJobResponse) {}
+  // AddJobLabels gives a Job labels it does not already carry.
+  rpc AddJobLabels(AddJobLabelsRequest) returns (AddJobLabelsResponse) {}
+  // RemoveJobLabels takes labels off a Job, refusing one it does not carry.
+  rpc RemoveJobLabels(RemoveJobLabelsRequest) returns (RemoveJobLabelsResponse) {}
   // PauseRun freezes the Run in progress and everything its Agent started.
   rpc PauseRun(PauseRunRequest) returns (PauseRunResponse) {}
   // ResumeRun continues a frozen Run where it was.
@@ -106,6 +110,10 @@ message Job {
   // configuration at its first Run and unchanged afterwards (ADR-0023). It is
   // empty until the Job has run.
   string account = 15;
+  // Labels are the names the Job carries, in order and each one once. A label
+  // says what kind of work the Job is and nothing more: the scheduler does not
+  // read them (ADR-0025).
+  repeated string labels = 16;
 }
 
 // PlanMode is whether a Job is planned before it is executed. Planning is the
@@ -254,6 +262,9 @@ message AddJobRequest {
   // Ttl is how many Runs the Job may take. Zero asks for no particular number
   // and takes the default of ten (ADR-0025).
   int32 ttl = 7;
+  // Labels are the names to give the Job, each one once however many times it
+  // is asked for.
+  repeated string labels = 8;
 }
 
 message AddJobResponse {
@@ -263,6 +274,9 @@ message AddJobResponse {
 message ListJobsRequest {
   // All returns every Job whatever its state, rather than only the queue.
   bool all = 1;
+  // Labels narrows the answer to the Jobs carrying every one of them. Naming
+  // none narrows nothing.
+  repeated string labels = 2;
 }
 
 message ListJobsResponse {
@@ -386,6 +400,28 @@ message ExtendJobRequest {
 }
 
 message ExtendJobResponse {
+  Job job = 1;
+}
+
+message AddJobLabelsRequest {
+  int64 id = 1;
+  // Labels are the names to give the Job. One it already carries is not a
+  // failure: what was asked for is that it carry the label, and it does.
+  repeated string labels = 2;
+}
+
+message AddJobLabelsResponse {
+  Job job = 1;
+}
+
+message RemoveJobLabelsRequest {
+  int64 id = 1;
+  // Labels are the names to take off the Job. One it does not carry is
+  // refused, because the likeliest reason to ask for it is a typo.
+  repeated string labels = 2;
+}
+
+message RemoveJobLabelsResponse {
   Job job = 1;
 }
 

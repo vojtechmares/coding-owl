@@ -50,6 +50,7 @@ interface FakeJob {
   Reason: string;
   TTL: number;
   Account: string;
+  Labels: string[];
   Position: number;
   Created: string;
 }
@@ -65,6 +66,7 @@ function job(j: Partial<FakeJob> & { ID: number; Project: string; Prompt: string
     Reason: "",
     TTL: 3,
     Account: "personal",
+    Labels: [],
     Position: 0,
     Created: at(90),
     ...j,
