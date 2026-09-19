@@ -188,4 +188,12 @@ migration is ever added from here.
 - **A reason column on `owl queue list`.** The issue points at `owl status`.
 - **Anything in `cmd/owl-desktop/`.** Out of scope by the issue, and it already
   renders passed-over Jobs and their reasons through `GetOverview`.
+
+  Known and deliberate: `cmd/owl-desktop/frontend/wailsjs/go/models.ts` is
+  generated from `client.Job` by `wails build` and now lacks `BlockedBy`. The
+  app does not read the field, CI checks only `gen/` for drift
+  (`.github/workflows/ci.yml:58`), and the wails CLI is not installed on this
+  machine, so it was left to be picked up by the next `make desktop` rather
+  than hand-edited. There is precedent for regenerating the bindings in a
+  `chore(desktop)` commit of their own.
 - **Fixing the `.gitignore`/`recordPlan` interaction.** Out of scope; follow-up.
