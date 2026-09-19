@@ -55,6 +55,11 @@ const (
 	JobServiceGetOverviewProcedure = "/codingowl.v1.JobService/GetOverview"
 	// JobServiceExtendJobProcedure is the fully-qualified name of the JobService's ExtendJob RPC.
 	JobServiceExtendJobProcedure = "/codingowl.v1.JobService/ExtendJob"
+	// JobServiceAddJobLabelsProcedure is the fully-qualified name of the JobService's AddJobLabels RPC.
+	JobServiceAddJobLabelsProcedure = "/codingowl.v1.JobService/AddJobLabels"
+	// JobServiceRemoveJobLabelsProcedure is the fully-qualified name of the JobService's
+	// RemoveJobLabels RPC.
+	JobServiceRemoveJobLabelsProcedure = "/codingowl.v1.JobService/RemoveJobLabels"
 	// JobServicePauseRunProcedure is the fully-qualified name of the JobService's PauseRun RPC.
 	JobServicePauseRunProcedure = "/codingowl.v1.JobService/PauseRun"
 	// JobServiceResumeRunProcedure is the fully-qualified name of the JobService's ResumeRun RPC.
@@ -91,6 +96,10 @@ type JobServiceClient interface {
 	// ExtendJob gives a Job more attempts, returning it to the queue if it had
 	// run out (ADR-0025).
 	ExtendJob(context.Context, *connect.Request[v1.ExtendJobRequest]) (*connect.Response[v1.ExtendJobResponse], error)
+	// AddJobLabels gives a Job labels it does not already carry.
+	AddJobLabels(context.Context, *connect.Request[v1.AddJobLabelsRequest]) (*connect.Response[v1.AddJobLabelsResponse], error)
+	// RemoveJobLabels takes labels off a Job, refusing one it does not carry.
+	RemoveJobLabels(context.Context, *connect.Request[v1.RemoveJobLabelsRequest]) (*connect.Response[v1.RemoveJobLabelsResponse], error)
 	// PauseRun freezes the Run in progress and everything its Agent started.
 	PauseRun(context.Context, *connect.Request[v1.PauseRunRequest]) (*connect.Response[v1.PauseRunResponse], error)
 	// ResumeRun continues a frozen Run where it was.
@@ -174,6 +183,18 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(jobServiceMethods.ByName("ExtendJob")),
 			connect.WithClientOptions(opts...),
 		),
+		addJobLabels: connect.NewClient[v1.AddJobLabelsRequest, v1.AddJobLabelsResponse](
+			httpClient,
+			baseURL+JobServiceAddJobLabelsProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("AddJobLabels")),
+			connect.WithClientOptions(opts...),
+		),
+		removeJobLabels: connect.NewClient[v1.RemoveJobLabelsRequest, v1.RemoveJobLabelsResponse](
+			httpClient,
+			baseURL+JobServiceRemoveJobLabelsProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("RemoveJobLabels")),
+			connect.WithClientOptions(opts...),
+		),
 		pauseRun: connect.NewClient[v1.PauseRunRequest, v1.PauseRunResponse](
 			httpClient,
 			baseURL+JobServicePauseRunProcedure,
@@ -191,19 +212,21 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 
 // jobServiceClient implements JobServiceClient.
 type jobServiceClient struct {
-	addJob       *connect.Client[v1.AddJobRequest, v1.AddJobResponse]
-	listJobs     *connect.Client[v1.ListJobsRequest, v1.ListJobsResponse]
-	cancelJob    *connect.Client[v1.CancelJobRequest, v1.CancelJobResponse]
-	reorderJob   *connect.Client[v1.ReorderJobRequest, v1.ReorderJobResponse]
-	startRun     *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
-	getJob       *connect.Client[v1.GetJobRequest, v1.GetJobResponse]
-	streamRunLog *connect.Client[v1.StreamRunLogRequest, v1.StreamRunLogResponse]
-	acceptJob    *connect.Client[v1.AcceptJobRequest, v1.AcceptJobResponse]
-	dropJob      *connect.Client[v1.DropJobRequest, v1.DropJobResponse]
-	getOverview  *connect.Client[v1.GetOverviewRequest, v1.GetOverviewResponse]
-	extendJob    *connect.Client[v1.ExtendJobRequest, v1.ExtendJobResponse]
-	pauseRun     *connect.Client[v1.PauseRunRequest, v1.PauseRunResponse]
-	resumeRun    *connect.Client[v1.ResumeRunRequest, v1.ResumeRunResponse]
+	addJob          *connect.Client[v1.AddJobRequest, v1.AddJobResponse]
+	listJobs        *connect.Client[v1.ListJobsRequest, v1.ListJobsResponse]
+	cancelJob       *connect.Client[v1.CancelJobRequest, v1.CancelJobResponse]
+	reorderJob      *connect.Client[v1.ReorderJobRequest, v1.ReorderJobResponse]
+	startRun        *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
+	getJob          *connect.Client[v1.GetJobRequest, v1.GetJobResponse]
+	streamRunLog    *connect.Client[v1.StreamRunLogRequest, v1.StreamRunLogResponse]
+	acceptJob       *connect.Client[v1.AcceptJobRequest, v1.AcceptJobResponse]
+	dropJob         *connect.Client[v1.DropJobRequest, v1.DropJobResponse]
+	getOverview     *connect.Client[v1.GetOverviewRequest, v1.GetOverviewResponse]
+	extendJob       *connect.Client[v1.ExtendJobRequest, v1.ExtendJobResponse]
+	addJobLabels    *connect.Client[v1.AddJobLabelsRequest, v1.AddJobLabelsResponse]
+	removeJobLabels *connect.Client[v1.RemoveJobLabelsRequest, v1.RemoveJobLabelsResponse]
+	pauseRun        *connect.Client[v1.PauseRunRequest, v1.PauseRunResponse]
+	resumeRun       *connect.Client[v1.ResumeRunRequest, v1.ResumeRunResponse]
 }
 
 // AddJob calls codingowl.v1.JobService.AddJob.
@@ -261,6 +284,16 @@ func (c *jobServiceClient) ExtendJob(ctx context.Context, req *connect.Request[v
 	return c.extendJob.CallUnary(ctx, req)
 }
 
+// AddJobLabels calls codingowl.v1.JobService.AddJobLabels.
+func (c *jobServiceClient) AddJobLabels(ctx context.Context, req *connect.Request[v1.AddJobLabelsRequest]) (*connect.Response[v1.AddJobLabelsResponse], error) {
+	return c.addJobLabels.CallUnary(ctx, req)
+}
+
+// RemoveJobLabels calls codingowl.v1.JobService.RemoveJobLabels.
+func (c *jobServiceClient) RemoveJobLabels(ctx context.Context, req *connect.Request[v1.RemoveJobLabelsRequest]) (*connect.Response[v1.RemoveJobLabelsResponse], error) {
+	return c.removeJobLabels.CallUnary(ctx, req)
+}
+
 // PauseRun calls codingowl.v1.JobService.PauseRun.
 func (c *jobServiceClient) PauseRun(ctx context.Context, req *connect.Request[v1.PauseRunRequest]) (*connect.Response[v1.PauseRunResponse], error) {
 	return c.pauseRun.CallUnary(ctx, req)
@@ -301,6 +334,10 @@ type JobServiceHandler interface {
 	// ExtendJob gives a Job more attempts, returning it to the queue if it had
 	// run out (ADR-0025).
 	ExtendJob(context.Context, *connect.Request[v1.ExtendJobRequest]) (*connect.Response[v1.ExtendJobResponse], error)
+	// AddJobLabels gives a Job labels it does not already carry.
+	AddJobLabels(context.Context, *connect.Request[v1.AddJobLabelsRequest]) (*connect.Response[v1.AddJobLabelsResponse], error)
+	// RemoveJobLabels takes labels off a Job, refusing one it does not carry.
+	RemoveJobLabels(context.Context, *connect.Request[v1.RemoveJobLabelsRequest]) (*connect.Response[v1.RemoveJobLabelsResponse], error)
 	// PauseRun freezes the Run in progress and everything its Agent started.
 	PauseRun(context.Context, *connect.Request[v1.PauseRunRequest]) (*connect.Response[v1.PauseRunResponse], error)
 	// ResumeRun continues a frozen Run where it was.
@@ -380,6 +417,18 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(jobServiceMethods.ByName("ExtendJob")),
 		connect.WithHandlerOptions(opts...),
 	)
+	jobServiceAddJobLabelsHandler := connect.NewUnaryHandler(
+		JobServiceAddJobLabelsProcedure,
+		svc.AddJobLabels,
+		connect.WithSchema(jobServiceMethods.ByName("AddJobLabels")),
+		connect.WithHandlerOptions(opts...),
+	)
+	jobServiceRemoveJobLabelsHandler := connect.NewUnaryHandler(
+		JobServiceRemoveJobLabelsProcedure,
+		svc.RemoveJobLabels,
+		connect.WithSchema(jobServiceMethods.ByName("RemoveJobLabels")),
+		connect.WithHandlerOptions(opts...),
+	)
 	jobServicePauseRunHandler := connect.NewUnaryHandler(
 		JobServicePauseRunProcedure,
 		svc.PauseRun,
@@ -416,6 +465,10 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 			jobServiceGetOverviewHandler.ServeHTTP(w, r)
 		case JobServiceExtendJobProcedure:
 			jobServiceExtendJobHandler.ServeHTTP(w, r)
+		case JobServiceAddJobLabelsProcedure:
+			jobServiceAddJobLabelsHandler.ServeHTTP(w, r)
+		case JobServiceRemoveJobLabelsProcedure:
+			jobServiceRemoveJobLabelsHandler.ServeHTTP(w, r)
 		case JobServicePauseRunProcedure:
 			jobServicePauseRunHandler.ServeHTTP(w, r)
 		case JobServiceResumeRunProcedure:
@@ -471,6 +524,14 @@ func (UnimplementedJobServiceHandler) GetOverview(context.Context, *connect.Requ
 
 func (UnimplementedJobServiceHandler) ExtendJob(context.Context, *connect.Request[v1.ExtendJobRequest]) (*connect.Response[v1.ExtendJobResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.ExtendJob is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) AddJobLabels(context.Context, *connect.Request[v1.AddJobLabelsRequest]) (*connect.Response[v1.AddJobLabelsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.AddJobLabels is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) RemoveJobLabels(context.Context, *connect.Request[v1.RemoveJobLabelsRequest]) (*connect.Response[v1.RemoveJobLabelsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.JobService.RemoveJobLabels is not implemented"))
 }
 
 func (UnimplementedJobServiceHandler) PauseRun(context.Context, *connect.Request[v1.PauseRunRequest]) (*connect.Response[v1.PauseRunResponse], error) {

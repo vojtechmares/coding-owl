@@ -18,6 +18,13 @@ A standing intent to do one piece of work in one Project: the prompt, its
 configuration, and its lifecycle.
 _Avoid_: task, ticket, item, request
 
+**Label**:
+A name a Job carries saying what kind of work it is. A Job may carry any
+number, each once, and they are the user's to invent. A Label narrows what is
+listed and nothing else: the scheduler does not read one, so it is not a way
+to make a Job urgent - that is the queue's order (ADR-0025).
+_Avoid_: tag, category, priority, tier
+
 **Focus**:
 A Project marked to go first on its Account; each Account has at most one. Its
 runnable Jobs are scheduled ahead of other Projects' Jobs, and the rest of the

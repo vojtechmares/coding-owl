@@ -273,6 +273,7 @@ Owl honours the XDG variables on both macOS and Linux:
 | `owl start` / `owl pause` / `owl resume` | Override idle: run now, freeze everything, continue |
 | `owl status` | What ran, what is running, what is waiting for you |
 | `owl jobs show\|accept\|drop\|extend` | Inspect a Job, keep or refuse its work, give it more Runs |
+| `owl jobs label add\|remove` | Change the labels a Job carries |
 | `owl logs <run> [-f]` | The Agent's own structured stream, one event per line |
 | `owl skills add\|list\|update\|remove` | Manage the Skills a Project gives its Agents |
 | `owl models` | The models a Job's phases can run on, aliases and pinned |

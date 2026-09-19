@@ -8,8 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/oklog/ulid/v2"
 
@@ -114,6 +117,10 @@ type Job struct {
 	// Account is the Account the Job ran on, empty until it has run
 	// (ADR-0023).
 	Account string
+	// Labels are the names the Job carries, in order and each one once. A
+	// label says what kind of work the Job is and nothing more: the scheduler
+	// does not read them, and the order of the queue is unaffected (ADR-0025).
+	Labels []string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -153,6 +160,9 @@ type AddRequest struct {
 	// TTL is how many Runs the Job may take. Zero asks for no particular
 	// number and takes DefaultTTL.
 	TTL int
+	// Labels are the names to give the Job, each one once however many times
+	// it is asked for.
+	Labels []string
 }
 
 // Add produces a Job through the Service's Source and queues it behind
@@ -176,6 +186,10 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Job, error) {
 	if err := usableSetting("effort", req.Effort); err != nil {
 		return Job{}, err
 	}
+	labels, err := usableLabels(req.Labels)
+	if err != nil {
+		return Job{}, err
+	}
 	ttl := req.TTL
 	switch {
 	case ttl < 0:
@@ -193,6 +207,7 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Job, error) {
 		Model:     req.Model,
 		Effort:    req.Effort,
 		TTL:       ttl,
+		Labels:    labels,
 		Created:   s.now().UTC(),
 	})
 	if err != nil {
@@ -208,6 +223,108 @@ func usableSetting(what, value string) error {
 		return invalid("%s %q may not start with a dash", what, value)
 	}
 	return nil
+}
+
+// usableLabels reads the labels a request carries: each one trimmed of the
+// whitespace a shell leaves around it, each one kept once, and in the order
+// they were given.
+//
+// A label holding whitespace is refused rather than accepted, because a Job's
+// labels are printed beside other columns in owl queue list, and one label
+// that looks like two there is worse than a refusal at the point it was
+// typed.
+func usableLabels(labels []string) ([]string, error) {
+	out := make([]string, 0, len(labels))
+	for _, l := range labels {
+		label := strings.TrimSpace(l)
+		if label == "" {
+			return nil, invalid("a label may not be empty")
+		}
+		if strings.ContainsFunc(label, unicode.IsSpace) {
+			return nil, invalid("a label may not hold whitespace; %q is not one name", label)
+		}
+		if !slices.Contains(out, label) {
+			out = append(out, label)
+		}
+	}
+	return out, nil
+}
+
+// AddLabels gives a Job labels it does not already carry. Asking for a label
+// it has is not a failure: what the user asked for is that the Job carry it,
+// and it does. The Job as it stands afterwards is returned.
+func (s *Service) AddLabels(ctx context.Context, id int64, labels []string) (Job, error) {
+	clean, err := s.labelling(ctx, id, labels)
+	if err != nil {
+		return Job{}, err
+	}
+	if err := s.store.AddJobLabels(ctx, id, clean); err != nil {
+		return Job{}, err
+	}
+	return s.get(ctx, id)
+}
+
+// RemoveLabels takes labels off a Job. A label the Job does not carry is
+// refused rather than passed over, because the likeliest reason to ask for
+// one is a typo, and silence would leave the user believing the Job no longer
+// carries a label it still does.
+func (s *Service) RemoveLabels(ctx context.Context, id int64, labels []string) (Job, error) {
+	clean, err := s.labelling(ctx, id, labels)
+	if err != nil {
+		return Job{}, err
+	}
+	carried, err := s.store.JobLabels(ctx, id)
+	if err != nil {
+		return Job{}, err
+	}
+	var missing []string
+	for _, l := range clean {
+		if !slices.Contains(carried, l) {
+			missing = append(missing, l)
+		}
+	}
+	if len(missing) > 0 {
+		return Job{}, invalid("job %d does not carry the label %s", id, strings.Join(quoteAll(missing), ", "))
+	}
+	if _, err := s.store.RemoveJobLabels(ctx, id, clean); err != nil {
+		return Job{}, err
+	}
+	return s.get(ctx, id)
+}
+
+// labelling reads the labels of a request to change one Job's, refusing an
+// unusable label and a Job that does not exist before anything is written.
+func (s *Service) labelling(ctx context.Context, id int64, labels []string) ([]string, error) {
+	clean, err := usableLabels(labels)
+	if err != nil {
+		return nil, err
+	}
+	if len(clean) == 0 {
+		return nil, invalid("name at least one label")
+	}
+	if _, err := s.store.GetJob(ctx, id); err != nil {
+		return nil, err
+	}
+	return clean, nil
+}
+
+// quoteAll quotes each of names, so that a refusal naming several of them
+// says where one ends and the next begins.
+func quoteAll(names []string) []string {
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		out = append(out, strconv.Quote(n))
+	}
+	return out
+}
+
+// get reads a Job back out of the store in this package's shape.
+func (s *Service) get(ctx context.Context, id int64) (Job, error) {
+	j, err := s.store.GetJob(ctx, id)
+	if err != nil {
+		return Job{}, err
+	}
+	return FromStore(j), nil
 }
 
 // resolveProject names the Project a request is for: the one it asks for by
@@ -265,9 +382,15 @@ func resolve(path string) string {
 }
 
 // List returns the queue in order. With all, every Job follows it whatever
-// its state, so a Job that has left the queue can still be seen.
-func (s *Service) List(ctx context.Context, all bool) ([]Job, error) {
-	rows, err := s.jobs(ctx, all)
+// its state, so a Job that has left the queue can still be seen. Labels
+// narrow either listing to the Jobs carrying every one of them; naming none
+// narrows nothing.
+func (s *Service) List(ctx context.Context, all bool, labels ...string) ([]Job, error) {
+	clean, err := usableLabels(labels)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.jobs(ctx, all, clean)
 	if err != nil {
 		return nil, err
 	}
@@ -280,11 +403,11 @@ func (s *Service) List(ctx context.Context, all bool) ([]Job, error) {
 
 // jobs reads the queue, or every Job. The queue is the Jobs still waiting: a
 // Job being run keeps its position (ADR-0025) but is not waiting.
-func (s *Service) jobs(ctx context.Context, all bool) ([]store.Job, error) {
+func (s *Service) jobs(ctx context.Context, all bool, labels []string) ([]store.Job, error) {
 	if all {
-		return s.store.ListAllJobs(ctx)
+		return s.store.ListAllJobs(ctx, labels...)
 	}
-	return s.store.ListQueue(ctx, string(StatePending))
+	return s.store.ListQueue(ctx, string(StatePending), labels...)
 }
 
 // FromStore reads a Job out of the store's shape. It is exported because the
@@ -307,6 +430,7 @@ func FromStore(j store.Job) Job {
 		Reason:    j.Reason,
 		TTL:       j.TTL,
 		Account:   j.Account,
+		Labels:    j.Labels,
 		Position:  j.Position,
 		Created:   j.Created,
 	}

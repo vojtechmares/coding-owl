@@ -124,6 +124,12 @@ func TestJobsShowShowsAnEscapeFromOutsideOwlAsText(t *testing.T) {
 			"  /owl/logs/" + shown + ".jsonl\n",
 		},
 		{
+			// A label is the user's own word, and reaches the report through the
+			// daemon and the database like anything else outside Owl.
+			"a label", func(d *client.JobDetails) { d.Job.Labels = []string{"bug" + escape, "urgent"} },
+			"\nlabels: bug" + shown + ", urgent\n",
+		},
+		{
 			"the plan", func(d *client.JobDetails) { d.Job.Plan = "read the tests " + escape + "\n\tthen fix them\n" },
 			"\nplan:\nread the tests " + shown + "\n\tthen fix them\n\n",
 		},
@@ -236,6 +242,7 @@ project: api
 state: blocked
 attempts: 8 left
 account: work
+labels: (none)
 prompt: fix the flaky test
 branch: owl/job-7
 worktree: /owl/worktrees/7

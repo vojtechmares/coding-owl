@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -261,9 +262,14 @@ func TestS8QueueListShowsThePositionProjectStateAndPrompt(t *testing.T) {
 	addJob(t, l, api.dir, "third")
 
 	out := mustOwl(t, l, "queue", "list").stdout
+	// The sheet says the header names these columns, and says nothing about
+	// what else it may name: issue #132 added LABELS between STATE and
+	// PROMPT, and pins the whole header in its own S15.
 	header := strings.Fields(strings.Split(out, "\n")[0])
-	if strings.Join(header, " ") != "POSITION ID PROJECT STATE PROMPT" {
-		t.Errorf("header = %v, want POSITION ID PROJECT STATE PROMPT\n%s", header, out)
+	for _, want := range []string{"POSITION", "ID", "PROJECT", "STATE", "PROMPT"} {
+		if !slices.Contains(header, want) {
+			t.Errorf("header = %v, does not name %s\n%s", header, want, out)
+		}
 	}
 	wantQueue(t, l,
 		"1|api|pending|first",

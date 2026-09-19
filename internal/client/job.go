@@ -45,6 +45,10 @@ type Job struct {
 	// Account is the Account the Job ran on, empty until it has run
 	// (ADR-0023).
 	Account string
+	// Labels are the names the Job carries, in order and each one once. A
+	// label says what kind of work the Job is and nothing more: the scheduler
+	// does not read them (ADR-0025).
+	Labels []string
 	// Position is the Job's place in the queue, counting from one, and zero
 	// for a Job that is not in the queue.
 	Position int
@@ -67,6 +71,9 @@ type AddJobRequest struct {
 	// TTL is how many Runs the Job may take. Zero asks for no particular
 	// number and takes the daemon's default of ten.
 	TTL int
+	// Labels are the names to give the Job, each one once however many times
+	// it is asked for.
+	Labels []string
 }
 
 // AddJob queues a Job.
@@ -89,6 +96,7 @@ func (c *Client) AddJob(ctx context.Context, req AddJobRequest) (Job, error) {
 		Model:      req.Model,
 		Effort:     req.Effort,
 		Ttl:        int32(req.TTL),
+		Labels:     req.Labels,
 	}))
 	if err != nil {
 		return Job{}, c.wrap(err)
@@ -97,8 +105,9 @@ func (c *Client) AddJob(ctx context.Context, req AddJobRequest) (Job, error) {
 }
 
 // ListJobs returns the queue in order, or every Job whatever its state.
-func (c *Client) ListJobs(ctx context.Context, all bool) ([]Job, error) {
-	res, err := c.jobs.ListJobs(ctx, connect.NewRequest(&codingowlv1.ListJobsRequest{All: all}))
+// Labels narrow either listing to the Jobs carrying every one of them.
+func (c *Client) ListJobs(ctx context.Context, all bool, labels ...string) ([]Job, error) {
+	res, err := c.jobs.ListJobs(ctx, connect.NewRequest(&codingowlv1.ListJobsRequest{All: all, Labels: labels}))
 	if err != nil {
 		return nil, c.wrap(err)
 	}
@@ -199,9 +208,34 @@ func jobFromProto(j *codingowlv1.Job) Job {
 		Reason:    j.GetReason(),
 		TTL:       int(j.GetTtl()),
 		Account:   j.GetAccount(),
+		Labels:    j.GetLabels(),
 		Position:  int(j.GetPosition()),
 		Created:   j.GetCreated().AsTime(),
 	}
+}
+
+// AddJobLabels gives a Job labels it does not already carry, and returns the
+// Job as it stands afterwards.
+func (c *Client) AddJobLabels(ctx context.Context, id int64, labels []string) (Job, error) {
+	res, err := c.jobs.AddJobLabels(ctx, connect.NewRequest(&codingowlv1.AddJobLabelsRequest{
+		Id: id, Labels: labels,
+	}))
+	if err != nil {
+		return Job{}, c.wrap(err)
+	}
+	return jobFromProto(res.Msg.GetJob()), nil
+}
+
+// RemoveJobLabels takes labels off a Job. A label the Job does not carry is
+// refused by the daemon rather than passed over.
+func (c *Client) RemoveJobLabels(ctx context.Context, id int64, labels []string) (Job, error) {
+	res, err := c.jobs.RemoveJobLabels(ctx, connect.NewRequest(&codingowlv1.RemoveJobLabelsRequest{
+		Id: id, Labels: labels,
+	}))
+	if err != nil {
+		return Job{}, c.wrap(err)
+	}
+	return jobFromProto(res.Msg.GetJob()), nil
 }
 
 // AcceptJob keeps a Job's work: its worktree is reclaimed and its branch is

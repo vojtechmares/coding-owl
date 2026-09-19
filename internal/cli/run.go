@@ -174,8 +174,76 @@ func newJobsCmd(env Env) *cobra.Command {
 		Use:   "jobs",
 		Short: "Inspect Jobs and what running them involves",
 	}
-	cmd.AddCommand(newJobsShowCmd(env), newJobsExtendCmd(env), newJobsAcceptCmd(env), newJobsDropCmd(env))
+	cmd.AddCommand(newJobsShowCmd(env), newJobsExtendCmd(env), newJobsAcceptCmd(env),
+		newJobsDropCmd(env), newJobsLabelCmd(env))
 	return cmd
+}
+
+func newJobsLabelCmd(env Env) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "label",
+		Short: "Change the labels a Job carries",
+		Long: `Change the labels a Job carries.
+
+A label is a name saying what kind of work the Job is. It means nothing to
+the scheduler, which goes on taking the queue in order, and is there to
+narrow owl queue list through its own --label.`,
+	}
+	cmd.AddCommand(
+		labelCmd(env, "add",
+			"Give a Job labels",
+			`Give a Job labels.
+
+A label the Job already carries is not a failure: what was asked for is
+that the Job carry it, and it does.`,
+			func(ctx context.Context, c *client.Client, id int64, labels []string) (client.Job, error) {
+				return c.AddJobLabels(ctx, id, labels)
+			}),
+		labelCmd(env, "remove",
+			"Take labels off a Job",
+			`Take labels off a Job.
+
+A label the Job does not carry is refused rather than passed over, because
+the likeliest reason to ask for one is a typo.`,
+			func(ctx context.Context, c *client.Client, id int64, labels []string) (client.Job, error) {
+				return c.RemoveJobLabels(ctx, id, labels)
+			}),
+	)
+	return cmd
+}
+
+// labelCmd builds owl jobs label add and owl jobs label remove, which differ
+// only in which way they move a label.
+func labelCmd(env Env, verb, short, long string, change func(context.Context, *client.Client, int64, []string) (client.Job, error)) *cobra.Command {
+	return &cobra.Command{
+		Use:   verb + " <id> <label>...",
+		Short: short,
+		Long:  long,
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := jobID(args[0])
+			if err != nil {
+				return err
+			}
+			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
+				j, err := change(ctx, c, id, args[1:])
+				if err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintf(env.Stdout, "job %d carries %s\n", j.ID, labelList(j.Labels))
+				return nil
+			})
+		},
+	}
+}
+
+// labelList renders the labels a Job carries after a change, so that the
+// command says where the Job ended up rather than only that it worked.
+func labelList(labels []string) string {
+	if len(labels) == 0 {
+		return "no labels"
+	}
+	return terminalSafe(strings.Join(labels, ", "))
 }
 
 // disposeCmd builds owl jobs accept and owl jobs drop, which differ only in
@@ -318,6 +386,7 @@ func printJob(env Env, d client.JobDetails) {
 		{"state", d.Job.State},
 		{"attempts", strconv.Itoa(d.Job.TTL) + " left"},
 		{"account", orNone(d.Job.Account)},
+		{"labels", orNone(strings.Join(d.Job.Labels, ", "))},
 		{"prompt", d.Job.Prompt},
 		{"branch", orNone(d.Job.Branch)},
 		{"worktree", orNone(d.Job.Worktree)},
