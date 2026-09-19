@@ -46,6 +46,12 @@ message ProjectConfig {
   // Account names the Account every Job in this Project runs on (ADR-0023).
   // Empty is a Project that names none, which cannot run until it does.
   string account = 3;
+  // StrayConfig is the absolute path of a file in the Project's configuration
+  // directory that looks like it was meant to be its configuration but is not
+  // the name that location reads (ADR-0014 form 4), so nothing loaded it.
+  // Empty when there is none. It is reported, never loaded: the path travels
+  // rather than a sentence, so the wording stays with the caller.
+  string stray_config = 4;
 }
 
 message AddProjectRequest {
