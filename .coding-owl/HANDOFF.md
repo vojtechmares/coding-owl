@@ -145,25 +145,61 @@ exists already:
 `gh issue list --repo vojtechmares/coding-owl --search "HANDOFF gitignore recordPlan" --state all`.
 Not part of #133, not to be fixed in this diff.
 
+## Verification
+
+`make lint` green. `make test` green except the three pre-existing
+`TestS1Cask...`/`TestS2Cask...`/`TestS3Cask...` failures in
+`tests/behavior/issue22_test.go` ("the wails CLI is not installed"); nothing in
+this diff touches them or the script they drive, and CI installs wails.
+
+**Round 1**, against `0a4f3cb`/`acd56e4`: all three agents `PASS`.
+
+- `security-reviewer` - PASS, notes only. Confirmed the fenced quotation, the
+  parameterised `GetJob`, the migration, and that nothing is logged that should
+  not be. Its one substantive note is a **pre-existing** weakness, not a
+  regression: `fenceFor` grows the handoff fence against the handoff alone, so
+  any text in `work` - a Job's own prompt on `main` already, and now also a
+  blocking Job's - can contain a convincing fake `----- handoff -----`. It
+  stays inside the `queued behind` fence. Closing it would be
+  `grownFence(handoffFence, work+handoff)`; that is a change to behaviour
+  `main` already has and belongs in an issue of its own, not this diff.
+- `correctness-reviewer` - PASS. Judged **both** D1 and D2 defensible after
+  checking them against the code rather than the prose. Six notes; see below.
+- `behavior-verifier` - PASS, all eleven scenarios. Sheet unchanged since
+  `d92072e`. Could not hand-drive the binary: the sandbox denied `mktemp`,
+  `mkdir` and executing `bin/owl`, and it correctly refused to run against the
+  user's real Owl state. The behaviour tests are themselves black-box, so the
+  same surface is covered.
+
+**Acted on:** the plan-phase prompt path was untested (every scenario queues
+with `--no-plan`) - `TestBothPhasesCarryWhatTheJobWasQueuedBehind` closes it.
+S10 asserted the bare word `"done"`, which the execution prompt's own
+no-handoff boilerplate already contains, so it proved nothing - it now asserts
+`"job <id>, which is done"`. The guide section was committed.
+
+**Left as notes, to be said in the PR body instead:** D11 lets a Job name a
+blocker that has left the queue without reaching `done` (cancelled, exhausted),
+which is a **permanent wait** - nothing moves those to `done` and no command
+edits `blocked_by`, so the only way out is to cancel and re-add. It is visible
+in `owl status`, so it is loud rather than silent. Say this in the PR.
+`TestOneBlockingJobIsReadOncePerScan` proves memoisation by map size rather
+than by counting store reads; it can still fail, so it is not dead.
+`models.ts` is stale - see under "Ruled out".
+
+**Round 2** is running against `bff90f6` at the time this was written, because
+a `PASS` counts only for the commit it saw. Nothing in production code changed
+between the rounds - only tests, docs and this file. Check its verdicts before
+opening the PR.
+
 ## Remaining steps
 
-1. `make lint && make test`. Expect three pre-existing failures unrelated to
-   this branch: `TestS1Cask...`, `TestS2Cask...`, `TestS3Cask...` in
-   `tests/behavior/issue22_test.go`, which fail with "the wails CLI is not
-   installed" on a machine without it. CI installs wails, so they pass there.
-   Confirm nothing else is red, and confirm those three fail on `main` too.
-2. Self-review `git diff origin/main...HEAD` against the issue.
-3. The three agents in `.agents/agents/` in parallel - `security-reviewer`,
-   `correctness-reviewer`, `behavior-verifier` - fixing until all three `PASS`.
-   A `PASS` counts only for the commit it saw, so re-run after any change.
-   Expect `correctness-reviewer` to challenge D2; the answer is D2 and it is
-   the honest one. Do not quietly flip to `Clears: true` to make a verdict go
-   green, and do not weaken the sheet.
-4. `git rm --cached .coding-owl/HANDOFF.md`, as its own commit.
-5. Push, `gh pr create --base main` with `Closes #133`, the decisions above
-   under "Decisions made on my own" (D1, D2, D12 and the handoff commit pair
-   are what a reviewer will ask about), and the #131 relationship in prose.
-6. `gh pr checks --watch --fail-fast`. Fix on the branch until green.
+1. Confirm round 2's three verdicts are `PASS`.
+2. `git rm --cached .coding-owl/HANDOFF.md`, as its own commit.
+3. Push, `gh pr create --base main` with `Closes #133`, the decisions above
+   under "Decisions made on my own" (D1, D2, D11's permanent-wait caveat, D12
+   and the handoff commit pair are what a reviewer will ask about), and the
+   #131 relationship in prose.
+4. `gh pr checks --watch --fail-fast`. Fix on the branch until green.
    **Do not merge.**
 
 **Done already:** the follow-up issue for the `.gitignore`/`recordPlan`
