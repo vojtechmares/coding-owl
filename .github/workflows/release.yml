@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -67,7 +67,7 @@ jobs:
       sha256: ${{ steps.build.outputs.sha256 }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v5
         with:
@@ -127,7 +127,7 @@ jobs:
       sha256: ${{ steps.build.outputs.sha256 }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -318,10 +318,10 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check out the tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ env.TAP_REPO }}
           ref: ${{ env.TAP_BRANCH }}
