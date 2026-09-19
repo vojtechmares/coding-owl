@@ -3,9 +3,15 @@ package run
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/vojtechmares/coding-owl/internal/project"
 	"github.com/vojtechmares/coding-owl/internal/queue"
+	"github.com/vojtechmares/coding-owl/internal/store"
 )
 
 // What a failure to start means to the watcher is the difference between
@@ -113,5 +119,156 @@ func TestOneJobWaitingForASlotIsEnoughToKeepLooking(t *testing.T) {
 		if got := clearing(c.skipped); got != c.want {
 			t.Errorf("with %s, looking again soon is %v, want %v", c.what, got, c.want)
 		}
+	}
+}
+
+// blockedStore is a Service over a real database holding one Project to hang
+// Jobs off, which is all the dependency check reads: it runs before the
+// Project is read, so there is no Projects service to stand up.
+func blockedStore(t *testing.T) (*Service, *store.Store) {
+	t.Helper()
+	st, _, err := store.Open(filepath.Join(t.TempDir(), "owl.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.AddProject(context.Background(), store.Project{
+		Name: "api", Path: "/repos/api", BaseBranch: "main", Registered: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("AddProject: %v", err)
+	}
+	// A Projects service that answers for the `done` case, which is the one
+	// that falls through to it. The repository is not there, so what it
+	// answers is a refusal - which is all this needs: it is not "it waits
+	// for", so the dependency has stopped holding the Job.
+	return NewService(Options{Store: st, Projects: project.NewService(st, t.TempDir())}), st
+}
+
+// queueOne puts a Job in that state and returns it.
+func queueOne(t *testing.T, st *store.Store, ref, state string) store.Job {
+	t.Helper()
+	ctx := context.Background()
+	j, err := st.UpsertJob(ctx, store.Job{
+		Source: "test", SourceRef: ref, Project: "api", Prompt: "work",
+		State: string(queue.StatePending), TTL: 3, Created: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	if state != string(queue.StatePending) {
+		if err := st.SetJobState(ctx, j.ID, state); err != nil {
+			t.Fatalf("SetJobState: %v", err)
+		}
+		j.State = state
+	}
+	return j
+}
+
+// A Job queued behind another is passed over until that one is done, and the
+// reason names the Job and the state it is in. None of these clear themselves:
+// a Job reaches done only when somebody accepts it or merges its branch, so
+// looking again in a moment would spend an idle machine on a wait for a person
+// (ADR-0011).
+func TestAJobWaitsUntilTheJobItWasQueuedBehindIsDone(t *testing.T) {
+	ctx := context.Background()
+	s, st := blockedStore(t)
+	global, err := s.global()
+	if err != nil {
+		t.Fatalf("global: %v", err)
+	}
+
+	for _, c := range []struct {
+		state string
+		want  string
+	}{
+		{state: string(queue.StatePending), want: "it waits for job %d (pending)"},
+		{state: string(queue.StateActive), want: "it waits for job %d (active)"},
+		{state: string(queue.StateReview), want: "it waits for job %d (review)"},
+		{state: string(queue.StateBlocked), want: "it waits for job %d (blocked)"},
+		{state: string(queue.StateCancelled), want: "it waits for job %d (cancelled)"},
+		{state: string(queue.StateExhausted), want: "it waits for job %d (exhausted)"},
+		{state: string(queue.StateDone), want: ""},
+	} {
+		t.Run(c.state, func(t *testing.T) {
+			blocker := queueOne(t, st, "blocker-"+c.state, c.state)
+			waiting := store.Job{ID: blocker.ID + 1000, Project: "api", TTL: 3, BlockedBy: blocker.ID}
+
+			why, clears, err := s.holds(ctx, waiting, flight{project: map[string]int{}, account: map[string]int{}},
+				global, newLookup())
+
+			if err != nil {
+				t.Fatalf("holds: %v", err)
+			}
+			want := c.want
+			if want != "" {
+				want = fmt.Sprintf(want, blocker.ID)
+			}
+			if c.state == string(queue.StateDone) {
+				// Nothing holds it for the dependency; what stops it now is
+				// whatever comes after, which this Service cannot answer.
+				if strings.HasPrefix(why, "it waits for") {
+					t.Errorf("a job behind a done job is held by %q, want the dependency not to hold it", why)
+				}
+				return
+			}
+			if why != want {
+				t.Errorf("holds = %q, want %q", why, want)
+			}
+			if clears {
+				t.Error("the wait is reported as clearing itself; nothing but a person makes a job done")
+			}
+		})
+	}
+}
+
+// Jobs are never deleted, so this should not happen - but one Job nobody can
+// read is passed over rather than stopping the whole scan, the way a Project
+// nobody can read is.
+func TestAJobWaitingForAJobThatIsGoneIsPassedOverNotAWall(t *testing.T) {
+	s, _ := blockedStore(t)
+	global, err := s.global()
+	if err != nil {
+		t.Fatalf("global: %v", err)
+	}
+	waiting := store.Job{ID: 1, Project: "api", TTL: 3, BlockedBy: 999}
+
+	why, clears, err := s.holds(context.Background(), waiting,
+		flight{project: map[string]int{}, account: map[string]int{}}, global, newLookup())
+
+	if err != nil {
+		t.Fatalf("holds = %v, want the job passed over rather than the scan stopped", err)
+	}
+	if why != "it waits for job 999, which is gone" {
+		t.Errorf("holds = %q, want it to say the job it waits for is gone", why)
+	}
+	if clears {
+		t.Error("a job that is gone is reported as clearing itself")
+	}
+}
+
+// A queue of Jobs behind one blocker reads it once: `owl status` asks for a
+// scan and the desktop app asks every two seconds.
+func TestOneBlockingJobIsReadOncePerScan(t *testing.T) {
+	ctx := context.Background()
+	s, st := blockedStore(t)
+	blocker := queueOne(t, st, "blocker", string(queue.StatePending))
+	look := newLookup()
+
+	for range 3 {
+		if _, err := look.job(ctx, s, blocker.ID); err != nil {
+			t.Fatalf("job: %v", err)
+		}
+	}
+	// And one that is not there is remembered as not being there, rather than
+	// asked for again per Job behind it.
+	for range 3 {
+		if _, err := look.job(ctx, s, 999); err == nil {
+			t.Fatal("reading job 999 succeeded")
+		}
+	}
+
+	if len(look.blockers) != 1 || len(look.noJob) != 1 {
+		t.Errorf("the lookup remembers %d jobs and %d failures, want one of each",
+			len(look.blockers), len(look.noJob))
 	}
 }
