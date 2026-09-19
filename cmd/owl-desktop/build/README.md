@@ -8,6 +8,24 @@ The structure is:
 * darwin - macOS specific files
 * windows - Windows specific files
 
+## The app icon
+
+`appicon.png` is the master Wails generates the platform icons from: the macOS
+`iconfile.icns` that `darwin/Info.plist` names, and `windows/icon.ico`. It is
+the project's own artwork, `docs/assets/coding-owl-logo.png`, at the 1024x1024
+Wails expects. Remake it with macOS's own `sips` after the logo changes:
+
+```
+sips -s format png -Z 1024 docs/assets/coding-owl-logo.png \
+  --out cmd/owl-desktop/build/appicon.png
+```
+
+It is the whole artwork rather than a crop of it, so the app icon, the
+website's `favicon.png` and its `apple-touch-icon.png` are one mark at
+different sizes. `tests/behavior/issue128_test.go` checks that this file is
+still that artwork, and that it still has structure at the sizes a dock and a
+menu bar draw it.
+
 ## Mac
 
 The `darwin` directory holds files specific to Mac builds.
