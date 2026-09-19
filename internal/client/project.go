@@ -25,6 +25,12 @@ type ProjectConfig struct {
 	// Account names the Account every Job in the Project runs on (ADR-0023),
 	// empty for a Project that names none.
 	Account string
+	// StrayConfig is the absolute path of a file in the Project's
+	// configuration directory that looks like it was meant to be its
+	// configuration but is not the name that location reads (ADR-0014
+	// form 4), so nothing loaded it. Empty when there is none, and never set
+	// while Source names a file that was found.
+	StrayConfig string
 }
 
 // ProjectDetails is what owl project show reports.
@@ -70,6 +76,7 @@ func (c *Client) GetProject(ctx context.Context, name string) (ProjectDetails, e
 			Source:       res.Msg.GetConfig().GetSource(),
 			BranchPrefix: res.Msg.GetConfig().GetBranchPrefix(),
 			Account:      res.Msg.GetConfig().GetAccount(),
+			StrayConfig:  res.Msg.GetConfig().GetStrayConfig(),
 		},
 	}, nil
 }

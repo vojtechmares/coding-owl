@@ -14,6 +14,16 @@ All notable changes to Coding Owl are recorded here. The format follows
   to list and without a daemon running - which `owl providers list`, reporting
   only what is already there, cannot.
 
+### Fixed
+
+- `owl project show` now names a file left unused in a Project's configuration
+  directory under the config home. That directory reads `config.yaml` and no
+  other name, so a file put there as `.coding-owl.yaml` - a name only the
+  in-repo locations accept - was never discovered and the Project quietly ran
+  on the defaults, with no Account and nothing saying why. The file is
+  reported, never loaded: the discovery order and the names it accepts are
+  unchanged.
+
 ## [0.1.0] - 2026-09-17
 
 ### Added

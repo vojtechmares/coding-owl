@@ -44,7 +44,16 @@ owl project show api
 The same, plus the configuration in force: which file it was read from, the
 branch prefix Job branches are named under, and the Account its Jobs run on. A
 Project with no configuration file anywhere in the discovery order says so and
-runs on the defaults.
+runs on the defaults - and if its configuration directory under the config
+home holds some other YAML file, the same line names it, because that
+directory reads `config.yaml` and no other name:
+
+```
+config: (none) - found .coding-owl.yaml in ~/.config/coding-owl/api, but this location expects config.yaml
+```
+
+That file is reported, never loaded. Rename it to `config.yaml` to have it
+read.
 
 ## Moving, renaming and deregistering
 

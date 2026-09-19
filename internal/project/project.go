@@ -91,7 +91,14 @@ type Details struct {
 	// for an in-repo form, an absolute path for the config-home fallback, and
 	// empty when no file was found.
 	ConfigSource string
-	Config       config.Config
+	// StrayConfig is a file in the Project's configuration directory that
+	// looks like it was meant to be its configuration but is not the name
+	// that location reads (ADR-0014 form 4), so nothing loaded it. It is set
+	// only when ConfigSource is empty, since discovery that found a file
+	// never reached form 4 and nothing there could have been used. Reported,
+	// never loaded.
+	StrayConfig string
+	Config      config.Config
 	// Lock is what the Project's lockfile records, read from the same place
 	// and the same branch as the configuration (ADR-0033).
 	Lock skill.Lock
@@ -174,7 +181,70 @@ func (s *Service) Show(ctx context.Context, name string) (Details, error) {
 	if err != nil {
 		return Details{}, err
 	}
-	return Details{Project: Project(p), ConfigSource: source, Config: cfg, Lock: lock}, nil
+	d := Details{Project: Project(p), ConfigSource: source, Config: cfg, Lock: lock}
+	if source == "" {
+		d.StrayConfig = s.strayConfig(p.Name)
+	}
+	return d, nil
+}
+
+// strayConfigNames are the names a person most likely typed when they meant
+// `config.yaml`: the two the in-repo forms accept, and the right name with
+// the other YAML extension. Any other `*.yaml`/`*.yml` file is a near miss
+// too, but these are named first when several are there.
+var strayConfigNames = []string{".coding-owl.yaml", "coding-owl.yaml", "config.yml"}
+
+// strayConfig is a file in the Project's configuration directory that looks
+// like it was meant to be its configuration but is not the name that location
+// reads (ADR-0014 form 4). It exists so that `owl project show` can say why a
+// file that is plainly there was not used, which is ADR-0014's own answer to
+// four discovery locations being a support question.
+//
+// The file is never opened: only the directory is listed, and only the name
+// is reported. Any error listing it - no such directory, no permission -
+// reports nothing, because a diagnostic that turns a working
+// `owl project show` into a failure is worse than the problem it reports.
+// Owl's own lockfile lives in this directory and is never a near miss.
+func (s *Service) strayConfig(name string) string {
+	dir := s.configDir(name)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	best := ""
+	bestRank := len(strayConfigNames)
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || n == configFileName || n == skill.LockName || !isYAML(n) {
+			continue
+		}
+		rank := len(strayConfigNames)
+		for i, candidate := range strayConfigNames {
+			if n == candidate {
+				rank = i
+				break
+			}
+		}
+		// Within a rank the names sort, so that a directory holding several
+		// near misses always names the same one.
+		if best == "" || rank < bestRank || (rank == bestRank && n < best) {
+			best, bestRank = n, rank
+		}
+	}
+	if best == "" {
+		return ""
+	}
+	return filepath.Join(dir, best)
+}
+
+// isYAML is whether a file name is one a person could have meant as YAML
+// configuration, whatever case they wrote the extension in.
+func isYAML(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".yaml", ".yml":
+		return true
+	}
+	return false
 }
 
 // lock reads the Project's lockfile from beside the configuration that was
