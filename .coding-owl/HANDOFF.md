@@ -4,282 +4,156 @@
 config-home fallback directory. `vojtechmares/coding-owl#134`, labels `bug`,
 `ready-for-agent`.
 
-Branch: `owl/job-25`, which is exactly `origin/main` (`b2bfd3e`) right now, so
-nothing needs rebasing before the first commit.
+Branch: `owl/job-25`, cut from `origin/main` (`b2bfd3e`).
 
 ## State right now
 
-Planned only. No production code, no tests, no spec sheet yet. This file is the
-whole of what the planning Run produced; everything under "Steps left" is still
-to do.
+**Implemented, `make lint` green, `make test` green except three unrelated
+tests.** Left to do: the three verification agents, then push and open the PR.
+See "Steps left".
 
-Blocker check done first, as the Job prompt asks, and the issue is **not
-blocked**: state `OPEN`, labels `bug` + `ready-for-agent`, no `blocked_by`
-dependencies, no open sub-issues, no open cross-referenced pull request, and
-nothing in the body or the two comments names another issue that must land
-first. Both comments are the reporter's own: the first raised the priority, the
-second confirmed the root cause (wrong filename) and **rescoped the issue to
-detection and reporting only**. The rescoped body is the specification - the
-earlier "the account is not picked up at all" framing is dead.
+Blocker check re-run at the start of this Run: state `OPEN`, labels `bug` +
+`ready-for-agent`, no `blocked_by`, no open sub-issues, no open
+cross-referenced pull request, nothing in the body or the two comments naming
+another issue that must land first. **Not blocked.**
 
-## What the issue asks for
-
-When the per-Project config-home directory (`<config home>/coding-owl/<name>/`,
-ADR-0014 form 4) holds a file that looks like it was meant to be the Project's
-configuration but is not named `config.yaml`, `owl project show <name>` says so
-on its existing `config:` line, e.g.
+## Commits on this branch
 
 ```
-config: (none) - found .coding-owl.yaml in /Users/x/.config/coding-owl/api, but this location expects config.yaml
+14068c5 docs(project): say that an unused config file is reported
+0222271 feat(cli): name the unused near-miss config on owl project show
+02d0de5 feat(project): detect a near-miss config in the config-home directory
+1a5c50a feat(proto): carry a near-miss config path on ProjectConfig
+fe8a88c test(project): spec the near-miss config report for #134
+849778c docs(handoff): plan the near-miss config report for #134
 ```
 
-Report **only**. Nothing is loaded, renamed or moved, and the discovery order
-and file names of ADR-0014 are untouched. Trigger only when discovery fell all
-the way through to `config.Default()` and that directory holds at least one
-other `*.yaml`/`*.yml` file. The in-repo forms (1-3) are explicitly out of
-scope.
+## What was built
 
-## What the code does today
+The `config:` line of `owl project show` now names a `*.yaml`/`*.yml` file left
+unused in `<config home>/coding-owl/<name>/` when discovery fell all the way
+through to `config.Default()`:
 
-- `internal/project/project.go`
-  - `discover()` (line 243) walks `inRepoCandidates` off the base branch, then
-    reads `s.configPath(name)` = `<configDir>/config.yaml`, then returns
-    `("", config.Default(), nil)`. An empty source with no error happens on
-    that last line and nowhere else, which is the exact "fell through" signal
-    the issue asks to key off.
-  - `configDir(name)` (line 291) and `configPath(name)` (line 294) are the
-    directory and the expected file. `configFileName` is the const at line 23.
-  - `Details` (line 88) carries `ConfigSource`, empty when nothing was found.
-- `internal/daemon/project.go:53` copies `ConfigSource` into
-  `codingowlv1.ProjectConfig{Source: ...}`.
-- `internal/client/project.go:22` maps that proto message to
-  `client.ProjectConfig`.
-- `internal/cli/project.go:118` prints `(none)` (`noConfigFound`, line 17) when
-  `Source` is empty.
-
-The one non-obvious neighbour: `skill.LockName` is `.coding-owl.lock.yaml`
-(`internal/skill/skill.go:35`) and **Owl itself writes it into that same
-directory** (`Service.lockPath`, `FilesFor`). It is a `*.yaml` file that is not
-a near miss, so it must be excluded or every Project with a fallback lockfile
-and no config would get a false report.
-
-## Design decided
-
-### Detection, in `internal/project`
-
-A new unexported method rather than a fourth return value from `discover()`,
-because `discover()` is called from exactly one place (`Show`, line 169) and
-its signature is already at three:
-
-```go
-// strayConfig is a file in the Project's configuration directory that looks
-// like it was meant to be its configuration but is not the name this location
-// reads (ADR-0014 form 4). It is reported, never loaded, and the file is
-// never opened - only the directory is listed.
-func (s *Service) strayConfig(name string) string
+```
+config: (none) - found .coding-owl.yaml in /.../c/coding-owl/api, but this location expects config.yaml
 ```
 
-- Lists `s.configDir(name)` with `os.ReadDir`. **Any error means no report**,
-  including a missing directory and a permission error: a diagnostic that can
-  turn a working `owl project show` into a failure is worse than the problem it
-  reports.
-- Skips directories, skips `configFileName` and `skill.LockName`, keeps names
-  whose lowercased extension is `.yaml` or `.yml`.
-- With several candidates, returns the first of `.coding-owl.yaml`,
-  `coding-owl.yaml`, `config.yml` that is present, else the lexically first.
-  Deterministic output matters more than the exact order, and those three are
-  what a person who got the name wrong most likely typed.
-- Returns an absolute path (`filepath.Join(s.configDir(name), n)`) or `""`.
+That is the real output, taken from the built binary through a real daemon.
+Report only: nothing is loaded, renamed or moved, and ADR-0014's discovery
+order and file names are untouched.
 
-`Details` gets `StrayConfig string`, and `Show` sets it **only when
-`ConfigSource == ""`**, which is the issue's trigger condition read literally.
+- `proto/codingowl/v1/project.proto` - `ProjectConfig.stray_config = 4`, an
+  absolute path. Additive, so `buf breaking` stays green. `gen/` regenerated
+  and committed with it.
+- `internal/project/project.go` - `Details.StrayConfig`, set by `Show` **only
+  when `ConfigSource == ""`**; `strayConfig(name)` lists the directory (never
+  opens a file), skipping directories, `config.yaml`, `skill.LockName` and
+  anything whose extension is not `.yaml`/`.yml` (case-insensitive, via the new
+  `isYAML`). `strayConfigNames` ranks `.coding-owl.yaml`, `coding-owl.yaml`,
+  `config.yml` ahead of everything else; within a rank the names sort. Any
+  `os.ReadDir` error returns `""`.
+- `internal/daemon/project.go`, `internal/client/project.go` - plumbing.
+- `internal/cli/project.go` - `configLine(source, stray string) string`, plus
+  the local const `configHomeFileName`. `terminalSafe` wraps the file base and
+  its directory, which come from the user's filesystem. The `show` `Long` help
+  gained a sentence.
+- `docs/guide/projects-and-accounts.md`, `CHANGELOG.md` (Unreleased / Fixed).
 
-### Across the daemon boundary
+## Tests
 
-`ProjectConfig` in `proto/codingowl/v1/project.proto` gets
+- `tests/behavior/issue-134.md` + `tests/behavior/issue134_test.go`, S1-S8, all
+  passing. S1/S3/S7/S8 were red before the implementation; **S2, S4, S5 and S6
+  were green from the first commit on purpose** - they guard behaviour that
+  must survive the change (not loaded, a found config silences the report, an
+  in-repo config silences it, non-near-misses are not reported). The sheet says
+  so; this is not a weakened sheet.
+- `internal/project/project_test.go` - `TestShowReports*` (six tests, one
+  table-driven over the preference order). The unreadable-directory case uses
+  mode `0o111`, not `0o000`: with `0o000` `discover()` itself fails on
+  `ReadFile` of `config.yaml` before the report is ever reached, so `0o111`
+  (search but not list) is the only way to reach the error branch.
+- `internal/cli/project_internal_test.go` - `configLine`'s four branches and
+  the escaped-filename one.
 
-```proto
-  // StrayConfig is the absolute path of a file in the Project's configuration
-  // directory that looks like it was meant to be its configuration but is not
-  // named config.yaml, so nothing read it (ADR-0014 form 4). Empty when there
-  // is none; reported only, never loaded.
-  string stray_config = 4;
-```
+## Verification runs
 
-Adding a field is not a breaking change, so `buf breaking` in CI stays green.
-One absolute path is carried rather than a formatted sentence, so that the
-wording stays in the CLI where the rest of the wording is, and so that the
-daemon does not have to guess how the caller's terminal wants it. The CLI
-cannot do the directory listing itself: it is not guaranteed to have the
-daemon's `XDG_CONFIG_HOME`.
-
-Then `internal/daemon/project.go` sets it from `d.StrayConfig`, and
-`internal/client/project.go` adds `StrayConfig` to `ProjectConfig` and reads
-`GetStrayConfig()`.
-
-### The printed line
-
-A small pure helper in `internal/cli/project.go`, so the wording is testable
-without a daemon:
-
-```go
-func configLine(source, stray string) string
-```
-
-- `source != ""` - the source, exactly as today.
-- `source == ""`, no stray - `noConfigFound`, exactly as today.
-- `source == ""`, stray - `(none) - found <file> in <dir>, but this location
-  expects config.yaml`.
-
-`<file>` and `<dir>` go through `terminalSafe` (`internal/cli/safe.go`): the
-name comes from whatever happens to be in that directory, and `internal/cli/
-run.go` already puts every filesystem-derived string through it. The expected
-name is a local const in `internal/cli` with a comment pointing at ADR-0014;
-`internal/cli` does not import `internal/project` today and should not start
-for one string.
+- `make lint` - green (`go vet`, `gofmt -l`, `buf lint`).
+- `make test` - green **except** `TestS1CaskTheDesktopBuildProducesASignedApp
+  InAZip`, `TestS2CaskTheAppIsAdHocSignedAndAcceptedAsSuch` and
+  `TestS3CaskTheAppReportsTheVersionItWasBuiltFor` in
+  `tests/behavior/issue22_test.go`, which need the `wails` CLI. It is not
+  installed on this machine; `.github/workflows/ci.yml:90` installs it, so they
+  pass in CI. Nothing in this diff touches the desktop build.
 
 ## Decisions made on my own (repeat these in the PR body)
 
-1. **An in-repo configuration silences the report.** The issue says "trigger
-   only when the expected `config.yaml` is absent (`discover()` has fallen
-   through to the default)", and discovery never reaches form 4 when a form 1-3
-   file exists. Taken literally: a Project configured in its repository says
-   nothing about a leftover file in its config-home directory. The alternative
-   - always scanning - reports a file that could not have been used anyway and
-   was not asked for.
-2. **One file is named even when several are there**, by the preference order
-   above. Listing all of them makes the line unreadable and the failure it
-   describes is almost always one file.
-3. **`.coding-owl.lock.yaml` is never a near miss.** Owl writes it there
-   itself; reporting it would fire on Projects that are working as designed.
-4. **Errors listing the directory report nothing rather than failing.** See
-   above.
-5. **`terminalSafe` is applied to the new parts of the line only.** Wrapping
-   the existing `source`, name and path output too would be a behaviour change
-   outside this issue; worth its own issue, not this diff.
-6. **One doc sentence.** The existing paragraph about `owl project show` in
-   `docs/guide/projects-and-accounts.md` (line 44) gets the near-miss case
-   added to it. ADR-0014's own consequence is that "a config that is not being
-   picked up is a support question", so the page that answers it should say
-   this exists. Nothing new is created; the sentence is extended.
+1. **An in-repo configuration silences the report.** The issue's trigger is
+   "the expected `config.yaml` is absent and `discover()` has fallen through to
+   the default". Discovery never reaches form 4 when a form 1-3 file exists, so
+   a Project configured in its repository says nothing about a leftover in its
+   config-home directory - that file could not have been used either way.
+2. **One file is named even when several are there**, ranked
+   `.coding-owl.yaml`, `coding-owl.yaml`, `config.yml`, then lexically. Listing
+   all of them makes the line unreadable, and the failure is almost always one
+   file. Deterministic output matters more than the exact order.
+3. **`.coding-owl.lock.yaml` is never a near miss.** Owl writes it into that
+   very directory itself (`Service.lockPath`), so reporting it would fire on
+   every Project working as designed.
+4. **An error listing the directory reports nothing rather than failing.** A
+   diagnostic that can turn a working `owl project show` into a failure is
+   worse than the problem it reports.
+5. **A new proto field rather than a CLI-side scan or an overloaded `source`.**
+   The CLI is not guaranteed to run with the daemon's `XDG_CONFIG_HOME`, so it
+   would scan the wrong directory whenever they differ; and ADR-0014 requires
+   `source` to say which file was loaded, so it must not sometimes hold prose.
+   An absolute path crosses, not a sentence, so the wording stays in the CLI.
+6. **`terminalSafe` on the new parts of the line only.** Wrapping the existing
+   `source`, `name` and `path` output too would be a behaviour change outside
+   this issue - worth its own issue, not this diff.
+7. **The extension match is case-insensitive** (`Owl.YAML` counts). macOS is
+   case-insensitive by default, so a file a user sees as YAML should be
+   reported whatever case they typed.
+8. **A CHANGELOG entry under Unreleased / Fixed**, matching how the last
+   feature on this branch's base was recorded.
 
 ## Ruled out
 
-- **Loading the file anyway**, or renaming it to `config.yaml`. The issue
-  forbids both in as many words.
-- **Adding the near-miss name to the discovery order.** That is ADR-0014's
-  decision to change, not this issue's.
-- **Doing the scan CLI-side to avoid a proto field.** The CLI's environment is
-  not the daemon's, so it would report about the wrong directory whenever they
-  differ.
-- **Overloading the existing `source` field with the message.** ADR-0014
-  requires `owl project show` to print which file was loaded; a `source` that
-  sometimes holds prose stops answering that.
-- **A fourth return value on `discover()`.** Noise on a function that four
-  other things already read.
-
-## Behavior spec sheet to write
-
-`tests/behavior/issue-134.md`, with `TestS<k>...` in
-`tests/behavior/issue134_test.go`. The harness is in place already:
-`newLayout`, `daemonUp`, `newRepo`, `addProject`, `runOwl`, and
-`line(t, out, "config")` for reading one line of the output. There is no helper
-that writes an arbitrary file into the config-home directory - `projectConfig`
-(`tests/behavior/issue14_test.go:557`) writes `config.yaml` only - so add a
-small one in `issue134_test.go` itself and keep it there (a helper with no
-caller was deleted from this repo two commits ago, `fd16e55`).
-
-- **S1 - the near-miss file is named.** Given a registered Project with no
-  configuration anywhere and `.coding-owl.yaml` in its config-home directory,
-  when `owl project show` runs, then it exits 0 and the `config` line names
-  `.coding-owl.yaml`, the directory it is in, and `config.yaml` as what that
-  location expects.
-- **S2 - reported, not loaded.** Given that file sets `branchPrefix: stray/`
-  and an account, then `branch prefix` is still `owl/`, `account` is still
-  `(none)`, the file is still on disk with its content unchanged, and no
-  `config.yaml` appeared beside it.
-- **S3 - `.yml` counts.** Given `coding-owl.yml` instead, the `config` line
-  names it.
-- **S4 - a configuration that was found says nothing.** Given both
-  `config.yaml` and `.coding-owl.yaml` in that directory, the `config` line is
-  the path of `config.yaml` and carries no near-miss wording.
-- **S5 - an in-repo configuration says nothing.** Given `.coding-owl.yaml`
-  committed on the base branch and a stray file in the config-home directory,
-  the `config` line is `main:.coding-owl.yaml` and carries no near-miss
-  wording. (Decision 1.)
-- **S6 - files that are not near misses.** Given only `.coding-owl.lock.yaml`
-  and `notes.txt` in that directory, the `config` line is exactly `(none)`.
-- **S7 - one file is named when several are there.** Given `.coding-owl.yaml`,
-  `owl.yaml` and `settings.yml`, the `config` line names `.coding-owl.yaml`.
-  (Decision 2.)
-- **S8 - a hostile filename is printed harmlessly.** Given a near-miss file
-  whose name contains an escape sequence, the output contains no raw `0x1b`
-  byte and shows `\x1b` instead.
-
-Unit tests beside them, in `internal/project/project_test.go` (fixture
-`newFixture`, `f.configHome`, `writeFile` all exist): stray reported with
-defaults still in force; lockfile and non-YAML ignored; nothing reported when
-`config.yaml` is present; nothing reported when an in-repo form won; the
-preference order; a missing directory reports nothing. And
-`internal/cli/project_internal_test.go` for `configLine`'s three branches plus
-the `terminalSafe` one - the `*_internal_test.go` suffix is this package's
-convention for tests that reach inside it.
+- Loading the near-miss file, or renaming it. The issue forbids both.
+- Adding the name to the discovery order - that is ADR-0014's decision, not
+  this issue's.
+- Touching the in-repo forms, explicitly out of scope.
+- A fourth return value on `discover()`; its signature is already at three and
+  four callers read it.
 
 ## Steps left
 
-1. Read the issue again (`gh issue view 134 --repo vojtechmares/coding-owl
-   --comments`) and this file. Re-run the blocker checks from the Job prompt -
-   labels can change between Runs.
-2. Write `tests/behavior/issue-134.md` and the eight failing tests. Run them,
-   see them red, commit both together:
-   `test(project): spec the near-miss config report for #134`.
-3. Implement, smallest slice first (`tdd` skill):
-   a. `proto/codingowl/v1/project.proto` + `make generate` (`buf` is at
-      `/opt/homebrew/bin/buf`; `buf.gen.yaml` uses **remote** plugins from the
-      BSR, so this step needs network). Commit `gen/` with it - CI runs
-      `buf generate && git diff --exit-code -- gen`.
-   b. `internal/project`: `strayConfig`, `Details.StrayConfig`, `Show` setting
-      it, plus the unit tests.
-   c. `internal/daemon/project.go` and `internal/client/project.go` plumbing.
-   d. `internal/cli/project.go`: `configLine` + its internal test.
-4. `make lint && make test`. Both are what CI runs (`.github/workflows/ci.yml`
-   also checks `go mod tidy -diff`, `buf lint`, `buf breaking` and actionlint).
-5. Extend the `owl project show` paragraph in
-   `docs/guide/projects-and-accounts.md` (decision 6).
-6. Self-review against the issue and `git diff main...HEAD`.
-7. The three verification agents in parallel, fresh verdict directory outside
-   the repo, `.agents/skills/bdd/scripts/wait-verdicts.sh` to wait in one turn.
-   Fix findings and re-run until all three are `PASS` for the commit they saw.
-8. `git push -u origin HEAD` and `gh pr create --repo vojtechmares/coding-owl
-   --base main`, body starting `Closes #134`, with the decisions above. Do not
-   merge.
+1. Run the three verification agents in `.agents/agents/` in parallel against
+   the current commit, verdicts in a fresh directory **outside** the repo, and
+   wait with `.agents/skills/bdd/scripts/wait-verdicts.sh`. Fix findings and
+   re-run until all three `PASS` for the commit they saw.
+2. `git push -u origin HEAD`, then `gh pr create --repo vojtechmares/coding-owl
+   --base main`, body starting `Closes #134`, with the decisions above. **Do
+   not merge.**
 
-## Gotchas found while planning
+## Gotchas found on the way
 
-- **This file is gitignored, and it is committed anyway, deliberately.**
-  `b2bfd3e` (yesterday) added `.coding-owl/HANDOFF.md` to `.gitignore` and
-  removed it from the index, because tracking it made every open pull request
-  conflict. But Owl's own `recordPlan` (`internal/run/run.go:699-708`) reads
-  this exact path out of the worktree and commits it with
-  `git.CommitPath` -> `git add -- <path>`, which **fails on an ignored,
-  untracked path**. A planning Run for this repository therefore cannot succeed
-  while the file is both ignored and untracked, so this Run force-added it
-  (`git add -f`). Once the path is tracked, gitignore no longer applies to it
-  and `recordPlan`'s plain `git add` succeeds, stages nothing, and returns
-  cleanly. Do not "tidy" this by deleting the file or by reverting the
-  `.gitignore` entry - the first breaks the next Run, the second is the repo
-  owner's call. The underlying product bug - Owl cannot plan a Job in a
-  repository that ignores its handoff path, and `CommitPath` could force-add
-  the path Owl owns - is filed as **#169** and is not part of this diff.
-- **Bash permissions in the planning session were narrow.** `which buf`, `gh`,
-  `git`, `grep`, `ls`, `sed` were allowed; `buf --version`, `command -v buf`,
-  two `cd`s in one command and any write under `/tmp` were auto-denied with no
-  way to approve. If `make generate` is denied or the BSR is unreachable, say
-  so plainly and stop - `gen/*.pb.go` embeds a raw file descriptor and must not
-  be hand-edited.
-- The Job's branch is `owl/job-25`, not the `fix/issue-134-...` that
-  `AGENTS.md` describes for a person working by hand. Owl made this branch and
-  the Job prompt says to push it, so stay on it.
-- `make test` runs the whole suite including `tests/behavior`, which builds the
-  `owl` binary and starts real daemons. It is slow; run it once per slice, not
-  per edit.
+- **This file is gitignored and committed anyway, deliberately.** `b2bfd3e`
+  added `.coding-owl/HANDOFF.md` to `.gitignore`, but Owl's `recordPlan`
+  (`internal/run/run.go:699-708`) commits this exact path with `git add --`,
+  which fails on an ignored untracked path. The planning Run force-added it;
+  once tracked, gitignore no longer applies. Do not delete the file and do not
+  revert the `.gitignore` entry. Filed as **#169**, not part of this diff.
+- **Bash permissions in this session are narrow and cannot be widened** -
+  nobody is available to approve anything. Denied here: `buf ...` directly
+  (but `make generate` runs it fine and is reproducible), `gofmt -l <path>`
+  directly (but `make lint` runs it), `bash <script>`, `cat` heredocs into
+  `/tmp`, and `rm` of a file under `.coding-owl/`. `git clean -f -- <path>`
+  worked for removing a throwaway. Prefer `make` targets and the Read/Write
+  tools over ad-hoc shell.
+- **Do not hand-edit `gen/*.pb.go`** - it embeds a raw file descriptor. Run
+  `make generate`.
+- `make test` takes about five minutes and starts real daemons; run it once per
+  slice, not per edit.
+- The Job's branch is `owl/job-25`, not the `fix/issue-134-...` `AGENTS.md`
+  describes for a person. Owl made it and the Job prompt says to push it, so
+  stay on it.
