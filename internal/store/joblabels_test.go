@@ -29,6 +29,17 @@ func mustUpsert(t *testing.T, s *store.Store, j store.Job) store.Job {
 	return out
 }
 
+// labelsOf is the labels a Job carries, read back the way every caller reads
+// them: off the Job.
+func labelsOf(t *testing.T, s *store.Store, id int64) []string {
+	t.Helper()
+	j, err := s.GetJob(context.Background(), id)
+	if err != nil {
+		t.Fatalf("GetJob %d: %v", id, err)
+	}
+	return j.Labels
+}
+
 // promptsOf renders the prompts of some Jobs, which is how a filtered listing
 // says which ones it matched.
 func promptsOf(jobs []store.Job) []string {
@@ -68,11 +79,7 @@ func TestAddJobLabelsKeepsALabelOnce(t *testing.T) {
 		t.Fatalf("AddJobLabels: %v", err)
 	}
 
-	labels, err := s.JobLabels(ctx, j.ID)
-	if err != nil {
-		t.Fatalf("JobLabels: %v", err)
-	}
-	if !slices.Equal(labels, []string{"bug", "urgent"}) {
+	if labels := labelsOf(t, s, j.ID); !slices.Equal(labels, []string{"bug", "urgent"}) {
 		t.Errorf("labels = %v, want [bug urgent]", labels)
 	}
 }
@@ -82,21 +89,35 @@ func TestRemoveJobLabelsReportsWhatItRemoved(t *testing.T) {
 	s := jobStore(t)
 	j := mustUpsert(t, s, labelled("first", "a", "bug", "urgent"))
 
-	removed, err := s.RemoveJobLabels(ctx, j.ID, []string{"urgent", "never-there"})
+	missing, err := s.RemoveJobLabels(ctx, j.ID, []string{"urgent", "never-there"})
 	if err != nil {
 		t.Fatalf("RemoveJobLabels: %v", err)
 	}
 
-	// One row, not two: the count is what lets a caller tell a label that was
-	// there from one that was not.
-	if removed != 1 {
-		t.Errorf("RemoveJobLabels removed %d, want 1", removed)
+	if !slices.Equal(missing, []string{"never-there"}) {
+		t.Errorf("RemoveJobLabels reported %v missing, want [never-there]", missing)
 	}
-	labels, err := s.JobLabels(ctx, j.ID)
+	// Nothing at all was removed, urgent included: a caller that refuses the
+	// request must not find the labels that were there already gone.
+	if labels := labelsOf(t, s, j.ID); !slices.Equal(labels, []string{"bug", "urgent"}) {
+		t.Errorf("labels = %v, want [bug urgent] left exactly as they were", labels)
+	}
+}
+
+func TestRemoveJobLabelsTakesThemOffWhenTheJobCarriesThemAll(t *testing.T) {
+	ctx := context.Background()
+	s := jobStore(t)
+	j := mustUpsert(t, s, labelled("first", "a", "bug", "urgent"))
+
+	missing, err := s.RemoveJobLabels(ctx, j.ID, []string{"urgent"})
 	if err != nil {
-		t.Fatalf("JobLabels: %v", err)
+		t.Fatalf("RemoveJobLabels: %v", err)
 	}
-	if !slices.Equal(labels, []string{"bug"}) {
+
+	if len(missing) != 0 {
+		t.Errorf("RemoveJobLabels reported %v missing, want none", missing)
+	}
+	if labels := labelsOf(t, s, j.ID); !slices.Equal(labels, []string{"bug"}) {
 		t.Errorf("labels = %v, want [bug]", labels)
 	}
 }
@@ -177,23 +198,22 @@ func TestListAllJobsNarrowsByLabelWhateverTheState(t *testing.T) {
 	}
 }
 
-func TestDeletingAJobTakesItsLabelsWithIt(t *testing.T) {
+func TestReProducingAJobThatHasLeftTheQueueAddsNoLabels(t *testing.T) {
 	ctx := context.Background()
 	s := jobStore(t)
 	j := mustUpsert(t, s, labelled("first", "a", "bug"))
-
-	// A Project going away takes its Jobs with it, and a Job going away must
-	// take its labels: a row left behind would be handed to whichever Job is
-	// next given that id.
-	if _, err := s.RemoveProject(ctx, "api"); err != nil {
-		t.Fatalf("RemoveProject: %v", err)
+	if err := s.DequeueJob(ctx, j.ID, "pending", "cancelled", ""); err != nil {
+		t.Fatalf("DequeueJob: %v", err)
 	}
 
-	labels, err := s.JobLabels(ctx, j.ID)
-	if err != nil {
-		t.Fatalf("JobLabels: %v", err)
+	// The same rule the prompt follows: a Job that has left the queue is left
+	// exactly as it is, however often its Source produces it again.
+	again := mustUpsert(t, s, labelled("first", "a", "urgent"))
+
+	if !slices.Equal(again.Labels, []string{"bug"}) {
+		t.Errorf("labels = %v, want [bug] untouched", again.Labels)
 	}
-	if len(labels) != 0 {
-		t.Errorf("labels = %v after the job was deleted, want none", labels)
+	if labels := labelsOf(t, s, j.ID); !slices.Equal(labels, []string{"bug"}) {
+		t.Errorf("labels = %v, want [bug] untouched", labels)
 	}
 }

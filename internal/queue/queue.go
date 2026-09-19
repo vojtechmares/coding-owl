@@ -273,21 +273,15 @@ func (s *Service) RemoveLabels(ctx context.Context, id int64, labels []string) (
 	if err != nil {
 		return Job{}, err
 	}
-	carried, err := s.store.JobLabels(ctx, id)
+	// The store looks and removes in one transaction, and removes nothing at
+	// all when a label is missing: a refusal leaves the Job exactly as the
+	// user last left it, rather than short the labels it did carry.
+	missing, err := s.store.RemoveJobLabels(ctx, id, clean)
 	if err != nil {
 		return Job{}, err
 	}
-	var missing []string
-	for _, l := range clean {
-		if !slices.Contains(carried, l) {
-			missing = append(missing, l)
-		}
-	}
 	if len(missing) > 0 {
 		return Job{}, invalid("job %d does not carry the label %s", id, strings.Join(quoteAll(missing), ", "))
-	}
-	if _, err := s.store.RemoveJobLabels(ctx, id, clean); err != nil {
-		return Job{}, err
 	}
 	return s.get(ctx, id)
 }

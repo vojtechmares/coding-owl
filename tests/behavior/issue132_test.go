@@ -22,6 +22,11 @@ const (
 	noLabelsCell = "-"
 )
 
+// noPositionCell is what the POSITION column holds for a Job that has left
+// the queue. It is the same dash as noLabelsCell and means something else, so
+// each has a name of its own.
+const noPositionCell = "-"
+
 // addLabelled queues a Job in r with those labels and returns its id. The
 // labels go on one --label each, which is the form the sheet fixes.
 func addLabelled(t *testing.T, l *layout, dir, prompt string, labels ...string) string {
@@ -277,8 +282,8 @@ func TestS12TheFilterAppliesToAllAsWell(t *testing.T) {
 	wantFiltered(t, l, []string{"--all", "--label", "bug"}, "kept", "cancelled")
 
 	for _, row := range queueList(t, l, "--all", "--label", "bug") {
-		if row.prompt == "cancelled" && row.position != noLabelsCell {
-			t.Errorf("the cancelled job has position %q, want %q", row.position, noLabelsCell)
+		if row.prompt == "cancelled" && row.position != noPositionCell {
+			t.Errorf("the cancelled job has position %q, want %q", row.position, noPositionCell)
 		}
 	}
 	wantFiltered(t, l, []string{"--label", "bug"}, "kept")
