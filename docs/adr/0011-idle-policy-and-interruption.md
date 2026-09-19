@@ -1,6 +1,7 @@
 # ADR-0011: Idle policy and interruption semantics
 
 - **Status:** Accepted
+- **Amended:** 2026-09-19, by ADR-0038: the manual override is now a Shift.
 - **Date:** 2026-09-09
 
 ## Context
@@ -30,6 +31,10 @@ on the Job's branch, and a handoff document kept current as the work proceeds
 
 **Manual override exists in both directions.** `owl start` begins work
 regardless of idle state; `owl pause` stops it regardless.
+
+> **Amended 2026-09-19.** `owl start` begins one Run, not work in general.
+> Working while the machine is in use is a Shift (ADR-0038), which also decides
+> which Runs freeze on return and what `owl pause` holds.
 
 **Concurrency was one Run at a time** in the MVP. Superseded by ADR-0021,
 which caps it globally, per Project and per Account.

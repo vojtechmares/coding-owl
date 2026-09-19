@@ -18,6 +18,13 @@ A standing intent to do one piece of work in one Project: the prompt, its
 configuration, and its lifecycle.
 _Avoid_: task, ticket, item, request
 
+**Focus**:
+A Project marked to go first on its Account; each Account has at most one. Its
+runnable Jobs are scheduled ahead of other Projects' Jobs, and the rest of the
+queue runs whenever it has nothing runnable. Standing until cleared, not
+bounded by time.
+_Avoid_: priority, fast lane, pin, filter
+
 **Run**:
 One attempt to carry out a Job. A Job may take several, because a Run can end
 before its Job is finished. Each Run holds a Session of its own, and what
@@ -40,9 +47,23 @@ next, since no conversation survives between them.
 _Avoid_: notes, state, scratchpad, summary
 
 **Idle**:
-The state in which Coding Owl is allowed to work: by default no keyboard or
-mouse input for ten minutes, and the machine on AC power. Configurable.
+One of the two states in which Coding Owl is allowed to work, the other being a
+Shift: by default no keyboard or mouse input for ten minutes, and the machine
+on AC power. Configurable.
 _Avoid_: away, inactive, asleep, free
+
+**Shift**:
+A bounded period during which Owl starts Runs on one Account whether or not the
+machine is Idle; Runs it started are let finish after it ends. It ends when its time runs out, or, if asked to, when the
+Account's queue is empty; otherwise an empty queue leaves it on and waiting for
+work.
+_Avoid_: override, sprint, session, burst
+
+**Shift schedule**:
+A standing definition that Shifts are started from: which Account, for how
+long, and when. A Shift schedule is created and deleted; a Shift is started and
+ended. Not yet built.
+_Avoid_: shift (for the definition), rota, preset
 
 **Verification**:
 The check Owl runs after an Agent exits, deciding whether a Run's work is
