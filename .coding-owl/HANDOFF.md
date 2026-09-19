@@ -8,10 +8,17 @@ Branch: `owl/job-25`, cut from `origin/main` (`b2bfd3e`).
 
 ## State right now
 
-**Done bar the pull request.** Implemented, `make lint` green, `make test`
-green except three unrelated tests, and all three verification agents `PASS`
-over two rounds. Left to do: push the branch and open the PR. See "Steps
-left".
+**Done.** Implemented, all three verification agents `PASS` over two rounds,
+branch pushed, **PR #170 open against `main` with CI green** - including the
+`desktop` job, which confirms the three cask tests that fail locally fail only
+for the missing `wails` CLI.
+
+https://github.com/vojtechmares/coding-owl/pull/170
+
+Nothing is left to do but wait for the repo owner to accept or drop it. **Do
+not merge it** - that is a person's call, and this is not the queue worker.
+If a later Run picks this Job up again, check the PR first: it may have been
+reviewed, changed or closed since.
 
 Blocker check re-run at the start of this Run: state `OPEN`, labels `bug` +
 `ready-for-agent`, no `blocked_by`, no open sub-issues, no open
@@ -185,13 +192,9 @@ verifier accepted it as the manual exercise. One scratch binary is left at
 
 ## Steps left
 
-1. `git push -u origin HEAD`, then `gh pr create --repo vojtechmares/coding-owl
-   --base main`, body starting `Closes #134`, with the decisions above. **Do
-   not merge.**
-2. Wait for CI with `gh pr checks --watch --fail-fast`. If the three
-   `issue22_test.go` cask tests fail there too, that is a real failure rather
-   than this machine's missing `wails`; anything else in `tests/behavior` or
-   `internal/cli` is this diff's.
+None. PR #170 is open, its body starts `Closes #134`, and CI passed
+(`Build`, `test`, `desktop`; `Deploy` skipped). The repo owner decides
+whether it merges.
 
 ## Gotchas found on the way
 
