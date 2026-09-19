@@ -144,12 +144,12 @@ func blockedStore(t *testing.T) (*Service, *store.Store) {
 	return NewService(Options{Store: st, Projects: project.NewService(st, t.TempDir())}), st
 }
 
-// queueOne puts a Job in that state and returns it.
-func queueOne(t *testing.T, st *store.Store, ref, state string) store.Job {
+// queueOne puts a Job carrying that prompt in that state and returns it.
+func queueOne(t *testing.T, st *store.Store, ref, state, prompt string) store.Job {
 	t.Helper()
 	ctx := context.Background()
 	j, err := st.UpsertJob(ctx, store.Job{
-		Source: "test", SourceRef: ref, Project: "api", Prompt: "work",
+		Source: "test", SourceRef: ref, Project: "api", Prompt: prompt,
 		State: string(queue.StatePending), TTL: 3, Created: time.Now().UTC(),
 	})
 	if err != nil {
@@ -190,7 +190,7 @@ func TestAJobWaitsUntilTheJobItWasQueuedBehindIsDone(t *testing.T) {
 		{state: string(queue.StateDone), want: ""},
 	} {
 		t.Run(c.state, func(t *testing.T) {
-			blocker := queueOne(t, st, "blocker-"+c.state, c.state)
+			blocker := queueOne(t, st, "blocker-"+c.state, c.state, "work")
 			waiting := store.Job{ID: blocker.ID + 1000, Project: "api", TTL: 3, BlockedBy: blocker.ID}
 
 			why, clears, err := s.holds(ctx, waiting, flight{project: map[string]int{}, account: map[string]int{}},
@@ -251,7 +251,7 @@ func TestAJobWaitingForAJobThatIsGoneIsPassedOverNotAWall(t *testing.T) {
 func TestOneBlockingJobIsReadOncePerScan(t *testing.T) {
 	ctx := context.Background()
 	s, st := blockedStore(t)
-	blocker := queueOne(t, st, "blocker", string(queue.StatePending))
+	blocker := queueOne(t, st, "blocker", string(queue.StatePending), "work")
 	look := newLookup()
 
 	for range 3 {

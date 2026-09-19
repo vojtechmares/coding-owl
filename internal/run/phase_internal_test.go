@@ -180,7 +180,7 @@ func TestBlockedByNoteQuotesAPromptThatHoldsItsOwnFence(t *testing.T) {
 func TestBothPhasesCarryWhatTheJobWasQueuedBehind(t *testing.T) {
 	ctx := context.Background()
 	s, st := blockedStore(t)
-	blocker := queueOne(t, st, "blocker", string(queue.StateDone))
+	blocker := queueOne(t, st, "blocker", string(queue.StateDone), "reshape the endpoint")
 	waiting := store.Job{ID: blocker.ID + 1000, Prompt: "the client change", BlockedBy: blocker.ID}
 
 	for _, phase := range []Phase{PhasePlan, PhaseExecute} {
@@ -188,13 +188,26 @@ func TestBothPhasesCarryWhatTheJobWasQueuedBehind(t *testing.T) {
 		if err != nil {
 			t.Fatalf("promptFor(%s): %v", phase, err)
 		}
-		for _, want := range []string{"the client change", fmt.Sprintf("job %d", blocker.ID), "done", "work"} {
-			if !strings.Contains(got, want) {
-				t.Errorf("the %s prompt does not carry %q:\n%s", phase, want, got)
-			}
+		// Each of these is a phrase only blockedByNote produces. Both phase
+		// prompts have boilerplate of their own carrying the bare words
+		// "work" and "done", which would pass for a note that was never
+		// added at all.
+		if !strings.Contains(got, "the client change") {
+			t.Errorf("the %s prompt does not carry the job's own work:\n%s", phase, got)
 		}
-		if !strings.Contains(got, blockedByFence) {
-			t.Errorf("the %s prompt does not fence the other job's prompt:\n%s", phase, got)
+		if want := fmt.Sprintf("job %d, which is done", blocker.ID); !strings.Contains(got, want) {
+			t.Errorf("the %s prompt does not say %q:\n%s", phase, want, got)
+		}
+		// The blocking Job's prompt, read from between the fences rather than
+		// from the prompt at large.
+		_, quoted, ok := strings.Cut(got, blockedByFence+"\n")
+		if !ok {
+			t.Fatalf("the %s prompt does not fence the other job's prompt:\n%s", phase, got)
+		}
+		inside, _, _ := strings.Cut(quoted, "\n"+blockedByFence)
+		if strings.TrimSpace(inside) != "reshape the endpoint" {
+			t.Errorf("the %s prompt quotes %q between the fences, want the blocking job's prompt:\n%s",
+				phase, inside, got)
 		}
 	}
 

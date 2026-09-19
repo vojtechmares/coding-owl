@@ -51,6 +51,12 @@ instead; `owl status` says so, in the passed-over list, naming the Job and the
 state it is in. A Job counts as finished only once it is accepted or its branch
 is merged, so a Job that is merely in review is still waited for.
 
+Which also means a Job waiting on one that was cancelled, or that ran out of
+attempts, waits for good: nothing moves those to finished, and the dependency
+cannot be edited afterwards. `owl status` keeps saying which Job it is waiting
+for and what became of it; the way out is `owl queue remove` and queueing the
+work again.
+
 The two Jobs need not be in the same Project - the API change and the client
 change are the usual pair. When the dependent Job does run, its Agent is told
 which Job it was queued behind, what that Job was asked to do and how it ended.
