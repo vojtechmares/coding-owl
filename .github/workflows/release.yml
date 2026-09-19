@@ -107,7 +107,7 @@ jobs:
           fi
           echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop
           path: dist/CodingOwl-*
@@ -176,7 +176,7 @@ jobs:
 
       # After the archive, because build-release.sh writes checksums.txt rather
       # than adding to it: one file covering everything the release carries.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: desktop
           path: dist
