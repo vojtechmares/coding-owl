@@ -50,7 +50,7 @@
                 "type": "integer"
               },
               {
-                "pattern": "^\\s*[0-9]+\\s*$",
+                "pattern": "^\\s*0*[1-9][0-9]*\\s*$",
                 "type": "string"
               }
             ],
@@ -86,12 +86,12 @@
       "properties": {
         "interval": {
           "description": "How often finished worktrees are reclaimed, like `1h`.",
-          "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+          "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "type": "string"
         },
         "reviewAfter": {
           "description": "How long a Job may wait for a decision before it is reported.",
-          "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+          "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "type": "string"
         }
       },
@@ -99,7 +99,7 @@
     },
     "graceWindow": {
       "description": "How long a Run is given to finish after Owl asks it to stop, like `15m`.",
-      "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+      "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
       "type": "string"
     },
     "idle": {
@@ -108,12 +108,12 @@
       "properties": {
         "after": {
           "description": "How long without keyboard or mouse input counts as idle, like `10m`.",
-          "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+          "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "type": "string"
         },
         "interval": {
           "description": "How often the machine is read. At least `50ms`.",
-          "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+          "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "type": "string"
         },
         "requirePower": {
@@ -130,7 +130,7 @@
           "type": "integer"
         },
         {
-          "pattern": "^\\s*[0-9]+\\s*$",
+          "pattern": "^\\s*0*[1-9][0-9]*\\s*$",
           "type": "string"
         }
       ],
@@ -153,12 +153,12 @@
             },
             "stall": {
               "description": "The longest this phase's Agent may go without saying anything, like `15m`.",
-              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
               "type": "string"
             },
             "timeout": {
               "description": "The longest this phase's Agent may run at all, like `4h`.",
-              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
               "type": "string"
             }
           },
@@ -177,12 +177,12 @@
             },
             "stall": {
               "description": "The longest this phase's Agent may go without saying anything, like `15m`.",
-              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
               "type": "string"
             },
             "timeout": {
               "description": "The longest this phase's Agent may run at all, like `4h`.",
-              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
               "type": "string"
             }
           },

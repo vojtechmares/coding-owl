@@ -159,12 +159,15 @@ func join(path, step string) string {
 	return path + "." + step
 }
 
-// duration is how every duration in a configuration file is written: Go's own
-// `time.ParseDuration` grammar, which is what every one of them is read with.
+// durationPattern is how every duration in a configuration file is written:
+// Go's own `time.ParseDuration` grammar, which is what every one of them is
+// read with. So `4h`, `1h30m`, `500ms` and `.5s`, and the microsecond sign
+// spelled either way, because ParseDuration takes them all.
+//
 // A negative one is left out because each parser refuses a duration that is
-// not positive - an Agent needs time to work.
-const durationPattern = `^[0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h)` +
-	`([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$`
+// not positive - an Agent needs time to work. An empty one is allowed,
+// because every one of these settings treats an empty value as unset.
+const durationPattern = `^$|^(([0-9]+(\.[0-9]*)?|\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$`
 
 // durationPaths are the settings parsed with time.ParseDuration.
 var durationPaths = map[string]string{
@@ -218,8 +221,13 @@ func instead(path string) map[string]any {
 			"description":          "What each phase of a Job runs as, and how long it may take.",
 		}
 
+	// The two enums below name only the values that mean something. Each
+	// parser also takes an empty value as unset - parseChecks and
+	// credential.ParseKind both do - and an enum is what an editor completes
+	// from, so offering a blank to pick would be worse than underlining a
+	// setting written with nothing after it. Leaving the key out is how it is
+	// unset, and that stays valid.
 	case "checks.*.expect":
-		// parseChecks accepts this one word, or nothing at all.
 		return map[string]any{
 			"type":        "string",
 			"enum":        []string{ExpectEmptyOutput},
@@ -227,7 +235,6 @@ func instead(path string) map[string]any {
 		}
 
 	case "credentialStore":
-		// credential.ParseKind accepts these two.
 		return map[string]any{
 			"type":        "string",
 			"enum":        []string{string(credential.KindFile), string(credential.KindKeychain)},
@@ -252,12 +259,14 @@ func instead(path string) map[string]any {
 }
 
 // parallel is a number of Runs as parseParallel reads one: a whole number of
-// at least one, written as a number or as a string.
+// at least one, written as a number or as a string. Zero is left out of both
+// forms, because parseParallel refuses it - stopping the daemon is how nothing
+// runs.
 func parallel(describe string) map[string]any {
 	return map[string]any{
 		"anyOf": []any{
 			map[string]any{"type": "integer", "minimum": 1},
-			map[string]any{"type": "string", "pattern": `^\s*[0-9]+\s*$`},
+			map[string]any{"type": "string", "pattern": `^\s*0*[1-9][0-9]*\s*$`},
 		},
 		"description": describe,
 	}
@@ -265,6 +274,12 @@ func parallel(describe string) map[string]any {
 
 // percent is a Ceiling as parsePercent reads one: a share of a window between
 // 1 and 100, written with or without the sign.
+//
+// The bounds are exact on the number form, which is how the README writes one
+// and how anybody would. The quoted form - the one with the sign on it - is
+// only checked for being a number at all, because a range written as a regular
+// expression is unreadable, and being told on load that "150%" is not a share
+// of a window is a good enough answer for a value written that way.
 func percent(describe string) map[string]any {
 	return map[string]any{
 		"anyOf": []any{
@@ -303,6 +318,9 @@ func alsoSay(path string) map[string]any {
 		return map[string]any{"minLength": 1}
 	case "checks":
 		return map[string]any{"description": "The Verification checks that judge a Run's work. All run, and every failure is reported."}
+	case "checks.*":
+		// parseChecks refuses a check with no name and one with no command.
+		return map[string]any{"required": []string{"name", "run"}}
 	case "checks.*.name":
 		return map[string]any{"minLength": 1, "description": "What the check is called, unique within the Project."}
 	case "checks.*.run":
@@ -313,6 +331,9 @@ func alsoSay(path string) map[string]any {
 		return map[string]any{"description": "Additionally have a fresh Agent review the diff."}
 	case "skills":
 		return map[string]any{"description": "The Skills Owl fetches and pins for this Project's Agents."}
+	case "skills.*":
+		// parseSkills refuses a Skill that names no source.
+		return map[string]any{"required": []string{"git"}}
 	case "skills.*.git":
 		return map[string]any{"minLength": 1, "description": "The repository the Skill comes from, like `owner/repo`."}
 	case "skills.*.ref":
@@ -326,7 +347,9 @@ func alsoSay(path string) map[string]any {
 	case "allowedTools":
 		return map[string]any{"description": "What an unattended Agent may do without asking."}
 	case "allowedTools.*":
-		return map[string]any{"minLength": 1}
+		// Parse refuses a rule holding a comma: the tool reads one rule per
+		// entry, and a comma is how somebody writes two by mistake.
+		return map[string]any{"minLength": 1, "pattern": `^[^,]+$`}
 	case "claudePath":
 		return map[string]any{
 			// ParseGlobal refuses a relative path: it would mean something

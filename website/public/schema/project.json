@@ -12,6 +12,7 @@
       "description": "What an unattended Agent may do without asking.",
       "items": {
         "minLength": 1,
+        "pattern": "^[^,]+$",
         "type": "string"
       },
       "type": "array"
@@ -55,10 +56,14 @@
           },
           "timeout": {
             "description": "The longest this check may run, like `10m`.",
-            "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+            "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
             "type": "string"
           }
         },
+        "required": [
+          "name",
+          "run"
+        ],
         "type": "object"
       },
       "type": "array"
@@ -70,7 +75,7 @@
           "type": "integer"
         },
         {
-          "pattern": "^\\s*[0-9]+\\s*$",
+          "pattern": "^\\s*0*[1-9][0-9]*\\s*$",
           "type": "string"
         }
       ],
@@ -93,12 +98,12 @@
             },
             "stall": {
               "description": "The longest this phase's Agent may go without saying anything, like `15m`.",
-              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
               "type": "string"
             },
             "timeout": {
               "description": "The longest this phase's Agent may run at all, like `4h`.",
-              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
               "type": "string"
             }
           },
@@ -117,12 +122,12 @@
             },
             "stall": {
               "description": "The longest this phase's Agent may go without saying anything, like `15m`.",
-              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
               "type": "string"
             },
             "timeout": {
               "description": "The longest this phase's Agent may run at all, like `4h`.",
-              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
               "type": "string"
             }
           },
@@ -159,6 +164,9 @@
             "type": "string"
           }
         },
+        "required": [
+          "git"
+        ],
         "type": "object"
       },
       "type": "array"
@@ -180,7 +188,7 @@
         },
         "timeout": {
           "description": "The longest the reviewing Agent may take.",
-          "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+          "pattern": "^$|^(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "type": "string"
         }
       },
