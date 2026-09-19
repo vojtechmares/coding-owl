@@ -1,0 +1,195 @@
+{
+  "$id": "https://codingowl.dev/schema/project.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "A Project's `.coding-owl.yaml`, or the `config.yaml` under its directory in the configuration home. See https://github.com/vojtechmares/coding-owl#project-configuration.",
+  "properties": {
+    "account": {
+      "description": "The Account this Project's Jobs run on.",
+      "type": "string"
+    },
+    "allowedTools": {
+      "description": "What an unattended Agent may do without asking.",
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "apiVersion": {
+      "const": "codingowl.dev/v1",
+      "description": "The only apiVersion Owl recognises.",
+      "type": "string"
+    },
+    "branchPrefix": {
+      "description": "What a Job's branch is named under. The default is `owl/`.",
+      "pattern": "^$|^[^-]",
+      "type": "string"
+    },
+    "budgetUSD": {
+      "description": "What this Project's Jobs may spend. A spend cap cannot be negative.",
+      "minimum": 0,
+      "type": "number"
+    },
+    "checks": {
+      "description": "The Verification checks that judge a Run's work. All run, and every failure is reported.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "expect": {
+            "description": "What the check's success looks like. The default is exit zero.",
+            "enum": [
+              "empty_output"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "What the check is called, unique within the Project.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "run": {
+            "description": "The shell command to run.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "timeout": {
+            "description": "The longest this check may run, like `10m`.",
+            "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "maxParallelRuns": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "pattern": "^\\s*[0-9]+\\s*$",
+          "type": "string"
+        }
+      ],
+      "description": "How many Runs may go at once. At least one; stopping the daemon is how nothing runs."
+    },
+    "phases": {
+      "additionalProperties": false,
+      "description": "What each phase of a Job runs as, and how long it may take.",
+      "properties": {
+        "execute": {
+          "additionalProperties": false,
+          "properties": {
+            "effort": {
+              "description": "How hard this phase thinks, like `xhigh`.",
+              "type": "string"
+            },
+            "model": {
+              "description": "What this phase runs as, like `anthropic/claude-opus`. `owl models` lists them.",
+              "type": "string"
+            },
+            "stall": {
+              "description": "The longest this phase's Agent may go without saying anything, like `15m`.",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "type": "string"
+            },
+            "timeout": {
+              "description": "The longest this phase's Agent may run at all, like `4h`.",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "plan": {
+          "additionalProperties": false,
+          "properties": {
+            "effort": {
+              "description": "How hard this phase thinks, like `xhigh`.",
+              "type": "string"
+            },
+            "model": {
+              "description": "What this phase runs as, like `anthropic/claude-opus`. `owl models` lists them.",
+              "type": "string"
+            },
+            "stall": {
+              "description": "The longest this phase's Agent may go without saying anything, like `15m`.",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "type": "string"
+            },
+            "timeout": {
+              "description": "The longest this phase's Agent may run at all, like `4h`.",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "setup": {
+      "description": "Shell commands preparing each fresh worktree before an Agent starts.",
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "skills": {
+      "description": "The Skills Owl fetches and pins for this Project's Agents.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "auto_update": {
+            "description": "Whether Owl moves the pin when the ref does.",
+            "type": "boolean"
+          },
+          "git": {
+            "description": "The repository the Skill comes from, like `owner/repo`.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "ref": {
+            "description": "The ref to pin it to.",
+            "pattern": "^$|^[^-]",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "unattendedClauses": {
+      "description": "Appended to Owl's standing unattended contract for this Project.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "verification": {
+      "additionalProperties": false,
+      "description": "Verification beyond the Project's own checks.",
+      "properties": {
+        "agent": {
+          "description": "Additionally have a fresh Agent review the diff.",
+          "type": "boolean"
+        },
+        "timeout": {
+          "description": "The longest the reviewing Agent may take.",
+          "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "apiVersion"
+  ],
+  "title": "Coding Owl project configuration",
+  "type": "object"
+}
