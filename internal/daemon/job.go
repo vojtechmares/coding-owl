@@ -29,7 +29,7 @@ func (s *jobService) AddJob(ctx context.Context, req *connect.Request[codingowlv
 		Prompt:     req.Msg.GetPrompt(),
 		WorkingDir: req.Msg.GetWorkingDir(),
 		// Unspecified plans, because planning is the default (ADR-0026).
-		Planned: req.Msg.GetPlanMode() != codingowlv1.PlanMode_PLAN_MODE_NO_PLAN,
+		Planned:   req.Msg.GetPlanMode() != codingowlv1.PlanMode_PLAN_MODE_NO_PLAN,
 		Model:     req.Msg.GetModel(),
 		Effort:    req.Msg.GetEffort(),
 		TTL:       int(req.Msg.GetTtl()),
