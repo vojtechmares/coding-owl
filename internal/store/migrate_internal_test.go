@@ -78,3 +78,31 @@ func TestARunFromBeforePromptsWereRecordedHasNone(t *testing.T) {
 		t.Errorf("a run from before prompts were recorded reports %q, want none", r.SystemPrompt)
 	}
 }
+
+func TestAJobFromBeforeDependenciesWaitsForNothing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "owl.db")
+	migrateBefore(t, path, "0014_blocked_by.sql")
+
+	s, m, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	j, err := s.GetJob(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+
+	if m.Applied == 0 {
+		t.Fatal("opening the older database applied no migrations")
+	}
+	// The column is NOT NULL with a default of zero, so a Job that predates it
+	// reads back waiting for nothing rather than for job 0.
+	if j.BlockedBy != 0 {
+		t.Errorf("a job from before dependencies waits for job %d, want none", j.BlockedBy)
+	}
+	// And it is still the Job it was.
+	if j.Prompt != "work" || j.State != "review" {
+		t.Errorf("the job is %+v, want the one the older owl left", j)
+	}
+}

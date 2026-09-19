@@ -61,11 +61,15 @@ type Job struct {
 	Position int
 	// Created is when the Job was first produced.
 	Created time.Time
+	// BlockedBy is the Job this one waits for, and zero when it waits for
+	// none. The scheduler passes this Job over until that one is done
+	// (ADR-0025).
+	BlockedBy int64
 }
 
 // jobColumns is the select list every Job read shares, in scanJob's order.
 const jobColumns = `id, source, source_ref, project, prompt, state, branch, worktree,
-	planned, plan, model, effort, reason, ttl, account, position, created`
+	planned, plan, model, effort, reason, ttl, account, position, created, blocked_by`
 
 // UpsertJob produces j. A Job with that source and reference is not made
 // twice: the second production rewrites the prompt of the Job already in the
@@ -81,12 +85,12 @@ func (s *Store) UpsertJob(ctx context.Context, j Job) (Job, error) {
 	// NULLs of the Jobs that have left the queue, so their positions are not
 	// held against the ones still in it.
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO jobs (source, source_ref, project, prompt, state, planned, model, effort, ttl, position, created)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM jobs), ?)
+		`INSERT INTO jobs (source, source_ref, project, prompt, state, planned, model, effort, ttl, position, created, blocked_by)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM jobs), ?, ?)
 		 ON CONFLICT (source, source_ref) DO UPDATE SET prompt = excluded.prompt
 		   WHERE jobs.position IS NOT NULL`,
 		j.Source, j.SourceRef, j.Project, j.Prompt, j.State, boolToInt(j.Planned), j.Model, j.Effort,
-		j.TTL, j.Created.UTC().Format(timeFormat)); err != nil {
+		j.TTL, j.Created.UTC().Format(timeFormat), j.BlockedBy); err != nil {
 		return Job{}, err
 	}
 	row := tx.QueryRowContext(ctx,
@@ -224,7 +228,7 @@ func scanJob(sc scanner) (Job, error) {
 	var created string
 	if err := sc.Scan(&j.ID, &j.Source, &j.SourceRef, &j.Project, &j.Prompt, &j.State,
 		&j.Branch, &j.Worktree, &planned, &j.Plan, &j.Model, &j.Effort, &j.Reason,
-		&j.TTL, &j.Account, &position, &created); err != nil {
+		&j.TTL, &j.Account, &position, &created, &j.BlockedBy); err != nil {
 		return Job{}, err
 	}
 	j.Position = int(position.Int64)

@@ -29,10 +29,11 @@ func (s *jobService) AddJob(ctx context.Context, req *connect.Request[codingowlv
 		Prompt:     req.Msg.GetPrompt(),
 		WorkingDir: req.Msg.GetWorkingDir(),
 		// Unspecified plans, because planning is the default (ADR-0026).
-		Planned: req.Msg.GetPlanMode() != codingowlv1.PlanMode_PLAN_MODE_NO_PLAN,
-		Model:   req.Msg.GetModel(),
-		Effort:  req.Msg.GetEffort(),
-		TTL:     int(req.Msg.GetTtl()),
+		Planned:   req.Msg.GetPlanMode() != codingowlv1.PlanMode_PLAN_MODE_NO_PLAN,
+		Model:     req.Msg.GetModel(),
+		Effort:    req.Msg.GetEffort(),
+		TTL:       int(req.Msg.GetTtl()),
+		BlockedBy: req.Msg.GetBlockedBy(),
 	})
 	if err != nil {
 		return nil, rpcError(err)
@@ -328,5 +329,6 @@ func toJobProto(j queue.Job) *codingowlv1.Job {
 		Account:   j.Account,
 		Position:  int32(j.Position),
 		Created:   timestamppb.New(j.Created),
+		BlockedBy: j.BlockedBy,
 	}
 }

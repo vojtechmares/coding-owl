@@ -119,6 +119,10 @@ type Job struct {
 	Position int
 	// Created is when the Job was first produced.
 	Created time.Time
+	// BlockedBy is the Job this one waits for, and zero when it waits for
+	// none. The scheduler passes this Job over until that one is done
+	// (ADR-0025).
+	BlockedBy int64
 }
 
 // Service is the queue half of the daemon's state.
@@ -153,6 +157,9 @@ type AddRequest struct {
 	// TTL is how many Runs the Job may take. Zero asks for no particular
 	// number and takes DefaultTTL.
 	TTL int
+	// BlockedBy names another Job this one waits for, by its id. That Job has
+	// to be there already; zero asks for no dependency.
+	BlockedBy int64
 }
 
 // Add produces a Job through the Service's Source and queues it behind
@@ -183,6 +190,9 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Job, error) {
 	case ttl == 0:
 		ttl = DefaultTTL
 	}
+	if err := s.waitsFor(ctx, req.BlockedBy); err != nil {
+		return Job{}, err
+	}
 	j, err := s.store.UpsertJob(ctx, store.Job{
 		Source:    s.source.Name(),
 		SourceRef: ref,
@@ -194,11 +204,35 @@ func (s *Service) Add(ctx context.Context, req AddRequest) (Job, error) {
 		Effort:    req.Effort,
 		TTL:       ttl,
 		Created:   s.now().UTC(),
+		BlockedBy: req.BlockedBy,
 	})
 	if err != nil {
 		return Job{}, err
 	}
 	return FromStore(j), nil
+}
+
+// waitsFor refuses a dependency nobody can wait for. The Job named has to be
+// there when the dependent one is added, which is also what makes a cycle
+// impossible: a dependency always points at a lower id, and no edge can point
+// the other way.
+//
+// A Job that is already done is allowed. The rule is that it exists, not that
+// it is unfinished, and such a Job is simply never waited for.
+func (s *Service) waitsFor(ctx context.Context, id int64) error {
+	if id == 0 {
+		return nil
+	}
+	if id < 0 {
+		return invalid("job ids count from one; %d is not one", id)
+	}
+	if _, err := s.store.GetJob(ctx, id); err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			return invalid("there is no job %d to wait for; queue it first", id)
+		}
+		return err
+	}
+	return nil
 }
 
 // usableSetting refuses a model or effort that a tool would read as an option
@@ -309,6 +343,7 @@ func FromStore(j store.Job) Job {
 		Account:   j.Account,
 		Position:  j.Position,
 		Created:   j.Created,
+		BlockedBy: j.BlockedBy,
 	}
 }
 

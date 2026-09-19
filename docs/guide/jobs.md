@@ -36,6 +36,31 @@ exhausted; it gets three unless you say otherwise.
 owl add "Port the queue tests to table tests" --model anthropic/claude-opus --effort xhigh --ttl 6
 ```
 
+### Queueing a Job behind another
+
+Work that only makes sense once something else has landed can say so.
+`--blocked-by` names another Job, already queued, by its id:
+
+```
+owl add "Update the client for the new endpoint" --blocked-by 7
+```
+
+The Job takes its place in the queue as usual, and keeps it. The scheduler
+passes it over while Job 7 is unfinished and starts whatever is behind it
+instead; `owl status` says so, in the passed-over list, naming the Job and the
+state it is in. A Job counts as finished only once it is accepted or its branch
+is merged, so a Job that is merely in review is still waited for.
+
+Which also means a Job waiting on one that was cancelled, or that ran out of
+attempts, waits for good: nothing moves those to finished, and the dependency
+cannot be edited afterwards. `owl status` keeps saying which Job it is waiting
+for and what became of it; the way out is `owl queue remove` and queueing the
+work again.
+
+The two Jobs need not be in the same Project - the API change and the client
+change are the usual pair. When the dependent Job does run, its Agent is told
+which Job it was queued behind, what that Job was asked to do and how it ended.
+
 ## The queue
 
 ```

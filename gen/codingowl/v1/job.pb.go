@@ -247,7 +247,10 @@ type Job struct {
 	// Account is the Account the Job ran on, taken from its Project's
 	// configuration at its first Run and unchanged afterwards (ADR-0023). It is
 	// empty until the Job has run.
-	Account       string `protobuf:"bytes,15,opt,name=account,proto3" json:"account,omitempty"`
+	Account string `protobuf:"bytes,15,opt,name=account,proto3" json:"account,omitempty"`
+	// BlockedBy is the Job this one waits for, and zero when it waits for none.
+	// The scheduler passes this Job over until that one is done (ADR-0025).
+	BlockedBy     int64 `protobuf:"varint,16,opt,name=blocked_by,json=blockedBy,proto3" json:"blocked_by,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -385,6 +388,13 @@ func (x *Job) GetAccount() string {
 		return x.Account
 	}
 	return ""
+}
+
+func (x *Job) GetBlockedBy() int64 {
+	if x != nil {
+		return x.BlockedBy
+	}
+	return 0
 }
 
 // CheckResult is what one Verification check said about a Run (ADR-0013).
@@ -1002,7 +1012,10 @@ type AddJobRequest struct {
 	Effort string `protobuf:"bytes,6,opt,name=effort,proto3" json:"effort,omitempty"`
 	// Ttl is how many Runs the Job may take. Zero asks for no particular number
 	// and takes the default of ten (ADR-0025).
-	Ttl           int32 `protobuf:"varint,7,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	Ttl int32 `protobuf:"varint,7,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	// BlockedBy names another Job this one waits for, by its id. That Job has to
+	// be queued already; zero asks for no dependency.
+	BlockedBy     int64 `protobuf:"varint,8,opt,name=blocked_by,json=blockedBy,proto3" json:"blocked_by,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1082,6 +1095,13 @@ func (x *AddJobRequest) GetEffort() string {
 func (x *AddJobRequest) GetTtl() int32 {
 	if x != nil {
 		return x.Ttl
+	}
+	return 0
+}
+
+func (x *AddJobRequest) GetBlockedBy() int64 {
+	if x != nil {
+		return x.BlockedBy
 	}
 	return 0
 }
@@ -2763,7 +2783,7 @@ var File_codingowl_v1_job_proto protoreflect.FileDescriptor
 
 const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\n" +
-	"\x16codingowl/v1/job.proto\x12\fcodingowl.v1\x1a\x15codingowl/v1/gc.proto\x1a\x18codingowl/v1/skill.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa4\x03\n" +
+	"\x16codingowl/v1/job.proto\x12\fcodingowl.v1\x1a\x15codingowl/v1/gc.proto\x1a\x18codingowl/v1/skill.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc3\x03\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12\x1d\n" +
@@ -2781,7 +2801,9 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\x04plan\x18\f \x01(\tR\x04plan\x12\x16\n" +
 	"\x06reason\x18\r \x01(\tR\x06reason\x12\x10\n" +
 	"\x03ttl\x18\x0e \x01(\x05R\x03ttl\x12\x18\n" +
-	"\aaccount\x18\x0f \x01(\tR\aaccount\"\xbc\x01\n" +
+	"\aaccount\x18\x0f \x01(\tR\aaccount\x12\x1d\n" +
+	"\n" +
+	"blocked_by\x18\x10 \x01(\x03R\tblockedBy\"\xbc\x01\n" +
 	"\vCheckResult\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acommand\x18\x02 \x01(\tR\acommand\x12\x16\n" +
@@ -2829,7 +2851,7 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\x11ResumeRunResponse\x12#\n" +
 	"\x03run\x18\x01 \x01(\v2\x11.codingowl.v1.RunR\x03run\x12%\n" +
 	"\x04runs\x18\x02 \x03(\v2\x11.codingowl.v1.RunR\x04runs\x12\x1c\n" +
-	"\tuntouched\x18\x03 \x03(\tR\tuntouched\"\xd7\x01\n" +
+	"\tuntouched\x18\x03 \x03(\tR\tuntouched\"\xf6\x01\n" +
 	"\rAddJobRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x16\n" +
 	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x1f\n" +
@@ -2838,7 +2860,9 @@ const file_codingowl_v1_job_proto_rawDesc = "" +
 	"\tplan_mode\x18\x04 \x01(\x0e2\x16.codingowl.v1.PlanModeR\bplanMode\x12\x14\n" +
 	"\x05model\x18\x05 \x01(\tR\x05model\x12\x16\n" +
 	"\x06effort\x18\x06 \x01(\tR\x06effort\x12\x10\n" +
-	"\x03ttl\x18\a \x01(\x05R\x03ttl\"5\n" +
+	"\x03ttl\x18\a \x01(\x05R\x03ttl\x12\x1d\n" +
+	"\n" +
+	"blocked_by\x18\b \x01(\x03R\tblockedBy\"5\n" +
 	"\x0eAddJobResponse\x12#\n" +
 	"\x03job\x18\x01 \x01(\v2\x11.codingowl.v1.JobR\x03job\"#\n" +
 	"\x0fListJobsRequest\x12\x10\n" +

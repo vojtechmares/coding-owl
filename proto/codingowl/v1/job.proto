@@ -106,6 +106,9 @@ message Job {
   // configuration at its first Run and unchanged afterwards (ADR-0023). It is
   // empty until the Job has run.
   string account = 15;
+  // BlockedBy is the Job this one waits for, and zero when it waits for none.
+  // The scheduler passes this Job over until that one is done (ADR-0025).
+  int64 blocked_by = 16;
 }
 
 // PlanMode is whether a Job is planned before it is executed. Planning is the
@@ -254,6 +257,9 @@ message AddJobRequest {
   // Ttl is how many Runs the Job may take. Zero asks for no particular number
   // and takes the default of ten (ADR-0025).
   int32 ttl = 7;
+  // BlockedBy names another Job this one waits for, by its id. That Job has to
+  // be queued already; zero asks for no dependency.
+  int64 blocked_by = 8;
 }
 
 message AddJobResponse {

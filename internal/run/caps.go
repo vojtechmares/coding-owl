@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -22,13 +23,16 @@ type Skip struct {
 	// Clears is whether this goes away on its own. A cap does, as soon as a
 	// Run finishes, and a watcher that backed off on one would leave a slot
 	// idle for minutes. A ceiling that has hours to run, a Project nobody can
-	// read and a Project that names no Account do not: they are worth waiting
-	// longer between looks for, and worth saying out loud (ADR-0011).
+	// read, a Project that names no Account and a Job waiting for another Job
+	// do not: they are worth waiting longer between looks for, and worth
+	// saying out loud (ADR-0011).
 	//
 	// It is set true only where a counter has met a cap, and every cap is at
 	// least one, so a Run is necessarily in flight whenever it is - which is
 	// what makes looking again soon worth the work. A cap of zero becoming
-	// representable is what would break that.
+	// representable is what would break that. Every other reason is false,
+	// which is what the list above is: things only a person, a window or a
+	// repository will change.
 	Clears bool
 }
 
@@ -123,6 +127,33 @@ func (s *Service) holds(ctx context.Context, j store.Job, f flight, global confi
 	if j.TTL <= 0 {
 		return "it has no attempts left", false, nil
 	}
+	// A Job queued behind another waits for it to be done, and is passed over
+	// meanwhile exactly as a capped Job is: it keeps its position (ADR-0025).
+	// This comes before the Project is read because it is the more specific
+	// reason, and because it is one row rather than several forks of git.
+	//
+	// It does not clear itself. A Job reaches done only when somebody accepts
+	// it or merges its branch, so looking again in a moment would spend an
+	// idle machine on a Job that is waiting for a person; the watcher backs
+	// off instead, and `owl status` says what the wait is (ADR-0011).
+	//
+	// The reason says "waits for" rather than "blocked by": `blocked` is a Job
+	// state meaning something is wrong with the work (ADR-0025), and this Job
+	// is pending with nothing wrong with it.
+	if j.BlockedBy != 0 {
+		b, err := look.job(ctx, s, j.BlockedBy)
+		switch {
+		case errors.Is(err, store.ErrJobNotFound):
+			// Jobs are never deleted, so this should not happen - but one Job
+			// nobody can read is passed over rather than stopping the scan,
+			// the way a Project nobody can read is.
+			return fmt.Sprintf("it waits for job %d, which is gone", j.BlockedBy), false, nil
+		case err != nil:
+			return "", false, err
+		case queue.State(b.State) != queue.StateDone:
+			return fmt.Sprintf("it waits for job %d (%s)", j.BlockedBy, b.State), false, nil
+		}
+	}
 	// What the Project is configured to do is read from its base branch, so an
 	// Agent cannot raise its own cap (ADR-0014). A Project Owl cannot read is
 	// passed over with that as the reason rather than handed to start: one
@@ -174,6 +205,10 @@ type lookup struct {
 	projects map[string]project.Details
 	failed   map[string]error
 	ceilings map[string]string
+	// blockers is the Jobs other Jobs are waiting for, so that a queue of
+	// fifty Jobs behind one of them reads it once.
+	blockers map[int64]store.Job
+	noJob    map[int64]error
 }
 
 func newLookup() *lookup {
@@ -181,7 +216,26 @@ func newLookup() *lookup {
 		projects: map[string]project.Details{},
 		failed:   map[string]error{},
 		ceilings: map[string]string{},
+		blockers: map[int64]store.Job{},
+		noJob:    map[int64]error{},
 	}
+}
+
+// job is the Job another one is waiting for, read once per scan.
+func (l *lookup) job(ctx context.Context, s *Service, id int64) (store.Job, error) {
+	if j, ok := l.blockers[id]; ok {
+		return j, nil
+	}
+	if err, ok := l.noJob[id]; ok {
+		return store.Job{}, err
+	}
+	j, err := s.opts.Store.GetJob(ctx, id)
+	if err != nil {
+		l.noJob[id] = err
+		return store.Job{}, err
+	}
+	l.blockers[id] = j
+	return j, nil
 }
 
 func (l *lookup) project(ctx context.Context, s *Service, name string) (project.Details, error) {
