@@ -120,17 +120,6 @@ func placeholders(n int) string {
 	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
 }
 
-// JobLabels returns the labels a Job carries, in order. A Job that carries
-// none, and one that does not exist, both come back empty: the caller that
-// needs to tell them apart reads the Job.
-func (s *Store) JobLabels(ctx context.Context, id int64) ([]string, error) {
-	jobs := []Job{{ID: id}}
-	if err := attachLabels(ctx, s.db, jobs); err != nil {
-		return nil, err
-	}
-	return jobs[0].Labels, nil
-}
-
 // AddJobLabels gives a Job labels it does not already carry, and leaves the
 // ones it does exactly as they are: carrying a label is a fact about the Job,
 // not a count of how often it was asked for.
@@ -140,25 +129,37 @@ func (s *Store) AddJobLabels(ctx context.Context, id int64, labels []string) err
 	})
 }
 
-// RemoveJobLabels takes labels off a Job, and reports how many rows it
-// removed so that a caller can tell a label that was there from one that was
-// not.
-func (s *Store) RemoveJobLabels(ctx context.Context, id int64, labels []string) (int, error) {
-	if len(labels) == 0 {
-		return 0, nil
-	}
-	args := make([]any, 0, len(labels)+1)
-	args = append(args, id)
-	for _, l := range labels {
-		args = append(args, l)
-	}
-	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM job_labels WHERE job_id = ? AND label IN (`+placeholders(len(labels))+`)`, args...)
-	if err != nil {
-		return 0, err
-	}
-	n, err := res.RowsAffected()
-	return int(n), err
+// RemoveJobLabels takes labels off a Job, and returns the ones it did not
+// carry. It removes nothing at all unless it carries every one of them: a
+// caller that refuses the request must not find the others already gone. The
+// reading and the removal are one transaction, so what is removed is what was
+// looked at.
+func (s *Store) RemoveJobLabels(ctx context.Context, id int64, labels []string) ([]string, error) {
+	var missing []string
+	err := s.inTx(ctx, func(tx *sql.Tx) error {
+		jobs := []Job{{ID: id}}
+		if err := attachLabels(ctx, tx, jobs); err != nil {
+			return err
+		}
+		missing = nil
+		for _, l := range labels {
+			if !slices.Contains(jobs[0].Labels, l) {
+				missing = append(missing, l)
+			}
+		}
+		if len(missing) > 0 || len(labels) == 0 {
+			return nil
+		}
+		args := make([]any, 0, len(labels)+1)
+		args = append(args, id)
+		for _, l := range labels {
+			args = append(args, l)
+		}
+		_, err := tx.ExecContext(ctx,
+			`DELETE FROM job_labels WHERE job_id = ? AND label IN (`+placeholders(len(labels))+`)`, args...)
+		return err
+	})
+	return missing, err
 }
 
 // insertLabels writes a Job's labels inside a transaction, ignoring the ones
@@ -176,9 +177,10 @@ func insertLabels(ctx context.Context, tx *sql.Tx, id int64, labels []string) er
 // UpsertJob produces j. A Job with that source and reference is not made
 // twice: the second production rewrites the prompt of the Job already in the
 // queue, and leaves a Job that has left the queue exactly as it is (ADR-0032).
-// Labels the production carries are added to whatever the Job already has,
-// because owl jobs label add may have put them there since. The Job as it
-// stands afterwards is returned.
+// Labels the production carries follow the same rule as the prompt: they are
+// added to a Job still in the queue, on top of whatever owl jobs label add
+// may have put there since, and a Job that has left it is not touched. The
+// Job as it stands afterwards is returned.
 func (s *Store) UpsertJob(ctx context.Context, j Job) (Job, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -204,8 +206,12 @@ func (s *Store) UpsertJob(ctx context.Context, j Job) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
-	if err := insertLabels(ctx, tx, out.ID, j.Labels); err != nil {
-		return Job{}, err
+	// Only while the Job is still in the queue, which is the condition the
+	// upsert above puts on the prompt.
+	if out.Position > 0 {
+		if err := insertLabels(ctx, tx, out.ID, j.Labels); err != nil {
+			return Job{}, err
+		}
 	}
 	labelled := []Job{out}
 	if err := attachLabels(ctx, tx, labelled); err != nil {
