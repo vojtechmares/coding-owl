@@ -186,21 +186,47 @@ in `owl status`, so it is loud rather than silent. Say this in the PR.
 than by counting store reads; it can still fail, so it is not dead.
 `models.ts` is stale - see under "Ruled out".
 
-**Round 2** is running against `bff90f6` at the time this was written, because
-a `PASS` counts only for the commit it saw. Nothing in production code changed
-between the rounds - only tests, docs and this file. Check its verdicts before
-opening the PR.
+**Round 2**, against `bff90f6`: all three `PASS` again. No production code
+changed between the rounds - only tests, docs and this file, which each agent
+confirmed for itself.
+
+Its findings were all about tests that read stronger than they were, and all
+three are fixed:
+
+- `TestBothPhasesCarryWhatTheJobWasQueuedBehind` asserted the bare words
+  `"work"` and `"done"`, which both phase prompts carry in boilerplate of their
+  own - the same weakness the S10 fix had just closed, reintroduced in the test
+  written to close it. It now asserts `"job <id>, which is done"` and reads the
+  blocking prompt from between the fences. `queueOne` took a prompt parameter
+  so the quoted text is distinctive.
+- S10 accepted any line beginning `-----`, which the quoted handoff also
+  produces, so it would have passed for a blocking prompt spliced in unfenced.
+  It now cuts on the named `----- queued behind -----` fence.
+- S1 matched `"job 1"`, which `job 10` satisfies by prefix. It now matches
+  `"waiting for job 1\n"`.
+
+The guide gained the consequence of D11: a wait on a cancelled or exhausted
+Job is permanent, and the way out is to remove and re-queue.
 
 ## Remaining steps
 
-1. Confirm round 2's three verdicts are `PASS`.
-2. `git rm --cached .coding-owl/HANDOFF.md`, as its own commit.
-3. Push, `gh pr create --base main` with `Closes #133`, the decisions above
+1. `git rm --cached .coding-owl/HANDOFF.md`, as its own commit.
+2. Push, `gh pr create --base main` with `Closes #133`, the decisions above
    under "Decisions made on my own" (D1, D2, D11's permanent-wait caveat, D12
    and the handoff commit pair are what a reviewer will ask about), and the
-   #131 relationship in prose.
-4. `gh pr checks --watch --fail-fast`. Fix on the branch until green.
+   #131 relationship in prose. A draft is in `.coding-owl/PR-BODY.md`, which is
+   untracked scratch - delete it once the PR is open.
+3. `gh pr checks --watch --fail-fast`. Fix on the branch until green.
    **Do not merge.**
+
+### On #131
+
+`#133`'s body says it is what closes `#131`. It is most of it, not all: `#131`
+frames the case as a Job blocked by a **later** queue item, and `--blocked-by`
+can only be given at `owl add` time toward a Job that already exists, hence an
+earlier one. A Job already queued cannot be told to wait for something queued
+after it. So: `Closes #133` only, `#131` in prose, and a follow-up is worth
+raising for the "block an existing Job" half.
 
 **Done already:** the follow-up issue for the `.gitignore`/`recordPlan`
 interaction is filed as **#167**. Do not file it again.
