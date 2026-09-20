@@ -22,7 +22,7 @@ import (
 	"github.com/vojtechmares/coding-owl/internal/client"
 )
 
-// maxAnswer bounds what is read as one answer, so that a mistaken
+// maxAnswer bounds what the questions read between them, so that a mistaken
 // `owl project setup < some-huge-file` is refused rather than held in memory.
 const maxAnswer = 4 << 10
 
