@@ -118,13 +118,13 @@ message SetupProjectRequest {
   // for when it names a path rather than a Project. It is sent alongside the
   // raw argument because only the caller knows what a relative path is
   // relative to, and empty when no argument was given.
-  string path = 5;
+  string path = 3;
   // Account is the Account this Project's Jobs will run on (ADR-0023).
-  string account = 3;
+  string account = 4;
   // InRepo asks for `.coding-owl.yaml` in the repository, which is committed
   // and read from the base branch, rather than the config-home fallback,
   // which is read from disk (ADR-0014).
-  bool in_repo = 4;
+  bool in_repo = 5;
 }
 
 message SetupProjectResponse {
