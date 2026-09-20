@@ -99,6 +99,21 @@ On a machine without Homebrew, `owl daemon install` writes a launchd agent
 that keeps `owl daemon run` running. The daemon never daemonizes itself; that
 is launchd's job.
 
+Then run:
+
+```
+owl setup
+```
+
+It checks the three things Owl runs nothing without - a daemon it can reach,
+a `claude` the daemon will find, and an Account to run on - says which are
+already done, and asks only about the rest. It starts no daemon by itself:
+with Homebrew it names the `brew services` command above, and elsewhere on
+macOS it offers to write the launch agent. What it does about `claude` is the
+section below, and what it does about an Account is
+[Getting started](docs/guide/getting-started.md)'s first step - both worth
+reading when you would rather do it by hand.
+
 ### Finding Claude Code
 
 The daemon runs Claude Code on your behalf, so `claude` has to be somewhere the
@@ -117,6 +132,10 @@ When `claudePath` is set the daemon uses it and does not look on `PATH`. When
 it is not, the daemon looks on `PATH` and then under `~/.local/bin`. The daemon
 reads the setting when it starts, so after changing it run
 `brew services restart coding-owl`.
+
+`owl setup` does this for you: it looks in exactly those places, and when it
+finds nothing it asks where `claude` is and writes that one setting into the
+file, leaving everything else in it as it was.
 
 ## Quick start
 
@@ -279,6 +298,7 @@ Owl honours the XDG variables on both macOS and Linux:
 
 | Command | What it does |
 | --- | --- |
+| `owl setup` | Walk through what Owl needs before it can run anything |
 | `owl project add\|list\|show\|rename\|move\|remove` | Register repositories as Projects |
 | `owl project setup [project]` | Give a Project the Account its Jobs run on |
 | `owl account add\|list\|remove\|exec` | Manage the subscriptions Owl runs work on |

@@ -7,6 +7,10 @@ services start coding-owl` - as
 [Risks](../../README.md#risks) before you queue anything: an Agent runs on your
 machine as you, with no sandbox around it.
 
+`owl setup` walks the first step below, and the two things that have to be
+true before it - a daemon Owl can reach and a `claude` it will find - asking
+only about what is missing. What follows is the same ground at your own pace.
+
 ## 1. Add an Account
 
 An Account is a subscription Owl runs work on, with a tool configuration
