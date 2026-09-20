@@ -27,10 +27,18 @@ import (
 var bounded = map[string]bool{"withDaemon": true, "withTimeout": true}
 
 // asksAPerson are the calls that wait for someone to read something and type
-// an answer. Reading a whole stream that is already there - a pasted token -
-// is not waiting on a person in the same way, so only the prompting reader is
-// named here.
-var asksAPerson = map[string]bool{"choose": true, "pickAccount": true, "pickLocation": true}
+// an answer: the asker's own reading, everything that puts a question through
+// it, and the commands that walk a person through several.
+//
+// A new way of asking belongs here. The check can only see the names it is
+// given, so one that is missing is not a question this test disagrees with -
+// it is a question this test cannot see.
+var asksAPerson = map[string]bool{
+	"line": true, "ask": true, "choose": true, "confirm": true,
+	"pickAccount": true, "pickLocation": true,
+	"askExecutable": true, "askAccountName": true, "accountToken": true,
+	"setupDaemon": true, "setupClaude": true, "setupAccount": true, "accountAdd": true,
+}
 
 func TestNothingAsksAPersonInsideADaemonDeadline(t *testing.T) {
 	set := token.NewFileSet()

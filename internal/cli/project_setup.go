@@ -9,22 +9,14 @@ package cli
 // `owl account add` does for a pasted token.
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"strconv"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/vojtechmares/coding-owl/internal/client"
 )
-
-// maxAnswer bounds what the questions read between them, so that a mistaken
-// `owl project setup < some-huge-file` is refused rather than held in memory.
-const maxAnswer = 4 << 10
 
 // configDocs is where the rest of what a configuration file can carry is
 // written down. It is the guide's Configuration section, which is where it
@@ -155,44 +147,4 @@ func pickLocation(env Env, ask *asker) (bool, error) {
 		return false, err
 	}
 	return choice == "in-repo", nil
-}
-
-// asker reads the answers. One reader serves every question, because a
-// buffered one holds what it has read ahead and a second would lose it.
-type asker struct{ in *bufio.Reader }
-
-func newAsker(env Env) *asker {
-	return &asker{in: bufio.NewReader(io.LimitReader(env.stdin(), maxAnswer))}
-}
-
-// choose asks for one of choices by number and returns the one picked. An
-// answer that is not one of them is said to be wrong and asked for again; an
-// answer that never comes ends the command, because a command nobody is
-// answering should stop rather than wait.
-func (a *asker) choose(env Env, what string, choices []string) (string, error) {
-	for {
-		_, _ = fmt.Fprintf(env.Stdout, "Choose 1-%d: ", len(choices))
-		line, err := a.in.ReadString('\n')
-		// An answer typed without a newline, or piped in, ends at end of
-		// file, which is an answer like any other. Nothing at all is not.
-		if err != nil && !errors.Is(err, io.EOF) {
-			return "", fmt.Errorf("reading which %s to use: %w", what, err)
-		}
-		answer := strings.TrimSpace(line)
-		if answer == "" && errors.Is(err, io.EOF) {
-			return "", fmt.Errorf("no answer for which %s to use, and nothing left to read", what)
-		}
-		n, convErr := strconv.Atoi(answer)
-		if convErr == nil && n >= 1 && n <= len(choices) {
-			return choices[n-1], nil
-		}
-		_, _ = fmt.Fprintf(env.Stdout, "%q is not one of the choices; pick a number between 1 and %d.\n",
-			terminalSafe(answer), len(choices))
-		if errors.Is(err, io.EOF) {
-			// There was an answer; it was the wrong one. Saying none came
-			// would send the reader looking for the wrong mistake.
-			return "", fmt.Errorf("%q is not one of the choices for which %s to use, and there is nothing left to read",
-				terminalSafe(answer), what)
-		}
-	}
 }

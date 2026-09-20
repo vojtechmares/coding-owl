@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -64,73 +63,85 @@ With --token-stdin the setup is skipped and the token is read from standard
 input instead, for a machine that has one already.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := args[0]
-			// The name becomes a directory of its own, so it is checked here
-			// as well as by the daemon: this command builds that directory's
-			// path before the daemon has seen the name.
-			if err := account.CheckName(name); err != nil {
-				return err
-			}
-			if driverName == "" {
-				driverName = drivers.Default
-			}
-			if !drivers.Known(driverName) {
-				return drivers.Unknown(driverName)
-			}
-			// The tool's own setup is a browser round trip the user does by
-			// hand, and it writes into the Account's directory. A daemon that
-			// is not there, and a name that is already taken, are both worth
-			// finding out about before that rather than after it: re-running
-			// the setup for an Account that exists would authorise a
-			// subscription into its directory and then be refused.
-			var setup setupCommand
-			if !tokenStdin {
-				if err := nameIsFree(cmd, env, name); err != nil {
-					return err
-				}
-				// The setup runs the tool, so where the tool is comes from
-				// the daemon's own file, as it does for a Run. A token typed
-				// in runs nothing, and reads nothing.
-				global, _, err := config.LoadGlobal(filepath.Join(env.Paths.ConfigDir, config.GlobalFileName))
-				if err != nil {
-					return err
-				}
-				d, _ := drivers.Lookup(driverName, global)
-				setup = d.SetupToken
-			}
-			token, err := accountToken(cmd, env, setup, env.Paths.DataDir, name, tokenStdin)
-			if err != nil {
-				return err
-			}
-			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
-				a, err := c.AddAccount(ctx, client.AddAccountRequest{
-					Name:            name,
-					Driver:          driverName,
-					Token:           token,
-					FailoverAllowed: failover,
-				})
-				if err != nil {
-					return err
-				}
-				_, _ = fmt.Fprintf(env.Stdout, "account %s added, on %s\n", a.Name, a.Driver)
-				_, _ = fmt.Fprintf(env.Stdout, "configuration directory: %s\n", a.ConfigDir)
-				_, _ = fmt.Fprintf(env.Stdout, "run its jobs by putting `account: %s` in a project's configuration\n", a.Name)
-				// The directory above is the tool's own, which is what makes
-				// the tool's own commands the way to configure this Account.
-				// Printing where it is without saying that leaves the user to
-				// work out what to do with a path.
-				_, _ = fmt.Fprintf(env.Stdout,
-					"configure it with its tool's own commands, as in `owl account exec %s -- mcp list`\n", a.Name)
-				_, _ = fmt.Fprintf(env.Stdout,
-					"give every run on it standing instructions with `owl account instructions edit %s`\n", a.Name)
-				return nil
-			})
+			return accountAdd(cmd, env, newAsker(env), args[0], driverName, failover, tokenStdin)
 		},
 	}
 	cmd.Flags().StringVar(&driverName, "driver", drivers.Default, "coding tool this Account belongs to")
 	cmd.Flags().BoolVar(&failover, "failover", false, "record that work may fail over to another Account (recorded and unused)")
 	cmd.Flags().BoolVar(&tokenStdin, "token-stdin", false, "read the token from standard input instead of running the tool's setup")
 	return cmd
+}
+
+// accountAdd registers an Account: it walks the tool's own token setup, or
+// takes a token from standard input, and tells the daemon. It is a function of
+// its own because `owl setup` registers the first Account the same way, and a
+// first-time walkthrough that registered Accounts differently from
+// `owl account add` would be a second thing to keep right (issue #125).
+//
+// The asker is passed in rather than made here because it is buffered: a
+// command that has already asked something holds what it read ahead, and a
+// second reader over the same standard input would lose it.
+func accountAdd(cmd *cobra.Command, env Env, ask *asker, name, driverName string, failover, tokenStdin bool) error {
+	// The name becomes a directory of its own, so it is checked here
+	// as well as by the daemon: this command builds that directory's
+	// path before the daemon has seen the name.
+	if err := account.CheckName(name); err != nil {
+		return err
+	}
+	if driverName == "" {
+		driverName = drivers.Default
+	}
+	if !drivers.Known(driverName) {
+		return drivers.Unknown(driverName)
+	}
+	// The tool's own setup is a browser round trip the user does by
+	// hand, and it writes into the Account's directory. A daemon that
+	// is not there, and a name that is already taken, are both worth
+	// finding out about before that rather than after it: re-running
+	// the setup for an Account that exists would authorise a
+	// subscription into its directory and then be refused.
+	var setup setupCommand
+	if !tokenStdin {
+		if err := nameIsFree(cmd, env, name); err != nil {
+			return err
+		}
+		// The setup runs the tool, so where the tool is comes from
+		// the daemon's own file, as it does for a Run. A token typed
+		// in runs nothing, and reads nothing.
+		global, _, err := config.LoadGlobal(filepath.Join(env.Paths.ConfigDir, config.GlobalFileName))
+		if err != nil {
+			return err
+		}
+		d, _ := drivers.Lookup(driverName, global)
+		setup = d.SetupToken
+	}
+	token, err := accountToken(cmd, env, ask, setup, env.Paths.DataDir, name, tokenStdin)
+	if err != nil {
+		return err
+	}
+	return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
+		a, err := c.AddAccount(ctx, client.AddAccountRequest{
+			Name:            name,
+			Driver:          driverName,
+			Token:           token,
+			FailoverAllowed: failover,
+		})
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(env.Stdout, "account %s added, on %s\n", a.Name, a.Driver)
+		_, _ = fmt.Fprintf(env.Stdout, "configuration directory: %s\n", a.ConfigDir)
+		_, _ = fmt.Fprintf(env.Stdout, "run its jobs by putting `account: %s` in a project's configuration\n", a.Name)
+		// The directory above is the tool's own, which is what makes
+		// the tool's own commands the way to configure this Account.
+		// Printing where it is without saying that leaves the user to
+		// work out what to do with a path.
+		_, _ = fmt.Fprintf(env.Stdout,
+			"configure it with its tool's own commands, as in `owl account exec %s -- mcp list`\n", a.Name)
+		_, _ = fmt.Fprintf(env.Stdout,
+			"give every run on it standing instructions with `owl account instructions edit %s`\n", a.Name)
+		return nil
+	})
 }
 
 // nameIsFree reports whether the daemon is there and has no Account of that
@@ -157,7 +168,7 @@ type setupCommand func(configDir string) (agent.Invocation, error)
 
 // accountToken is the long-lived token to store for an Account: what is on
 // standard input, or what the tool's own setup printed for the user to paste.
-func accountToken(cmd *cobra.Command, env Env, setup setupCommand, dataDir, name string, fromStdin bool) (string, error) {
+func accountToken(cmd *cobra.Command, env Env, ask *asker, setup setupCommand, dataDir, name string, fromStdin bool) (string, error) {
 	configDir := account.DirFor(dataDir, name)
 	if fromStdin {
 		token, err := io.ReadAll(io.LimitReader(env.stdin(), maxToken))
@@ -193,7 +204,10 @@ func accountToken(cmd *cobra.Command, env Env, setup setupCommand, dataDir, name
 		return "", fmt.Errorf("running %s %s: %w", inv.Path, strings.Join(inv.Args, " "), err)
 	}
 	_, _ = fmt.Fprint(env.Stdout, "\nPaste the token it printed: ")
-	line, err := bufio.NewReader(io.LimitReader(env.stdin(), maxToken)).ReadString('\n')
+	// Read through the command's own reader rather than a second one over the
+	// same standard input: a buffered reader holds what it has read ahead, and
+	// `owl setup` has already asked this command's name through it.
+	line, err := ask.in.ReadString('\n')
 	// A token typed without a newline, or piped in, ends at end of file, which
 	// is not a failure.
 	if err != nil && !errors.Is(err, io.EOF) {
