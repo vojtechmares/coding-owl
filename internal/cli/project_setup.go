@@ -174,7 +174,10 @@ func (a *asker) choose(env Env, what string, choices []string) (string, error) {
 		_, _ = fmt.Fprintf(env.Stdout, "%q is not one of the choices; pick a number between 1 and %d.\n",
 			terminalSafe(answer), len(choices))
 		if errors.Is(err, io.EOF) {
-			return "", fmt.Errorf("no answer for which %s to use, and nothing left to read", what)
+			// There was an answer; it was the wrong one. Saying none came
+			// would send the reader looking for the wrong mistake.
+			return "", fmt.Errorf("%q is not one of the choices for which %s to use, and there is nothing left to read",
+				terminalSafe(answer), what)
 		}
 	}
 }

@@ -116,11 +116,29 @@ func (s *Service) resolveSetupProject(ctx context.Context, req SetupRequest) (st
 	// The caller's own absolute form of the argument, because a relative path
 	// means nothing to a daemon that was started somewhere else.
 	dir := strings.TrimSpace(req.Path)
-	if dir == "" && given == "" {
+	if given == "" {
 		dir = req.WorkingDir
 	}
 	if dir == "" {
+		if given != "" {
+			return "", invalid(
+				"no project is named %q, and no path came with it to look for one at; owl project list says what there is",
+				given)
+		}
 		return "", invalid("no project was named and there is no working directory to take one from")
+	}
+	// A path that is not there is not a path. Without this, a mistyped name
+	// typed inside a Project reads as a path under it, which every containing
+	// test then matches - and setup would quietly configure whichever Project
+	// the user happened to be standing in rather than saying it had never
+	// heard of what they asked for.
+	if _, err := os.Stat(dir); err != nil {
+		if given != "" {
+			return "", invalid(
+				"no project is named %q, and there is nothing at %s to find one from; owl project list says what there is",
+				given, dir)
+		}
+		return "", invalid("%s is not a directory to look for a project in", dir)
 	}
 	projects, err := s.List(ctx)
 	if err != nil {
