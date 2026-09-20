@@ -218,8 +218,10 @@ unattendedClauses:       # appended to Owl's standing unattended contract
 ```yaml
 apiVersion: codingowl.dev/v1
 claudePath: /opt/homebrew/bin/claude
+credentialStore: keychain
 idle:
   after: 10m
+  interval: 30s
   requirePower: true
 graceWindow: 15m
 maxParallelRuns: 2

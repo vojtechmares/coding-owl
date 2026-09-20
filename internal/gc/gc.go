@@ -119,8 +119,8 @@ type Options struct {
 	// the worktree it belongs to goes. A Service without one leaves it.
 	WorktreeConfigDir string
 	// ConfigPath is the daemon's own configuration file. When it is named,
-	// how long a Job may wait for a decision is read from it at the start of
-	// every collection, so that an edit takes effect on the next collection
+	// how long a Job may wait for a decision is read from it once for every
+	// collection, so that an edit takes effect on the next collection
 	// rather than on the next restart - the way the idle policy and the grace
 	// window are already read where they are used (issue #119). A file that
 	// is not there, or that cannot be read, leaves Owl's own default in
@@ -163,7 +163,10 @@ func NewService(opts Options) *Service {
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.DiscardHandler)
 	}
-	if opts.ReviewAfter <= 0 {
+	// Only for a Service that reads no file: one that does takes the threshold
+	// from the file every collection, and normalising the field it will never
+	// look at would only suggest otherwise.
+	if opts.ConfigPath == "" && opts.ReviewAfter <= 0 {
 		opts.ReviewAfter = DefaultReviewAfter
 	}
 	return &Service{opts: opts, now: time.Now}
@@ -236,7 +239,7 @@ func (s *Service) Collect(ctx context.Context) (Report, error) {
 	jobs = s.accept(ctx, projects, jobs, &report)
 	s.reconcile(ctx, projects, jobs, candidates, &report)
 	s.prune(projects, &report)
-	s.report(ctx, jobs, running, &report)
+	s.report(ctx, jobs, running, s.reviewAfter(), &report)
 	return report, nil
 }
 
@@ -256,7 +259,7 @@ func (s *Service) Unfinished(ctx context.Context) ([]Unfinished, error) {
 	}
 	var report Report
 	s.worktrees(jobs, candidates, &report)
-	s.report(ctx, jobs, running, &report)
+	s.report(ctx, jobs, running, s.reviewAfter(), &report)
 	return report.Unfinished, nil
 }
 
@@ -531,14 +534,12 @@ func (s *Service) owns(path string) bool {
 
 // report adds the Jobs nothing is going to resolve on its own: one that has
 // waited too long for a decision, and one left active by a daemon that died.
-func (s *Service) report(ctx context.Context, jobs []store.Job, running []store.Run, report *Report) {
+func (s *Service) report(ctx context.Context, jobs []store.Job, running []store.Run,
+	waitsFor time.Duration, report *Report) {
 	inProgress := map[int64]bool{}
 	for _, r := range running {
 		inProgress[r.JobID] = true
 	}
-	// Read once for the whole report, so that every Job in it was judged
-	// against the same threshold.
-	waitsFor := s.reviewAfter()
 	now := s.now()
 	for _, j := range jobs {
 		switch queue.State(j.State) {

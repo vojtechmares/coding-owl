@@ -151,9 +151,9 @@ func Run(ctx context.Context, opts Options) error {
 		Store:             db,
 		WorktreeDir:       worktrees,
 		WorktreeConfigDir: filepath.Join(opts.Paths.DataDir, ownedDir),
-		// How long a Job may wait for a decision is read from the file at the
-		// start of every collection rather than taken once here, so that an
-		// edit counts from the next collection (issue #119).
+		// How long a Job may wait for a decision is read from the file once
+		// for every collection rather than taken once here, so that an edit
+		// counts from the next collection (issue #119).
 		ConfigPath: configPath,
 		Logger:     log,
 	})
@@ -365,11 +365,9 @@ func collect(ctx context.Context, collector *gc.Service, every func() time.Durat
 					"reclaimed", len(report.Reclaimed), "accepted", len(report.Accepted),
 					"pruned", len(report.Pruned), "unfinished", len(report.Unfinished))
 			}
-			wait := gc.DefaultInterval
-			if every != nil {
-				if d := every(); d > 0 {
-					wait = d
-				}
+			wait := every()
+			if wait <= 0 {
+				wait = gc.DefaultInterval
 			}
 			timer := time.NewTimer(wait)
 			select {
