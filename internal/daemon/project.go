@@ -85,6 +85,21 @@ func (s *projectService) RemoveProject(ctx context.Context, req *connect.Request
 	return connect.NewResponse(&codingowlv1.RemoveProjectResponse{JobsRemoved: int32(jobs)}), nil
 }
 
+func (s *projectService) SetupProject(ctx context.Context, req *connect.Request[codingowlv1.SetupProjectRequest]) (*connect.Response[codingowlv1.SetupProjectResponse], error) {
+	file, err := s.projects.Setup(ctx, project.SetupRequest{
+		Project:    req.Msg.GetProject(),
+		WorkingDir: req.Msg.GetWorkingDir(),
+		Account:    req.Msg.GetAccount(),
+		InRepo:     req.Msg.GetInRepo(),
+	})
+	if err != nil {
+		return nil, rpcError(err)
+	}
+	return connect.NewResponse(&codingowlv1.SetupProjectResponse{
+		File: &codingowlv1.ConfigFile{Path: file.Path, InRepo: file.InRepo},
+	}), nil
+}
+
 func toProto(p project.Project) *codingowlv1.Project {
 	return &codingowlv1.Project{
 		Name:       p.Name,

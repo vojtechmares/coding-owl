@@ -51,6 +51,9 @@ const (
 	// ProjectServiceRemoveProjectProcedure is the fully-qualified name of the ProjectService's
 	// RemoveProject RPC.
 	ProjectServiceRemoveProjectProcedure = "/codingowl.v1.ProjectService/RemoveProject"
+	// ProjectServiceSetupProjectProcedure is the fully-qualified name of the ProjectService's
+	// SetupProject RPC.
+	ProjectServiceSetupProjectProcedure = "/codingowl.v1.ProjectService/SetupProject"
 )
 
 // ProjectServiceClient is a client for the codingowl.v1.ProjectService service.
@@ -68,6 +71,9 @@ type ProjectServiceClient interface {
 	RenameProject(context.Context, *connect.Request[v1.RenameProjectRequest]) (*connect.Response[v1.RenameProjectResponse], error)
 	// RemoveProject deregisters a Project.
 	RemoveProject(context.Context, *connect.Request[v1.RemoveProjectRequest]) (*connect.Response[v1.RemoveProjectResponse], error)
+	// SetupProject writes a Project's first configuration file: the Account its
+	// Jobs run on, and nothing else. A Project that already has one is refused.
+	SetupProject(context.Context, *connect.Request[v1.SetupProjectRequest]) (*connect.Response[v1.SetupProjectResponse], error)
 }
 
 // NewProjectServiceClient constructs a client for the codingowl.v1.ProjectService service. By
@@ -117,6 +123,12 @@ func NewProjectServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(projectServiceMethods.ByName("RemoveProject")),
 			connect.WithClientOptions(opts...),
 		),
+		setupProject: connect.NewClient[v1.SetupProjectRequest, v1.SetupProjectResponse](
+			httpClient,
+			baseURL+ProjectServiceSetupProjectProcedure,
+			connect.WithSchema(projectServiceMethods.ByName("SetupProject")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -128,6 +140,7 @@ type projectServiceClient struct {
 	moveProject   *connect.Client[v1.MoveProjectRequest, v1.MoveProjectResponse]
 	renameProject *connect.Client[v1.RenameProjectRequest, v1.RenameProjectResponse]
 	removeProject *connect.Client[v1.RemoveProjectRequest, v1.RemoveProjectResponse]
+	setupProject  *connect.Client[v1.SetupProjectRequest, v1.SetupProjectResponse]
 }
 
 // AddProject calls codingowl.v1.ProjectService.AddProject.
@@ -160,6 +173,11 @@ func (c *projectServiceClient) RemoveProject(ctx context.Context, req *connect.R
 	return c.removeProject.CallUnary(ctx, req)
 }
 
+// SetupProject calls codingowl.v1.ProjectService.SetupProject.
+func (c *projectServiceClient) SetupProject(ctx context.Context, req *connect.Request[v1.SetupProjectRequest]) (*connect.Response[v1.SetupProjectResponse], error) {
+	return c.setupProject.CallUnary(ctx, req)
+}
+
 // ProjectServiceHandler is an implementation of the codingowl.v1.ProjectService service.
 type ProjectServiceHandler interface {
 	// AddProject registers a repository.
@@ -175,6 +193,9 @@ type ProjectServiceHandler interface {
 	RenameProject(context.Context, *connect.Request[v1.RenameProjectRequest]) (*connect.Response[v1.RenameProjectResponse], error)
 	// RemoveProject deregisters a Project.
 	RemoveProject(context.Context, *connect.Request[v1.RemoveProjectRequest]) (*connect.Response[v1.RemoveProjectResponse], error)
+	// SetupProject writes a Project's first configuration file: the Account its
+	// Jobs run on, and nothing else. A Project that already has one is refused.
+	SetupProject(context.Context, *connect.Request[v1.SetupProjectRequest]) (*connect.Response[v1.SetupProjectResponse], error)
 }
 
 // NewProjectServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -220,6 +241,12 @@ func NewProjectServiceHandler(svc ProjectServiceHandler, opts ...connect.Handler
 		connect.WithSchema(projectServiceMethods.ByName("RemoveProject")),
 		connect.WithHandlerOptions(opts...),
 	)
+	projectServiceSetupProjectHandler := connect.NewUnaryHandler(
+		ProjectServiceSetupProjectProcedure,
+		svc.SetupProject,
+		connect.WithSchema(projectServiceMethods.ByName("SetupProject")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/codingowl.v1.ProjectService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ProjectServiceAddProjectProcedure:
@@ -234,6 +261,8 @@ func NewProjectServiceHandler(svc ProjectServiceHandler, opts ...connect.Handler
 			projectServiceRenameProjectHandler.ServeHTTP(w, r)
 		case ProjectServiceRemoveProjectProcedure:
 			projectServiceRemoveProjectHandler.ServeHTTP(w, r)
+		case ProjectServiceSetupProjectProcedure:
+			projectServiceSetupProjectHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -265,4 +294,8 @@ func (UnimplementedProjectServiceHandler) RenameProject(context.Context, *connec
 
 func (UnimplementedProjectServiceHandler) RemoveProject(context.Context, *connect.Request[v1.RemoveProjectRequest]) (*connect.Response[v1.RemoveProjectResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.ProjectService.RemoveProject is not implemented"))
+}
+
+func (UnimplementedProjectServiceHandler) SetupProject(context.Context, *connect.Request[v1.SetupProjectRequest]) (*connect.Response[v1.SetupProjectResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("codingowl.v1.ProjectService.SetupProject is not implemented"))
 }

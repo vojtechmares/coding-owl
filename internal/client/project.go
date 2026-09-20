@@ -33,6 +33,31 @@ type ProjectDetails struct {
 	Config  ProjectConfig
 }
 
+// ConfigFile is a configuration file on disk, as the daemon reports having
+// written it.
+type ConfigFile struct {
+	Path string
+	// InRepo is true for a file in the Project's repository, which a Run reads
+	// from the base branch and not from where it was written, so it does
+	// nothing until it is committed (ADR-0014).
+	InRepo bool
+}
+
+// SetupProject writes a Project's first configuration file, naming the Account
+// its Jobs run on. project is a Project's name or a path inside one; empty
+// means the Project workingDir is in. A Project that already has a
+// configuration file is refused rather than rewritten.
+func (c *Client) SetupProject(ctx context.Context, project, workingDir, account string, inRepo bool) (ConfigFile, error) {
+	res, err := c.projects.SetupProject(ctx, connect.NewRequest(&codingowlv1.SetupProjectRequest{
+		Project: project, WorkingDir: workingDir, Account: account, InRepo: inRepo,
+	}))
+	if err != nil {
+		return ConfigFile{}, c.wrap(err)
+	}
+	f := res.Msg.GetFile()
+	return ConfigFile{Path: f.GetPath(), InRepo: f.GetInRepo()}, nil
+}
+
 // AddProject registers the repository at path. name and baseBranch are
 // optional overrides; empty means "let the daemon decide".
 func (c *Client) AddProject(ctx context.Context, path, name, baseBranch string) (Project, error) {

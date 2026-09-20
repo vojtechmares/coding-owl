@@ -728,6 +728,181 @@ func (x *RemoveProjectResponse) GetJobsRemoved() int32 {
 	return 0
 }
 
+type SetupProjectRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Project names the Project, or a path inside one. Empty means the Project
+	// WorkingDir is in.
+	Project string `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
+	// WorkingDir is an absolute path to the directory the caller ran in.
+	WorkingDir string `protobuf:"bytes,2,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
+	// Account is the Account this Project's Jobs will run on (ADR-0023).
+	Account string `protobuf:"bytes,3,opt,name=account,proto3" json:"account,omitempty"`
+	// InRepo asks for `.coding-owl.yaml` in the repository, which is committed
+	// and read from the base branch, rather than the config-home fallback,
+	// which is read from disk (ADR-0014).
+	InRepo        bool `protobuf:"varint,4,opt,name=in_repo,json=inRepo,proto3" json:"in_repo,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetupProjectRequest) Reset() {
+	*x = SetupProjectRequest{}
+	mi := &file_codingowl_v1_project_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetupProjectRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetupProjectRequest) ProtoMessage() {}
+
+func (x *SetupProjectRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_project_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetupProjectRequest.ProtoReflect.Descriptor instead.
+func (*SetupProjectRequest) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_project_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *SetupProjectRequest) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *SetupProjectRequest) GetWorkingDir() string {
+	if x != nil {
+		return x.WorkingDir
+	}
+	return ""
+}
+
+func (x *SetupProjectRequest) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *SetupProjectRequest) GetInRepo() bool {
+	if x != nil {
+		return x.InRepo
+	}
+	return false
+}
+
+type SetupProjectResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	File          *ConfigFile            `protobuf:"bytes,1,opt,name=file,proto3" json:"file,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetupProjectResponse) Reset() {
+	*x = SetupProjectResponse{}
+	mi := &file_codingowl_v1_project_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetupProjectResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetupProjectResponse) ProtoMessage() {}
+
+func (x *SetupProjectResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_project_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetupProjectResponse.ProtoReflect.Descriptor instead.
+func (*SetupProjectResponse) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_project_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *SetupProjectResponse) GetFile() *ConfigFile {
+	if x != nil {
+		return x.File
+	}
+	return nil
+}
+
+// ConfigFile is a configuration file on disk, and whether it is one a Run
+// reads from the base branch rather than from where it was written.
+type ConfigFile struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Path  string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// InRepo is true for a file in the Project's repository, which does nothing
+	// until it is committed (ADR-0014).
+	InRepo        bool `protobuf:"varint,2,opt,name=in_repo,json=inRepo,proto3" json:"in_repo,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfigFile) Reset() {
+	*x = ConfigFile{}
+	mi := &file_codingowl_v1_project_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigFile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigFile) ProtoMessage() {}
+
+func (x *ConfigFile) ProtoReflect() protoreflect.Message {
+	mi := &file_codingowl_v1_project_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigFile.ProtoReflect.Descriptor instead.
+func (*ConfigFile) Descriptor() ([]byte, []int) {
+	return file_codingowl_v1_project_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ConfigFile) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *ConfigFile) GetInRepo() bool {
+	if x != nil {
+		return x.InRepo
+	}
+	return false
+}
+
 var File_codingowl_v1_project_proto protoreflect.FileDescriptor
 
 const file_codingowl_v1_project_proto_rawDesc = "" +
@@ -773,7 +948,19 @@ const file_codingowl_v1_project_proto_rawDesc = "" +
 	"\x14RemoveProjectRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\":\n" +
 	"\x15RemoveProjectResponse\x12!\n" +
-	"\fjobs_removed\x18\x01 \x01(\x05R\vjobsRemoved2\x9d\x04\n" +
+	"\fjobs_removed\x18\x01 \x01(\x05R\vjobsRemoved\"\x83\x01\n" +
+	"\x13SetupProjectRequest\x12\x18\n" +
+	"\aproject\x18\x01 \x01(\tR\aproject\x12\x1f\n" +
+	"\vworking_dir\x18\x02 \x01(\tR\n" +
+	"workingDir\x12\x18\n" +
+	"\aaccount\x18\x03 \x01(\tR\aaccount\x12\x17\n" +
+	"\ain_repo\x18\x04 \x01(\bR\x06inRepo\"D\n" +
+	"\x14SetupProjectResponse\x12,\n" +
+	"\x04file\x18\x01 \x01(\v2\x18.codingowl.v1.ConfigFileR\x04file\"9\n" +
+	"\n" +
+	"ConfigFile\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x17\n" +
+	"\ain_repo\x18\x02 \x01(\bR\x06inRepo2\xf6\x04\n" +
 	"\x0eProjectService\x12Q\n" +
 	"\n" +
 	"AddProject\x12\x1f.codingowl.v1.AddProjectRequest\x1a .codingowl.v1.AddProjectResponse\"\x00\x12W\n" +
@@ -782,7 +969,8 @@ const file_codingowl_v1_project_proto_rawDesc = "" +
 	"GetProject\x12\x1f.codingowl.v1.GetProjectRequest\x1a .codingowl.v1.GetProjectResponse\"\x00\x12T\n" +
 	"\vMoveProject\x12 .codingowl.v1.MoveProjectRequest\x1a!.codingowl.v1.MoveProjectResponse\"\x00\x12Z\n" +
 	"\rRenameProject\x12\".codingowl.v1.RenameProjectRequest\x1a#.codingowl.v1.RenameProjectResponse\"\x00\x12Z\n" +
-	"\rRemoveProject\x12\".codingowl.v1.RemoveProjectRequest\x1a#.codingowl.v1.RemoveProjectResponse\"\x00B\xb2\x01\n" +
+	"\rRemoveProject\x12\".codingowl.v1.RemoveProjectRequest\x1a#.codingowl.v1.RemoveProjectResponse\"\x00\x12W\n" +
+	"\fSetupProject\x12!.codingowl.v1.SetupProjectRequest\x1a\".codingowl.v1.SetupProjectResponse\"\x00B\xb2\x01\n" +
 	"\x10com.codingowl.v1B\fProjectProtoP\x01Z?github.com/vojtechmares/coding-owl/gen/codingowl/v1;codingowlv1\xa2\x02\x03CXX\xaa\x02\fCodingowl.V1\xca\x02\fCodingowl\\V1\xe2\x02\x18Codingowl\\V1\\GPBMetadata\xea\x02\rCodingowl::V1b\x06proto3"
 
 var (
@@ -797,7 +985,7 @@ func file_codingowl_v1_project_proto_rawDescGZIP() []byte {
 	return file_codingowl_v1_project_proto_rawDescData
 }
 
-var file_codingowl_v1_project_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_codingowl_v1_project_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_codingowl_v1_project_proto_goTypes = []any{
 	(*Project)(nil),               // 0: codingowl.v1.Project
 	(*ProjectConfig)(nil),         // 1: codingowl.v1.ProjectConfig
@@ -813,33 +1001,39 @@ var file_codingowl_v1_project_proto_goTypes = []any{
 	(*RenameProjectResponse)(nil), // 11: codingowl.v1.RenameProjectResponse
 	(*RemoveProjectRequest)(nil),  // 12: codingowl.v1.RemoveProjectRequest
 	(*RemoveProjectResponse)(nil), // 13: codingowl.v1.RemoveProjectResponse
-	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
+	(*SetupProjectRequest)(nil),   // 14: codingowl.v1.SetupProjectRequest
+	(*SetupProjectResponse)(nil),  // 15: codingowl.v1.SetupProjectResponse
+	(*ConfigFile)(nil),            // 16: codingowl.v1.ConfigFile
+	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
 }
 var file_codingowl_v1_project_proto_depIdxs = []int32{
-	14, // 0: codingowl.v1.Project.registered:type_name -> google.protobuf.Timestamp
+	17, // 0: codingowl.v1.Project.registered:type_name -> google.protobuf.Timestamp
 	0,  // 1: codingowl.v1.AddProjectResponse.project:type_name -> codingowl.v1.Project
 	0,  // 2: codingowl.v1.ListProjectsResponse.projects:type_name -> codingowl.v1.Project
 	0,  // 3: codingowl.v1.GetProjectResponse.project:type_name -> codingowl.v1.Project
 	1,  // 4: codingowl.v1.GetProjectResponse.config:type_name -> codingowl.v1.ProjectConfig
 	0,  // 5: codingowl.v1.MoveProjectResponse.project:type_name -> codingowl.v1.Project
 	0,  // 6: codingowl.v1.RenameProjectResponse.project:type_name -> codingowl.v1.Project
-	2,  // 7: codingowl.v1.ProjectService.AddProject:input_type -> codingowl.v1.AddProjectRequest
-	4,  // 8: codingowl.v1.ProjectService.ListProjects:input_type -> codingowl.v1.ListProjectsRequest
-	6,  // 9: codingowl.v1.ProjectService.GetProject:input_type -> codingowl.v1.GetProjectRequest
-	8,  // 10: codingowl.v1.ProjectService.MoveProject:input_type -> codingowl.v1.MoveProjectRequest
-	10, // 11: codingowl.v1.ProjectService.RenameProject:input_type -> codingowl.v1.RenameProjectRequest
-	12, // 12: codingowl.v1.ProjectService.RemoveProject:input_type -> codingowl.v1.RemoveProjectRequest
-	3,  // 13: codingowl.v1.ProjectService.AddProject:output_type -> codingowl.v1.AddProjectResponse
-	5,  // 14: codingowl.v1.ProjectService.ListProjects:output_type -> codingowl.v1.ListProjectsResponse
-	7,  // 15: codingowl.v1.ProjectService.GetProject:output_type -> codingowl.v1.GetProjectResponse
-	9,  // 16: codingowl.v1.ProjectService.MoveProject:output_type -> codingowl.v1.MoveProjectResponse
-	11, // 17: codingowl.v1.ProjectService.RenameProject:output_type -> codingowl.v1.RenameProjectResponse
-	13, // 18: codingowl.v1.ProjectService.RemoveProject:output_type -> codingowl.v1.RemoveProjectResponse
-	13, // [13:19] is the sub-list for method output_type
-	7,  // [7:13] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	16, // 7: codingowl.v1.SetupProjectResponse.file:type_name -> codingowl.v1.ConfigFile
+	2,  // 8: codingowl.v1.ProjectService.AddProject:input_type -> codingowl.v1.AddProjectRequest
+	4,  // 9: codingowl.v1.ProjectService.ListProjects:input_type -> codingowl.v1.ListProjectsRequest
+	6,  // 10: codingowl.v1.ProjectService.GetProject:input_type -> codingowl.v1.GetProjectRequest
+	8,  // 11: codingowl.v1.ProjectService.MoveProject:input_type -> codingowl.v1.MoveProjectRequest
+	10, // 12: codingowl.v1.ProjectService.RenameProject:input_type -> codingowl.v1.RenameProjectRequest
+	12, // 13: codingowl.v1.ProjectService.RemoveProject:input_type -> codingowl.v1.RemoveProjectRequest
+	14, // 14: codingowl.v1.ProjectService.SetupProject:input_type -> codingowl.v1.SetupProjectRequest
+	3,  // 15: codingowl.v1.ProjectService.AddProject:output_type -> codingowl.v1.AddProjectResponse
+	5,  // 16: codingowl.v1.ProjectService.ListProjects:output_type -> codingowl.v1.ListProjectsResponse
+	7,  // 17: codingowl.v1.ProjectService.GetProject:output_type -> codingowl.v1.GetProjectResponse
+	9,  // 18: codingowl.v1.ProjectService.MoveProject:output_type -> codingowl.v1.MoveProjectResponse
+	11, // 19: codingowl.v1.ProjectService.RenameProject:output_type -> codingowl.v1.RenameProjectResponse
+	13, // 20: codingowl.v1.ProjectService.RemoveProject:output_type -> codingowl.v1.RemoveProjectResponse
+	15, // 21: codingowl.v1.ProjectService.SetupProject:output_type -> codingowl.v1.SetupProjectResponse
+	15, // [15:22] is the sub-list for method output_type
+	8,  // [8:15] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_codingowl_v1_project_proto_init() }
@@ -853,7 +1047,7 @@ func file_codingowl_v1_project_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_codingowl_v1_project_proto_rawDesc), len(file_codingowl_v1_project_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
