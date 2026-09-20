@@ -52,18 +52,27 @@ branch, never from a working tree, so it does nothing until it is committed.
 A Project that already has a configuration file is left alone.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var named string
+			var named, path string
 			if len(args) == 1 {
 				named = args[0]
+				// Sent alongside the name it might be, because the daemon
+				// resolves nothing on the caller's behalf: `.` and
+				// `../other` mean nothing to a process started elsewhere.
+				// Which of the two it is stays the daemon's to decide.
+				abs, err := userPath(named)
+				if err != nil {
+					return err
+				}
+				path = abs
 			}
 			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
-				return projectSetup(ctx, env, c, named)
+				return projectSetup(ctx, env, c, named, path)
 			})
 		},
 	}
 }
 
-func projectSetup(ctx context.Context, env Env, c *client.Client, named string) error {
+func projectSetup(ctx context.Context, env Env, c *client.Client, named, path string) error {
 	accounts, err := c.ListAccounts(ctx)
 	if err != nil {
 		return err
@@ -80,7 +89,7 @@ func projectSetup(ctx context.Context, env Env, c *client.Client, named string) 
 	if err != nil {
 		return err
 	}
-	file, err := c.SetupProject(ctx, named, env.workingDir(), account, inRepo)
+	file, err := c.SetupProject(ctx, named, path, env.workingDir(), account, inRepo)
 	if err != nil {
 		return err
 	}
@@ -88,6 +97,9 @@ func projectSetup(ctx context.Context, env Env, c *client.Client, named string) 
 	if file.InRepo {
 		_, _ = fmt.Fprintln(env.Stdout,
 			"commit it to the base branch: a run reads a project's configuration from there, never from a working tree")
+	} else {
+		_, _ = fmt.Fprintln(env.Stdout,
+			"it is read from where it is, so the project runs on that account from now; it is not committed anywhere")
 	}
 	_, _ = fmt.Fprintf(env.Stdout,
 		"\nthat is the one setting a project cannot run without. What else a configuration\n"+

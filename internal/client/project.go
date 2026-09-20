@@ -44,12 +44,14 @@ type ConfigFile struct {
 }
 
 // SetupProject writes a Project's first configuration file, naming the Account
-// its Jobs run on. project is a Project's name or a path inside one; empty
-// means the Project workingDir is in. A Project that already has a
-// configuration file is refused rather than rewritten.
-func (c *Client) SetupProject(ctx context.Context, project, workingDir, account string, inRepo bool) (ConfigFile, error) {
+// its Jobs run on. project is a Project's name or a path inside one, and path
+// is that same argument made absolute, because only the caller knows what a
+// relative one is relative to; both empty means the Project workingDir is in.
+// A Project that already has a configuration file is refused rather than
+// rewritten.
+func (c *Client) SetupProject(ctx context.Context, project, path, workingDir, account string, inRepo bool) (ConfigFile, error) {
 	res, err := c.projects.SetupProject(ctx, connect.NewRequest(&codingowlv1.SetupProjectRequest{
-		Project: project, WorkingDir: workingDir, Account: account, InRepo: inRepo,
+		Project: project, Path: path, WorkingDir: workingDir, Account: account, InRepo: inRepo,
 	}))
 	if err != nil {
 		return ConfigFile{}, c.wrap(err)
