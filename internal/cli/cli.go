@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -133,6 +134,7 @@ func newRoot(env Env) *cobra.Command {
 		newSkillsCmd(env),
 		newModelsCmd(env),
 		newPauseCmd(env),
+		newSetupCmd(env),
 		newResumeCmd(env),
 	)
 	return root
@@ -221,22 +223,11 @@ installed, so the daemon looks at the same layout you do. Installing again
 replaces it, which is how you point it at a new binary.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if runtime.GOOS != "darwin" {
-				return fmt.Errorf("owl daemon install writes a launchd agent, which is macOS's; on %s run owl daemon run under your own service manager", runtime.GOOS)
-			}
-			home := os.Getenv("HOME")
-			if home == "" {
-				return errors.New("HOME is not set, so there is nowhere to write the launch agent")
-			}
-			program, err := os.Executable()
-			if err != nil {
-				return fmt.Errorf("finding the owl binary to run: %w", err)
-			}
-			// Deliberately not resolved through its symlinks: /opt/homebrew/bin/owl
-			// survives an upgrade and the cellar path it points at does not.
-			// Installing again is how the agent is pointed somewhere else.
-			agent := launchd.Describe(program, env.Paths.StateDir, os.Getenv)
 			if print {
+				agent, err := describeLaunchAgent(env)
+				if err != nil {
+					return err
+				}
 				body, err := launchd.Render(agent)
 				if err != nil {
 					return err
@@ -244,18 +235,51 @@ replaces it, which is how you point it at a new binary.`,
 				_, _ = fmt.Fprint(env.Stdout, body)
 				return nil
 			}
-			path, err := launchd.Install(agent, home, os.Getuid())
-			if err != nil {
-				return err
-			}
-			_, _ = fmt.Fprintf(env.Stdout, "wrote the launch agent to %s\n", path)
-			_, _ = fmt.Fprintf(env.Stdout, "launchd is running %s daemon run, and will start it again at login\n", program)
-			_, _ = fmt.Fprintln(env.Stdout, "check on it with: owl daemon status")
-			return nil
+			return installLaunchAgent(env)
 		},
 	}
 	cmd.Flags().BoolVar(&print, "print", false, "print the launch agent instead of installing it")
 	return cmd
+}
+
+// describeLaunchAgent is the agent this machine would install, and says why it
+// cannot be described where it cannot.
+func describeLaunchAgent(env Env) (launchd.Agent, error) {
+	if runtime.GOOS != "darwin" {
+		return launchd.Agent{}, fmt.Errorf("owl daemon install writes a launchd agent, which is macOS's; on %s run owl daemon run under your own service manager", runtime.GOOS)
+	}
+	program, err := os.Executable()
+	if err != nil {
+		return launchd.Agent{}, fmt.Errorf("finding the owl binary to run: %w", err)
+	}
+	// Deliberately not resolved through its symlinks: /opt/homebrew/bin/owl
+	// survives an upgrade and the cellar path it points at does not.
+	// Installing again is how the agent is pointed somewhere else.
+	return launchd.Describe(program, env.Paths.StateDir, os.Getenv), nil
+}
+
+// installLaunchAgent writes the launch agent and loads it, and says what it
+// did. It is a function of its own because `owl setup` offers the same thing
+// to a machine whose daemon is not running (issue #125), and an offer that
+// installed something else would be a second thing to keep right.
+func installLaunchAgent(env Env) error {
+	agent, err := describeLaunchAgent(env)
+	if err != nil {
+		return err
+	}
+	home := os.Getenv("HOME")
+	if home == "" {
+		return errors.New("HOME is not set, so there is nowhere to write the launch agent")
+	}
+	path, err := launchd.Install(agent, home, os.Getuid())
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(env.Stdout, "wrote the launch agent to %s\n", path)
+	_, _ = fmt.Fprintf(env.Stdout, "launchd is running %s, and will start it again at login\n",
+		strings.Join(agent.Arguments, " "))
+	_, _ = fmt.Fprintln(env.Stdout, "check on it with: owl daemon status")
+	return nil
 }
 
 // Main resolves the environment and runs args, returning the exit code. It is

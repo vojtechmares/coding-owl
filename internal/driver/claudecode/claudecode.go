@@ -542,14 +542,23 @@ func accountEnv(configDir, token string) ([]string, error) {
 }
 
 // lookPath finds Claude Code, and says so plainly when it is not there.
-func (d *Driver) lookPath() (string, error) {
+func (d *Driver) lookPath() (string, error) { return Find(d.path) }
+
+// Find is where Claude Code is, looked for exactly as a Run looks for it:
+// the daemon's own claudePath when it names one, then PATH, then where the
+// tool's own installer puts it.
+//
+// It is exported so that `owl setup` can tell a user what the daemon will
+// find before a Run does, rather than describing the search in a second place
+// and drifting from it.
+func Find(configured string) (string, error) {
 	// A path the daemon's file names is used as it is: the setting exists
 	// for a daemon whose PATH says nothing useful, so PATH is not asked.
-	if d.path != "" {
-		if err := executable(d.path); err != nil {
-			return "", fmt.Errorf("claudePath %s: %w", d.path, err)
+	if configured != "" {
+		if err := executable(configured); err != nil {
+			return "", fmt.Errorf("claudePath %s: %w", configured, err)
 		}
-		return d.path, nil
+		return configured, nil
 	}
 	if path, err := exec.LookPath(program); err == nil {
 		return path, nil

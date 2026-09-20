@@ -1,20 +1,18 @@
 package skill
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/vojtechmares/coding-owl/internal/config"
+	"github.com/vojtechmares/coding-owl/internal/yamledit"
 )
 
 // Service manages a Project's Skills: what it declares, what that resolved to,
@@ -198,50 +196,24 @@ func WriteLock(path string, lock Lock) error {
 }
 
 // WriteManifest writes the `skills` section of a configuration file, leaving
-// everything else in it exactly as it was. The file is the user's, and Owl
-// edits one key of it.
+// everything else in it exactly as it was - values, comments and blank lines.
+// The file is the user's, and Owl edits one key of it.
 func WriteManifest(path string, declared []Declared) error {
-	if err := notThroughALink(path); err != nil {
-		return err
-	}
-	var doc yaml.Node
-	data, err := os.ReadFile(path)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
+	file := yamledit.File{
+		Path: path,
 		// A Project with no configuration file gets one carrying the
 		// apiVersion and its skills.
-		data = []byte("apiVersion: " + APIVersion + "\n")
-	case err != nil:
-		return err
+		Start: "apiVersion: " + APIVersion + "\n",
+		Guard: notThroughALink,
 	}
-	held, blanks := holdBlankLines(data)
-	if err := yaml.Unmarshal(held, &doc); err != nil {
-		return fmt.Errorf("%s: %w", path, err)
-	}
-	root := mappingOf(&doc)
-	if root == nil {
-		return fmt.Errorf("%s is not a configuration file Owl can edit", path)
-	}
-	if len(declared) == 0 {
-		removeKey(root, "skills")
-	} else {
-		setKey(root, "skills", skillsNode(declared))
-	}
-	rendered, err := render(&doc)
-	if err != nil {
-		return err
-	}
-	out := blanks.free(rendered)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	if string(out) == string(data) {
-		// Nothing about the file changed, so it is left exactly as it is:
-		// rewriting it would put a diff in front of the user over lines they
-		// did not touch.
+	return file.Edit(func(root *yaml.Node) error {
+		if len(declared) == 0 {
+			yamledit.RemoveKey(root, "skills")
+		} else {
+			yamledit.SetKey(root, "skills", skillsNode(declared))
+		}
 		return nil
-	}
-	return os.WriteFile(path, out, 0o644)
+	})
 }
 
 // notThroughALink refuses a path that is a symlink. Both of these files are
@@ -261,143 +233,22 @@ func notThroughALink(path string) error {
 	return nil
 }
 
-// blankLineMarker stands in for a blank line while the document is a tree.
-// yaml.v3 keeps comments and drops blank lines, and a configuration file a
-// person wrote and has to commit should come back with its paragraphs.
-const blankLineMarker = "#owl-kept-this-line-blank"
-
-// blankLines is whether a document's blank lines are being carried through the
-// round trip as markers. They are not, whenever carrying them would change
-// anything but a blank line: inside a block scalar a blank line is part of a
-// value, and a value is not Owl's to edit.
-type blankLines struct{ held bool }
-
-// holdBlankLines returns the source to parse, and whether the markers are in
-// it. A document that already carries the marker is left alone: freeing it
-// afterwards would blank a line the user wrote.
-func holdBlankLines(data []byte) ([]byte, blankLines) {
-	if bytes.Contains(data, []byte(blankLineMarker)) {
-		return data, blankLines{}
-	}
-	marked := []byte(markBlankLines(string(data)))
-	if !sameValues(data, marked) {
-		return data, blankLines{}
-	}
-	return marked, blankLines{held: true}
-}
-
-// markBlankLines turns every blank line into a comment nothing else would
-// write. The last element is the empty string after the final newline, which
-// is not a line at all.
-func markBlankLines(in string) string {
-	lines := strings.Split(in, "\n")
-	for i, ln := range lines[:max(len(lines)-1, 0)] {
-		if strings.TrimSpace(ln) == "" {
-			lines[i] = blankLineMarker
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-// free turns the markers back into blank lines, wherever the encoder indented
-// them to.
-func (b blankLines) free(rendered []byte) []byte {
-	if !b.held {
-		return rendered
-	}
-	lines := strings.Split(string(rendered), "\n")
-	for i, ln := range lines {
-		if strings.TrimSpace(ln) == blankLineMarker {
-			lines[i] = ""
-		}
-	}
-	return []byte(strings.Join(lines, "\n"))
-}
-
-// sameValues reports whether two documents say the same thing. Comments and
-// blank lines are not values, so a marker that changed one is a marker that
-// landed inside a value.
-func sameValues(a, b []byte) bool {
-	var x, y any
-	if err := yaml.Unmarshal(a, &x); err != nil {
-		return false
-	}
-	if err := yaml.Unmarshal(b, &y); err != nil {
-		return false
-	}
-	return reflect.DeepEqual(x, y)
-}
-
-// render writes a document back out the way it was written: yaml.Marshal
-// indents sequences four spaces, and a configuration file a person wrote and
-// has to commit should not be reindented by Owl editing one key of it.
-func render(doc *yaml.Node) ([]byte, error) {
-	var out strings.Builder
-	enc := yaml.NewEncoder(&out)
-	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
-		return nil, err
-	}
-	if err := enc.Close(); err != nil {
-		return nil, err
-	}
-	return []byte(out.String()), nil
-}
-
 // skillsNode is the `skills` value: one entry per Skill, in the order they were
 // declared, so a file two commands wrote reads the way they were typed.
 func skillsNode(declared []Declared) *yaml.Node {
 	seq := &yaml.Node{Kind: yaml.SequenceNode}
 	for _, d := range declared {
 		entry := &yaml.Node{Kind: yaml.MappingNode}
-		setKey(entry, "git", scalar(d.Source))
+		yamledit.SetKey(entry, "git", yamledit.Scalar(d.Source))
 		if d.Ref != "" {
-			setKey(entry, "ref", scalar(d.Ref))
+			yamledit.SetKey(entry, "ref", yamledit.Scalar(d.Ref))
 		}
 		if d.AutoUpdate {
-			setKey(entry, "auto_update", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
+			yamledit.SetKey(entry, "auto_update", yamledit.Bool(true))
 		}
 		seq.Content = append(seq.Content, entry)
 	}
 	return seq
-}
-
-func scalar(value string) *yaml.Node {
-	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
-}
-
-// mappingOf is the mapping a document holds, and nil for anything else.
-func mappingOf(doc *yaml.Node) *yaml.Node {
-	if doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 {
-		doc = doc.Content[0]
-	}
-	if doc.Kind != yaml.MappingNode {
-		return nil
-	}
-	return doc
-}
-
-// setKey sets one key of a mapping, replacing its value where it is already
-// there and appending it where it is not.
-func setKey(mapping *yaml.Node, key string, value *yaml.Node) {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			mapping.Content[i+1] = value
-			return
-		}
-	}
-	mapping.Content = append(mapping.Content, scalar(key), value)
-}
-
-// removeKey takes a key out of a mapping, and does not mind one that is not
-// there.
-func removeKey(mapping *yaml.Node, key string) {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			mapping.Content = append(mapping.Content[:i], mapping.Content[i+2:]...)
-			return
-		}
-	}
 }
 
 // Names is every Skill in a list of declarations, in order.
