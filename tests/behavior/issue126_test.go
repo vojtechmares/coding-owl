@@ -241,8 +241,10 @@ func TestS5SetupWithNoAccountIsRefusedAndSaysWhatToDo(t *testing.T) {
 	if !strings.Contains(res.stderr, "owl account add") {
 		t.Errorf("stderr does not name owl account add:\n%s", res.stderr)
 	}
-	if _, err := os.Stat(filepath.Join(r.dir, inRepoConfig)); !os.IsNotExist(err) {
-		t.Errorf("setup wrote a file although it had no account to write")
+	for _, path := range []string{filepath.Join(r.dir, inRepoConfig), configHomeConfig(l, "api")} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("setup wrote %s although it had no account to write", path)
+		}
 	}
 }
 
@@ -271,8 +273,10 @@ func TestS6SetupWithNoInputFailsRatherThanHanging(t *testing.T) {
 	if !strings.Contains(errb.String(), "answer") {
 		t.Errorf("stderr does not say it needed an answer:\n%s", errb.String())
 	}
-	if _, err := os.Stat(filepath.Join(r.dir, inRepoConfig)); !os.IsNotExist(err) {
-		t.Errorf("setup wrote a file although it was never answered")
+	for _, path := range []string{filepath.Join(r.dir, inRepoConfig), configHomeConfig(l, "api")} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("setup wrote %s although it was never answered", path)
+		}
 	}
 }
 
@@ -282,8 +286,8 @@ func TestS7AnAnswerThatIsNotOneOfTheChoicesIsAskedAgain(t *testing.T) {
 
 	res := mustSetup(t, l, "api", "9\n"+choiceOf(t, l, "work")+firstChoice)
 
-	if !strings.Contains(res.stdout, "9") {
-		t.Errorf("setup does not say what was wrong with the answer:\n%s", res.stdout)
+	if !strings.Contains(res.stdout, "9") || !strings.Contains(res.stdout, "not one of the choices") {
+		t.Errorf("setup does not say that 9 is not one of the choices:\n%s", res.stdout)
 	}
 	wantSettings(t, filepath.Join(r.dir, inRepoConfig), "work")
 }
@@ -311,10 +315,13 @@ func choiceOf(t *testing.T, l *layout, account string) string {
 
 func TestS8AProjectThatIsNotRegisteredIsRefused(t *testing.T) {
 	l := newLayout(t)
-	configured(t, l, "work")
+	r := configured(t, l, "work")
 	elsewhere := outside(t, l)
 
-	ghost := setup(t, l, "ghost", firstChoice+firstChoice)
+	// Run from inside a registered Project on purpose. A name nobody has is
+	// still a name nobody has, and reading it as a path under wherever the
+	// user is standing would configure that Project instead of saying so.
+	ghost := setupIn(t, l, r.dir, "ghost", firstChoice+firstChoice)
 	stray := setup(t, l, elsewhere, firstChoice+firstChoice)
 
 	for what, res := range map[string]result{"ghost": ghost, elsewhere: stray} {
@@ -324,6 +331,12 @@ func TestS8AProjectThatIsNotRegisteredIsRefused(t *testing.T) {
 		}
 		if !strings.Contains(res.stderr, what) && !namesPath(res.stderr, what) {
 			t.Errorf("setup for %s does not say what it could not find:\n%s", what, res.stderr)
+		}
+	}
+	// Nothing was configured on the way past, in either place.
+	for _, path := range []string{filepath.Join(r.dir, inRepoConfig), configHomeConfig(l, "api")} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("setup wrote %s although it found no project", path)
 		}
 	}
 }
