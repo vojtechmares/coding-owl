@@ -75,6 +75,22 @@ func claudeOnPath() string {
 
 func claudeNowhere() string { return fakeMachineDir }
 
+// prompts are every question owl setup can put, by the words it puts them in.
+// A scenario that says nothing was asked is checked against these rather than
+// against a question mark, which none of them happens to carry.
+var setupPrompts = []string{"Write it now", "Path to claude", "Name for this account", "Paste the token"}
+
+// questionsIn is the first question an output holds, and empty for an output
+// that asked nothing.
+func questionsIn(out string) string {
+	for _, prompt := range setupPrompts {
+		if strings.Contains(out, prompt) {
+			return prompt
+		}
+	}
+	return ""
+}
+
 // launchAgents are the launch agent files under a layout's home, which must
 // stay empty: no scenario here asks for one to be written.
 func launchAgents(t *testing.T, l *layout) []string {
@@ -94,13 +110,19 @@ func TestS1SetupOnAMachineAlreadySetUpAsksNothing(t *testing.T) {
 
 	res := mustSetupRun(t, l, claudeOnPath(), "")
 
-	for _, want := range []string{"daemon", "claude", "account"} {
-		if !strings.Contains(strings.ToLower(res.stdout), want) {
-			t.Errorf("owl setup says nothing about the %s:\n%s", want, res.stdout)
+	// Each of the three reported as the thing it is, not merely named
+	// somewhere in the output: the closing lines mention an account too.
+	for _, want := range []string{
+		"daemon: running",
+		"claude: " + filepath.Join(fakeClaudeDir, "claude"),
+		"account: work",
+	} {
+		if !strings.Contains(res.stdout, want) {
+			t.Errorf("owl setup does not report %q:\n%s", want, res.stdout)
 		}
 	}
-	if strings.Contains(res.stdout, "?") {
-		t.Errorf("owl setup asked something although nothing was missing:\n%s", res.stdout)
+	if asked := questionsIn(res.stdout); asked != "" {
+		t.Errorf("owl setup asked %q although nothing was missing:\n%s", asked, res.stdout)
 	}
 	if got := readFile(t, daemonConfig(l)); got != before {
 		t.Errorf("owl setup wrote the daemon's configuration although nothing was missing:\nbefore\n%s\nafter\n%s", before, got)
@@ -119,9 +141,21 @@ func TestS2SetupWithNoDaemonDoesWhatItCanAndSaysWhatIsLeft(t *testing.T) {
 	if !strings.Contains(whole, "not running") {
 		t.Errorf("owl setup does not say the daemon is not running:\n%s", whole)
 	}
-	// The claude check needs no daemon, so it still happened.
-	if !strings.Contains(whole, "claude") {
-		t.Errorf("owl setup skipped the claude check although it needs no daemon:\n%s", whole)
+	// And names what would start one. Which command that is depends on the
+	// machine, and this owl is in a temporary directory rather than a
+	// Homebrew cellar, so it is the launch agent on macOS and running the
+	// daemon yourself anywhere else.
+	starts := "owl daemon run"
+	if runtime.GOOS == "darwin" {
+		starts = "owl daemon install"
+	}
+	if !strings.Contains(whole, starts) {
+		t.Errorf("owl setup does not name %s as what starts a daemon:\n%s", starts, whole)
+	}
+	// The claude check needs no daemon, so it still happened - and found the
+	// one on the PATH it was given, rather than saying it found none.
+	if !strings.Contains(whole, "claude: "+filepath.Join(fakeClaudeDir, "claude")) {
+		t.Errorf("owl setup does not report the claude it would find:\n%s", whole)
 	}
 	if !strings.Contains(whole, "owl setup") {
 		t.Errorf("owl setup does not say to run it again once the daemon is up:\n%s", whole)
@@ -327,5 +361,56 @@ func TestS12SetupWithNoInputEndsRatherThanHanging(t *testing.T) {
 		if got := readFile(t, daemonConfig(l)); strings.Contains(got, "claudePath") {
 			t.Errorf("owl setup wrote claudePath although it was never answered:\n%s", got)
 		}
+	}
+}
+
+func TestS13AQuestionSkippedLeavesTheCommandUnfinished(t *testing.T) {
+	l := newLayout(t)
+	daemonUp(t, l)
+	addAccount(t, l, "work", testToken)
+
+	// An empty line is the answer that skips the question, and the input does
+	// not run out: what ends the command is the thing left undone.
+	res := setupRun(t, l, "", claudeNowhere(), "\n")
+
+	if res.code == 0 {
+		t.Fatalf("owl setup exited 0 although claude is still nowhere it will be found\nstdout:\n%s", res.stdout)
+	}
+	if strings.Contains(res.stdout, "everything Owl needs") {
+		t.Errorf("owl setup says the machine is ready although claude was skipped:\n%s", res.stdout)
+	}
+	whole := res.stdout + res.stderr
+	if !strings.Contains(whole, "claude") {
+		t.Errorf("owl setup does not name claude as what is still missing:\n%s", whole)
+	}
+	if got := readFile(t, daemonConfig(l)); strings.Contains(got, "claudePath") {
+		t.Errorf("owl setup wrote claudePath although the question was skipped:\n%s", got)
+	}
+}
+
+func TestS14AMachineWithNoDaemonConfigurationGetsOne(t *testing.T) {
+	l := newLayout(t)
+	daemonUp(t, l)
+	addAccount(t, l, "work", testToken)
+	// The daemon is up and has read its file already, so taking it away now
+	// leaves owl setup with the first-time user's case: nothing to edit.
+	if err := os.Remove(daemonConfig(l)); err != nil {
+		t.Fatal(err)
+	}
+	claude := filepath.Join(fakeClaudeDir, "claude")
+
+	mustSetupRun(t, l, claudeNowhere(), claude+"\n")
+
+	got := readFile(t, daemonConfig(l))
+	for _, want := range []string{"apiVersion: codingowl.dev/v1", "claudePath: " + claude} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the configuration owl setup wrote does not carry %q:\n%s", want, got)
+		}
+	}
+	// Read back by the same parser a daemon reads it with: a file that would
+	// be refused at startup is not a file setup may write.
+	again := mustSetupRun(t, l, claudeNowhere(), "")
+	if !strings.Contains(again.stdout, "claude: "+claude) {
+		t.Errorf("owl setup does not report the claude its own file names:\n%s", again.stdout)
 	}
 }
