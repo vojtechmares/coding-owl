@@ -31,8 +31,9 @@ import (
 type File struct {
 	// Path is the file. It is written only when the edit changed something.
 	Path string
-	// Start is what to edit when the file is not there yet. An empty Start
-	// makes an empty mapping.
+	// Start is what to edit when the file is not there yet. It has to be a
+	// mapping, so it carries at least the apiVersion every Owl file does: a
+	// document that says nothing is not one Edit will write to.
 	Start string
 	// DirMode and FileMode are what the file and the directories above it are
 	// made with. Zero is 0o755 and 0o644, which is what a file inside a

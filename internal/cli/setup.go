@@ -136,8 +136,10 @@ func setupDaemon(cmd *cobra.Command, env Env, ask *asker) (bool, error) {
 			}
 			// The agent is loaded, but the daemon it starts is not up yet, and
 			// waiting on it here would be Owl supervising itself. The rest of
-			// the walkthrough is what needs no daemon.
-			_, _ = fmt.Fprintln(env.Stdout, "  it takes a moment to come up")
+			// the walkthrough is what needs no daemon, and the closing line
+			// says to come back - which is why this one does not claim the
+			// daemon is up.
+			_, _ = fmt.Fprintln(env.Stdout, "  it takes a moment to come up, so the daemon is still down for what follows")
 			return false, nil
 		}
 		_, _ = fmt.Fprintln(env.Stdout, "  not written; `owl daemon install` writes it whenever you want it")

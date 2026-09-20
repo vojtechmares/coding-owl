@@ -157,7 +157,7 @@ func TestS2SetupWithNoDaemonDoesWhatItCanAndSaysWhatIsLeft(t *testing.T) {
 	if !strings.Contains(whole, "claude: "+filepath.Join(fakeClaudeDir, "claude")) {
 		t.Errorf("owl setup does not report the claude it would find:\n%s", whole)
 	}
-	if !strings.Contains(whole, "owl setup") {
+	if !strings.Contains(whole, "`owl setup` again") {
 		t.Errorf("owl setup does not say to run it again once the daemon is up:\n%s", whole)
 	}
 }
@@ -256,8 +256,13 @@ func TestS6APathThatIsNotAProgramIsRefusedAndAskedAgain(t *testing.T) {
 
 	res := mustSetupRun(t, l, claudeNowhere(), l.root+"\n"+missing+"\n"+claude+"\n")
 
-	if strings.Count(res.stdout, "is not") < 2 {
-		t.Errorf("owl setup does not say what was wrong with each refused path:\n%s", res.stdout)
+	// Each refused path named in the refusal of it. Counting the words of one
+	// refusal would not do: a single one already carries the reason twice,
+	// its own and the one it wraps.
+	for _, refused := range []string{l.root, missing} {
+		if !strings.Contains(res.stdout, refused+" is not") {
+			t.Errorf("owl setup does not say what was wrong with %s:\n%s", refused, res.stdout)
+		}
 	}
 	if got := readFile(t, daemonConfig(l)); !strings.Contains(got, "claudePath: "+claude) {
 		t.Errorf("the daemon's configuration does not carry the path that was usable:\n%s", got)
@@ -297,8 +302,12 @@ func TestS9ANameThatIsNotANameIsRefusedAndAskedAgain(t *testing.T) {
 
 	res := mustSetupRun(t, l, claudeOnPath(), "not a name\nwork\n"+testToken+"\n")
 
-	if !strings.Contains(res.stdout, "not a name") && !strings.Contains(res.stderr, "not a name") {
-		t.Errorf("owl setup does not say what was wrong with the name:\n%s%s", res.stdout, res.stderr)
+	// The name echoed back, and what is wrong with it: a name refused without
+	// a reason is a user typing it again.
+	for _, want := range []string{"not a name", "is not one Owl can use"} {
+		if !strings.Contains(res.stdout, want) {
+			t.Errorf("owl setup does not say %q about the name it refused:\n%s", want, res.stdout)
+		}
 	}
 	out := mustOwl(t, l, "account", "list").stdout
 	if !strings.Contains(out, "work") {
@@ -314,8 +323,18 @@ func TestS10RunningSetupAgainWhenEverythingIsDoneChangesNothing(t *testing.T) {
 
 	res := mustSetupRun(t, l, claudeOnPath(), "")
 
-	if strings.Contains(res.stdout, "?") {
-		t.Errorf("the second owl setup asked something:\n%s", res.stdout)
+	if asked := questionsIn(res.stdout); asked != "" {
+		t.Errorf("the second owl setup asked %q:\n%s", asked, res.stdout)
+	}
+	// And reports all three, rather than saying only that it is done.
+	for _, want := range []string{
+		"daemon: running",
+		"claude: " + filepath.Join(fakeClaudeDir, "claude"),
+		"account: work",
+	} {
+		if !strings.Contains(res.stdout, want) {
+			t.Errorf("the second owl setup does not report %q:\n%s", want, res.stdout)
+		}
 	}
 	if got := mustOwl(t, l, "account", "list").stdout; got != first {
 		t.Errorf("the accounts changed:\nbefore\n%s\nafter\n%s", first, got)
