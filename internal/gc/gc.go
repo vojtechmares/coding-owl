@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vojtechmares/coding-owl/internal/config"
 	"github.com/vojtechmares/coding-owl/internal/git"
 	"github.com/vojtechmares/coding-owl/internal/queue"
 	"github.com/vojtechmares/coding-owl/internal/store"
@@ -117,8 +118,17 @@ type Options struct {
 	// exclude file that hides the Skills it placed (ADR-0033). It goes when
 	// the worktree it belongs to goes. A Service without one leaves it.
 	WorktreeConfigDir string
+	// ConfigPath is the daemon's own configuration file. When it is named,
+	// how long a Job may wait for a decision is read from it at the start of
+	// every collection, so that an edit takes effect on the next collection
+	// rather than on the next restart - the way the idle policy and the grace
+	// window are already read where they are used (issue #119). A file that
+	// is not there, or that cannot be read, leaves Owl's own default in
+	// force: the task that keeps the disk bounded does not stop over a typo.
+	ConfigPath string
 	// ReviewAfter is how long a Job may wait for a decision before it is
-	// reported. Zero is DefaultReviewAfter.
+	// reported, for a Service that is given no ConfigPath. Zero is
+	// DefaultReviewAfter.
 	ReviewAfter time.Duration
 	// Carrying reports whether the daemon has a Run going for a Job. An active
 	// Job nothing is carrying is one a dead daemon left behind (ADR-0015). A
@@ -157,6 +167,30 @@ func NewService(opts Options) *Service {
 		opts.ReviewAfter = DefaultReviewAfter
 	}
 	return &Service{opts: opts, now: time.Now}
+}
+
+// reviewAfter is how long a Job may wait for a decision before this
+// collection reports it. It is read from the daemon's own file every time,
+// for a Service that was given one, so that an edit counts from the next
+// collection rather than from the next restart (issue #119).
+//
+// A file that cannot be read leaves Owl's own default in place rather than
+// stopping the collection, which is what the idle policy does with the same
+// file: a task that keeps the disk bounded is not one to stop over a typo.
+func (s *Service) reviewAfter() time.Duration {
+	if s.opts.ConfigPath == "" {
+		return s.opts.ReviewAfter
+	}
+	global, found, err := config.LoadGlobal(s.opts.ConfigPath)
+	if err != nil {
+		s.opts.Logger.Debug("the review threshold could not be read",
+			"path", s.opts.ConfigPath, "error", err)
+		return DefaultReviewAfter
+	}
+	if !found || global.GarbageCollection.ReviewAfter <= 0 {
+		return DefaultReviewAfter
+	}
+	return global.GarbageCollection.ReviewAfter
 }
 
 // Decides tells the Service how to find out whether the daemon is carrying a
@@ -502,6 +536,9 @@ func (s *Service) report(ctx context.Context, jobs []store.Job, running []store.
 	for _, r := range running {
 		inProgress[r.JobID] = true
 	}
+	// Read once for the whole report, so that every Job in it was judged
+	// against the same threshold.
+	waitsFor := s.reviewAfter()
 	now := s.now()
 	for _, j := range jobs {
 		switch queue.State(j.State) {
@@ -509,7 +546,7 @@ func (s *Service) report(ctx context.Context, jobs []store.Job, running []store.
 			// A Job enters review when its Run ends (ADR-0013), so that is
 			// when it started waiting for a decision - not when it was
 			// produced, which may have been weeks of queueing earlier.
-			if waited := s.waitingForADecision(ctx, j, now); waited >= s.opts.ReviewAfter {
+			if waited := s.waitingForADecision(ctx, j, now); waited >= waitsFor {
 				report.Unfinished = append(report.Unfinished, Unfinished{
 					Job: j.ID, Project: j.Project, Reason: ReasonWaiting, Since: waited,
 				})

@@ -151,8 +151,11 @@ func Run(ctx context.Context, opts Options) error {
 		Store:             db,
 		WorktreeDir:       worktrees,
 		WorktreeConfigDir: filepath.Join(opts.Paths.DataDir, ownedDir),
-		ReviewAfter:       global.GarbageCollection.ReviewAfter,
-		Logger:            log,
+		// How long a Job may wait for a decision is read from the file at the
+		// start of every collection rather than taken once here, so that an
+		// edit counts from the next collection (issue #119).
+		ConfigPath: configPath,
+		Logger:     log,
 	})
 	runs := run.NewService(run.Options{
 		Store:             db,
@@ -260,7 +263,7 @@ func Run(ctx context.Context, opts Options) error {
 	// context is done, so that a daemon returning for any other reason - a
 	// server that stopped serving - does not wait on it forever.
 	collectCtx, stopCollecting := context.WithCancel(ctx)
-	collecting := collect(collectCtx, collector, global.GarbageCollection.Interval, log)
+	collecting := collect(collectCtx, collector, collectEvery(configPath, log), log)
 	defer func() {
 		stopCollecting()
 		<-collecting
@@ -317,19 +320,39 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
+// collectEvery is how long to wait between collections, read from the
+// daemon's own file every time it is asked rather than taken once at startup,
+// so that an edit counts from the next wait rather than from the next restart
+// (issue #119). A file that cannot be read leaves Owl's own default in place:
+// the task that keeps the disk bounded does not stop over a typo.
+func collectEvery(configPath string, log *slog.Logger) func() time.Duration {
+	return func() time.Duration {
+		global, found, err := config.LoadGlobal(configPath)
+		if err != nil {
+			log.Debug("the garbage collection interval could not be read",
+				"path", configPath, "error", err)
+			return gc.DefaultInterval
+		}
+		if !found || global.GarbageCollection.Interval <= 0 {
+			return gc.DefaultInterval
+		}
+		return global.GarbageCollection.Interval
+	}
+}
+
 // collect runs garbage collection now and then every interval until ctx is
 // done, and returns a channel that closes once it has stopped. A collection
 // that fails is logged and the next one still happens: the task exists to keep
 // the disk bounded, and one bad night must not end it.
-func collect(ctx context.Context, collector *gc.Service, interval time.Duration, log *slog.Logger) <-chan struct{} {
-	if interval <= 0 {
-		interval = gc.DefaultInterval
-	}
+//
+// The interval is asked for after each collection rather than fixed at the
+// start, so that a change to it is in force from the next wait. A daemon
+// part-way through a wait finishes that wait first, which is as soon as a
+// setting that says how long to sleep can be picked up.
+func collect(ctx context.Context, collector *gc.Service, every func() time.Duration, log *slog.Logger) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
 		for {
 			report, err := collector.Collect(ctx)
 			switch {
@@ -342,10 +365,18 @@ func collect(ctx context.Context, collector *gc.Service, interval time.Duration,
 					"reclaimed", len(report.Reclaimed), "accepted", len(report.Accepted),
 					"pruned", len(report.Pruned), "unfinished", len(report.Unfinished))
 			}
+			wait := gc.DefaultInterval
+			if every != nil {
+				if d := every(); d > 0 {
+					wait = d
+				}
+			}
+			timer := time.NewTimer(wait)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return
-			case <-ticker.C:
+			case <-timer.C:
 			}
 		}
 	}()

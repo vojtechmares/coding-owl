@@ -230,11 +230,25 @@ accounts:
       weeklyMax: 50
 garbageCollection:
   interval: 1h
+  reviewAfter: 168h
 ```
 
 Account limits are percentages of a subscription's rate-limit window. Owl
 will not schedule past them, measured against the account's total usage rather
 than Owl's alone, so there is always room left for you.
+
+Most of these are read again as they are used, so an edit takes effect on the
+next scheduling decision rather than on the next restart: the idle policy, the
+grace window, `maxParallelRuns`, the account limits, and both
+`garbageCollection` settings. A change to `garbageCollection.interval` counts
+from the end of the wait already under way, which for a daemon that has just
+been told to collect once a day means a day.
+
+Three are settled when the daemon starts and wait for a restart:
+`credentialStore` and `claudePath`, so that a Run already going cannot have
+its credential store or its tool change under it, and `idle.interval` - how
+often this daemon looks at the machine, as against `idle.after`, which is what
+it holds the machine to and is read every look.
 
 ### Account configuration
 
