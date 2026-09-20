@@ -114,6 +114,11 @@ message SetupProjectRequest {
   string project = 1;
   // WorkingDir is an absolute path to the directory the caller ran in.
   string working_dir = 2;
+  // Path is Project made absolute against the caller's working directory,
+  // for when it names a path rather than a Project. It is sent alongside the
+  // raw argument because only the caller knows what a relative path is
+  // relative to, and empty when no argument was given.
+  string path = 5;
   // Account is the Account this Project's Jobs will run on (ADR-0023).
   string account = 3;
   // InRepo asks for `.coding-owl.yaml` in the repository, which is committed

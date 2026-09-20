@@ -31,8 +31,9 @@ an Agent cannot weaken the checks that judge it.
 
 ## Giving a Project an Account
 
-A Project that names no Account cannot run a single Job, and a freshly
-registered one names none. `owl project add` says so and points here:
+A Project that names no Account cannot run a single Job, and unless the
+repository already carries a configuration file naming one, a freshly
+registered Project names none. `owl project add` says so and points here:
 
 ```
 owl project setup api

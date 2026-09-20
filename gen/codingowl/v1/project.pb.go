@@ -735,6 +735,11 @@ type SetupProjectRequest struct {
 	Project string `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
 	// WorkingDir is an absolute path to the directory the caller ran in.
 	WorkingDir string `protobuf:"bytes,2,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
+	// Path is Project made absolute against the caller's working directory,
+	// for when it names a path rather than a Project. It is sent alongside the
+	// raw argument because only the caller knows what a relative path is
+	// relative to, and empty when no argument was given.
+	Path string `protobuf:"bytes,5,opt,name=path,proto3" json:"path,omitempty"`
 	// Account is the Account this Project's Jobs will run on (ADR-0023).
 	Account string `protobuf:"bytes,3,opt,name=account,proto3" json:"account,omitempty"`
 	// InRepo asks for `.coding-owl.yaml` in the repository, which is committed
@@ -785,6 +790,13 @@ func (x *SetupProjectRequest) GetProject() string {
 func (x *SetupProjectRequest) GetWorkingDir() string {
 	if x != nil {
 		return x.WorkingDir
+	}
+	return ""
+}
+
+func (x *SetupProjectRequest) GetPath() string {
+	if x != nil {
+		return x.Path
 	}
 	return ""
 }
@@ -948,11 +960,12 @@ const file_codingowl_v1_project_proto_rawDesc = "" +
 	"\x14RemoveProjectRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\":\n" +
 	"\x15RemoveProjectResponse\x12!\n" +
-	"\fjobs_removed\x18\x01 \x01(\x05R\vjobsRemoved\"\x83\x01\n" +
+	"\fjobs_removed\x18\x01 \x01(\x05R\vjobsRemoved\"\x97\x01\n" +
 	"\x13SetupProjectRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x1f\n" +
 	"\vworking_dir\x18\x02 \x01(\tR\n" +
-	"workingDir\x12\x18\n" +
+	"workingDir\x12\x12\n" +
+	"\x04path\x18\x05 \x01(\tR\x04path\x12\x18\n" +
 	"\aaccount\x18\x03 \x01(\tR\aaccount\x12\x17\n" +
 	"\ain_repo\x18\x04 \x01(\bR\x06inRepo\"D\n" +
 	"\x14SetupProjectResponse\x12,\n" +

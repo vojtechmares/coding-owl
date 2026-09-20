@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	accountpkg "github.com/vojtechmares/coding-owl/internal/account"
 	"github.com/vojtechmares/coding-owl/internal/config"
 )
 
@@ -34,6 +35,10 @@ type SetupRequest struct {
 	// Project is the Project by name, or a path inside one. Empty falls back
 	// to WorkingDir.
 	Project string
+	// Path is Project made absolute by the caller, for when it names a path
+	// rather than a Project. Only the caller knows what a relative path is
+	// relative to, so the daemon resolves none of it itself.
+	Path string
 	// WorkingDir is the directory owl was run in, used when Project names
 	// neither a Project nor a path.
 	WorkingDir string
@@ -64,6 +69,13 @@ func (s *Service) Setup(ctx context.Context, req SetupRequest) (ConfigFile, erro
 	account := strings.TrimSpace(req.Account)
 	if account == "" {
 		return ConfigFile{}, invalid("no account was named for the project to run on")
+	}
+	// The name is written into a YAML file, so it is held to the same shape
+	// an Account's name is held to everywhere else rather than taken as
+	// written: a caller reaching this without going through the picker does
+	// not get to decide what else the file says.
+	if err := accountpkg.CheckName(account); err != nil {
+		return ConfigFile{}, invalid("%s", err)
 	}
 	name, err := s.resolveSetupProject(ctx, req)
 	if err != nil {
@@ -101,8 +113,10 @@ func (s *Service) resolveSetupProject(ctx context.Context, req SetupRequest) (st
 			return p.Name, nil
 		}
 	}
-	dir := given
-	if dir == "" {
+	// The caller's own absolute form of the argument, because a relative path
+	// means nothing to a daemon that was started somewhere else.
+	dir := strings.TrimSpace(req.Path)
+	if dir == "" && given == "" {
 		dir = req.WorkingDir
 	}
 	if dir == "" {
@@ -126,26 +140,27 @@ func (s *Service) resolveSetupProject(ctx context.Context, req SetupRequest) (st
 }
 
 // writeFirstConfig writes a configuration file carrying the apiVersion and the
-// Account. It refuses to write one that is already there, so that a file
-// discovery somehow missed is still not overwritten, and it refuses to write
-// through a symlink, because a Project's own directory is one an Agent works
-// in and a link there points wherever it says (the rule
-// internal/skill.notThroughALink keeps for the same files).
+// Account. It creates the file or it fails: O_EXCL refuses one that is already
+// there, so a file discovery could not see is still not overwritten, and
+// refuses a symlink, dangling or not, because a Project's own directory is one
+// an Agent works in and a link there points wherever it says (the rule
+// internal/skill.notThroughALink keeps for the same files). Asking and writing
+// in one call is what keeps the two from being decided at different moments.
 func writeFirstConfig(path, account string) error {
-	if info, err := os.Lstat(path); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return invalid("%s is a symlink; setup will not write through one", path)
-		}
-		return invalid("%s already exists; setup will not overwrite it", path)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	body := fmt.Sprintf("apiVersion: %s\naccount: %s\n", config.APIVersion, account)
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, os.ErrExist) {
+		return invalid("%s is already there; setup will not overwrite it", path)
+	}
+	if err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
-	return nil
+	defer func() { _ = f.Close() }()
+	body := fmt.Sprintf("apiVersion: %s\naccount: %s\n", config.APIVersion, account)
+	if _, err := f.WriteString(body); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	return f.Close()
 }

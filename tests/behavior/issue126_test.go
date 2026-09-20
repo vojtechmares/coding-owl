@@ -9,6 +9,7 @@ package behavior_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,7 +40,28 @@ func configHomeConfig(l *layout, project string) string {
 // returns what it printed.
 func setup(t *testing.T, l *layout, project, input string) result {
 	t.Helper()
-	return runOwlStdin(t, l, input, "project", "setup", project)
+	return setupIn(t, l, "", project, input)
+}
+
+// setupIn is setup run from a working directory, which is what a relative
+// path argument is relative to.
+func setupIn(t *testing.T, l *layout, dir, project, input string) result {
+	t.Helper()
+	cmd := exec.Command(owlBin, "project", "setup", project)
+	cmd.Env = l.env
+	cmd.Dir = dir
+	cmd.Stdin = strings.NewReader(input)
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	code := 0
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		code = exitErr.ExitCode()
+	} else if err != nil {
+		t.Fatalf("running owl project setup %s: %v", project, err)
+	}
+	return result{stdout: out.String(), stderr: errb.String(), code: code}
 }
 
 // mustSetup is setup for the scenarios where it has to succeed.
@@ -151,6 +173,25 @@ func TestS3TheProjectCanBeNamedByAPathInsideIt(t *testing.T) {
 	wantSettings(t, configHomeConfig(l, "api"), "work")
 }
 
+// A path is a path however it is spelled: a relative one means what it means
+// where the user typed it, so the caller resolves it rather than the daemon,
+// which was started somewhere else entirely.
+func TestS3TheProjectCanBeNamedByARelativePathInsideIt(t *testing.T) {
+	l := newLayout(t)
+	r := configured(t, l, "work")
+	deeper := filepath.Join(r.dir, "sub", "deeper")
+	if err := os.MkdirAll(deeper, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	res := setupIn(t, l, deeper, ".", firstChoice+secondChoice)
+
+	if res.code != 0 {
+		t.Fatalf("owl project setup . inside a project exited %d\nstderr:\n%s", res.code, res.stderr)
+	}
+	wantSettings(t, configHomeConfig(l, "api"), "work")
+}
+
 func TestS4AProjectThatIsAlreadyConfiguredIsRefused(t *testing.T) {
 	l := newLayout(t)
 	daemonUp(t, l)
@@ -158,6 +199,14 @@ func TestS4AProjectThatIsAlreadyConfiguredIsRefused(t *testing.T) {
 	r := newRepo(t, l, "api")
 	r.commit(inRepoConfig, "apiVersion: codingowl.dev/v1\nbranchPrefix: root/\n", "configure owl")
 	addProject(t, l, r)
+	// Taken out of the working tree, so the only thing that can refuse is
+	// discovery reading the base branch. Left in place, a plain "the file is
+	// already there" would refuse too, and the scenario would pass without
+	// the refusal it is about.
+	inTree := filepath.Join(r.dir, inRepoConfig)
+	if err := os.Remove(inTree); err != nil {
+		t.Fatal(err)
+	}
 
 	res := setup(t, l, "api", firstChoice+firstChoice)
 
@@ -166,6 +215,14 @@ func TestS4AProjectThatIsAlreadyConfiguredIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(res.stderr, inRepoConfig) {
 		t.Errorf("stderr does not name the file already in force:\n%s", res.stderr)
+	}
+	if !strings.Contains(res.stderr, "overwrite") {
+		t.Errorf("stderr does not say it will not overwrite it:\n%s", res.stderr)
+	}
+	for _, path := range []string{inTree, configHomeConfig(l, "api")} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("setup wrote %s although it refused", path)
+		}
 	}
 	if got := shownConfig(t, l, "api", "branch prefix"); got != "root/" {
 		t.Errorf("the configuration in force changed to %q", got)
