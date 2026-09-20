@@ -94,7 +94,16 @@ func (f File) Edit(fn func(root *yaml.Node) error) error {
 	if err := os.MkdirAll(filepath.Dir(f.Path), dirMode); err != nil {
 		return err
 	}
-	return os.WriteFile(f.Path, out, fileMode)
+	if err := os.WriteFile(f.Path, out, fileMode); err != nil {
+		return err
+	}
+	if f.FileMode != 0 {
+		// A mode the caller asked for is asked for about the file, not only
+		// about creating it: os.WriteFile leaves an existing file's mode
+		// alone, and a caller that says 0600 is saying this one is the user's.
+		return os.Chmod(f.Path, f.FileMode)
+	}
+	return nil
 }
 
 // SetScalar sets one key of the file to a string value.
@@ -122,15 +131,12 @@ func NotThroughALink(path string) error {
 	return nil
 }
 
-// Mapping is the mapping a document holds, and nil for anything else.
+// Mapping is the mapping a document holds, and nil for anything else - which
+// includes a document that says nothing at all. A file Owl cannot read as a
+// mapping of settings is one it refuses to edit rather than replace.
 func Mapping(doc *yaml.Node) *yaml.Node {
 	if doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 {
 		doc = doc.Content[0]
-	}
-	// An empty document parses to nothing at all, which is the mapping a first
-	// key goes into.
-	if doc.Kind == 0 {
-		doc.Kind = yaml.MappingNode
 	}
 	if doc.Kind != yaml.MappingNode {
 		return nil

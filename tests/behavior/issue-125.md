@@ -111,3 +111,19 @@ When `owl setup` runs with its standard input closed
 Then it exits non-zero rather than waiting
 And it says it needed an answer and got none
 And the daemon's `config.yaml` is not written
+
+### S13 - a question skipped leaves the command unfinished, and says so
+Given a running daemon, an Account, and no findable `claude`
+When `owl setup` runs and the question about `claude` is answered with nothing
+Then it exits non-zero, because a machine that can run nothing is not ready
+And it does not say that everything Owl needs is there
+And it names `claude` as what is still missing
+And the daemon's `config.yaml` carries no `claudePath`
+
+### S14 - a machine with no daemon configuration file at all gets one
+Given a running daemon, an Account, no findable `claude`, and no
+`<config home>/coding-owl/config.yaml`
+When `owl setup` runs and is given the path to a `claude`
+Then the file is created, carrying an `apiVersion` and the `claudePath` given
+And a second `owl setup` reads that file back without complaint and reports
+the `claude` it names, which is what a daemon reading the same file would do

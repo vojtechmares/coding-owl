@@ -18,18 +18,17 @@ import (
 	"strings"
 )
 
-// maxAnswer bounds what the questions read between them, so that a mistaken
-// `owl project setup < some-huge-file` is refused rather than held in memory.
-// It bounds a pasted token too, for the commands that ask for one after
-// asking something else.
-const maxAnswer = 4 << 10
-
 // asker reads the answers. One reader serves every question, because a
 // buffered one holds what it has read ahead and a second would lose it.
 type asker struct{ in *bufio.Reader }
 
+// newAsker bounds the whole of what the questions read, so that a mistaken
+// `owl project setup < some-huge-file` is refused rather than held in memory.
+// The bound is maxToken because one of the answers is a pasted token, which
+// `owl account add --token-stdin` reads under that same bound: a question
+// asked before it must not shrink what a token may be.
 func newAsker(env Env) *asker {
-	return &asker{in: bufio.NewReader(io.LimitReader(env.stdin(), maxAnswer))}
+	return &asker{in: bufio.NewReader(io.LimitReader(env.stdin(), maxToken))}
 }
 
 // line reads one answer, with its newline taken off. It reports whether that

@@ -68,7 +68,8 @@ func setup(cmd *cobra.Command, env Env) error {
 	if err != nil {
 		return err
 	}
-	if err := setupClaude(env, ask); err != nil {
+	findable, err := setupClaude(env, ask)
+	if err != nil {
 		return err
 	}
 	if running {
@@ -79,9 +80,21 @@ func setup(cmd *cobra.Command, env Env) error {
 		_, _ = fmt.Fprintln(env.Stdout, "account: not checked, because that needs the daemon")
 	}
 
+	// What is still missing is what the command could not finish, and saying
+	// so is the whole point of it: a machine that can run nothing must not be
+	// told it is ready, and a script reading the exit status must not be
+	// either.
+	var left []string
 	if !running {
+		left = append(left, "the daemon is not running")
+	}
+	if !findable {
+		left = append(left, "claude is not where the daemon will look")
+	}
+	if len(left) > 0 {
 		_, _ = fmt.Fprintln(env.Stdout)
-		return errors.New("the daemon is not running, so this could not finish; run `owl setup` again once it is up")
+		return fmt.Errorf("%s, so this could not finish; run `owl setup` again once that is done",
+			strings.Join(left, ", and "))
 	}
 	_, _ = fmt.Fprintln(env.Stdout)
 	_, _ = fmt.Fprintln(env.Stdout, "That is everything Owl needs.")
@@ -138,25 +151,29 @@ func setupDaemon(cmd *cobra.Command, env Env, ask *asker) (bool, error) {
 // setupClaude reports where a Run will find Claude Code, and asks for it when
 // nothing will. The lookup is the Driver's own, so what this reports is what a
 // Run gets rather than a second search that could drift from it.
-func setupClaude(env Env, ask *asker) error {
+//
+// It returns whether a Run will now find it, which is false when the question
+// was skipped: the caller says what is left, and a machine that can still run
+// nothing is not told it is ready.
+func setupClaude(env Env, ask *asker) (bool, error) {
 	globalPath := filepath.Join(env.Paths.ConfigDir, config.GlobalFileName)
 	global, _, err := config.LoadGlobal(globalPath)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if path, err := claudecode.Find(global.ClaudePath); err == nil {
 		_, _ = fmt.Fprintf(env.Stdout, "claude: %s\n", terminalSafe(path))
-		return nil
+		return true, nil
 	}
 	_, _ = fmt.Fprintln(env.Stdout, "claude: not on PATH, and not under ~/.local/bin")
 	_, _ = fmt.Fprintln(env.Stdout, "  install it from https://claude.com/claude-code, or name where it is now.")
 	path, err := askExecutable(env, ask, "  Path to claude (empty to skip): ")
 	if err != nil {
-		return err
+		return false, err
 	}
 	if path == "" {
 		_, _ = fmt.Fprintln(env.Stdout, "  skipped; a run cannot start until the daemon can find it")
-		return nil
+		return false, nil
 	}
 	// Written into the daemon's own file, because that is where claudePath is
 	// read from (ADR-0014), and with the one key changed: the file is the
@@ -170,11 +187,11 @@ func setupClaude(env Env, ask *asker) error {
 		FileMode: 0o600,
 	}
 	if err := file.SetScalar("claudePath", path); err != nil {
-		return err
+		return false, err
 	}
 	_, _ = fmt.Fprintf(env.Stdout, "  wrote claudePath: %s to %s\n", terminalSafe(path), terminalSafe(globalPath))
 	_, _ = fmt.Fprintln(env.Stdout, "  the daemon reads that when it starts, so restart it before the setting counts")
-	return nil
+	return true, nil
 }
 
 // askExecutable asks for the path to a program until it is given one that can
