@@ -96,7 +96,7 @@ func (s *Service) Setup(ctx context.Context, req SetupRequest) (ConfigFile, erro
 	if req.InRepo {
 		path = filepath.Join(d.Path, inRepoSetupCandidate)
 	}
-	if err := writeFirstConfig(path, account); err != nil {
+	if err := writeFirstConfig(path, account, req.InRepo); err != nil {
 		return ConfigFile{}, err
 	}
 	return ConfigFile{Path: path, InRepo: req.InRepo}, nil
@@ -164,21 +164,38 @@ func (s *Service) resolveSetupProject(ctx context.Context, req SetupRequest) (st
 // an Agent works in and a link there points wherever it says (the rule
 // internal/skill.notThroughALink keeps for the same files). Asking and writing
 // in one call is what keeps the two from being decided at different moments.
-func writeFirstConfig(path, account string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+func writeFirstConfig(path, account string, inRepo bool) error {
+	// A file in the repository is meant to be read by whoever clones it; one
+	// in the configuration home is Owl's own, and everything else Owl keeps
+	// there is the user's alone (the modes internal/project's own
+	// moveConfigDir, internal/store and internal/account use).
+	dirMode, fileMode := os.FileMode(0o700), os.FileMode(0o600)
+	if inRepo {
+		dirMode, fileMode = 0o755, 0o644
+	}
+	if err := os.MkdirAll(filepath.Dir(path), dirMode); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
 	if errors.Is(err, os.ErrExist) {
 		return invalid("%s is already there; setup will not overwrite it", path)
 	}
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
-	defer func() { _ = f.Close() }()
 	body := fmt.Sprintf("apiVersion: %s\naccount: %s\n", config.APIVersion, account)
-	if _, err := f.WriteString(body); err != nil {
-		return fmt.Errorf("writing %s: %w", path, err)
+	if _, err := f.WriteString(body); err == nil {
+		err = f.Close()
+		if err == nil {
+			return nil
+		}
+	} else {
+		_ = f.Close()
 	}
-	return f.Close()
+	// The file this call created is taken away again, so that a write that
+	// failed leaves the place as it found it. Left behind, the empty file
+	// would meet the next run's O_EXCL and be reported as one somebody else
+	// had put there.
+	_ = os.Remove(path)
+	return fmt.Errorf("writing %s: %w", path, err)
 }

@@ -739,13 +739,13 @@ type SetupProjectRequest struct {
 	// for when it names a path rather than a Project. It is sent alongside the
 	// raw argument because only the caller knows what a relative path is
 	// relative to, and empty when no argument was given.
-	Path string `protobuf:"bytes,5,opt,name=path,proto3" json:"path,omitempty"`
+	Path string `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
 	// Account is the Account this Project's Jobs will run on (ADR-0023).
-	Account string `protobuf:"bytes,3,opt,name=account,proto3" json:"account,omitempty"`
+	Account string `protobuf:"bytes,4,opt,name=account,proto3" json:"account,omitempty"`
 	// InRepo asks for `.coding-owl.yaml` in the repository, which is committed
 	// and read from the base branch, rather than the config-home fallback,
 	// which is read from disk (ADR-0014).
-	InRepo        bool `protobuf:"varint,4,opt,name=in_repo,json=inRepo,proto3" json:"in_repo,omitempty"`
+	InRepo        bool `protobuf:"varint,5,opt,name=in_repo,json=inRepo,proto3" json:"in_repo,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -965,9 +965,9 @@ const file_codingowl_v1_project_proto_rawDesc = "" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x1f\n" +
 	"\vworking_dir\x18\x02 \x01(\tR\n" +
 	"workingDir\x12\x12\n" +
-	"\x04path\x18\x05 \x01(\tR\x04path\x12\x18\n" +
-	"\aaccount\x18\x03 \x01(\tR\aaccount\x12\x17\n" +
-	"\ain_repo\x18\x04 \x01(\bR\x06inRepo\"D\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\x12\x18\n" +
+	"\aaccount\x18\x04 \x01(\tR\aaccount\x12\x17\n" +
+	"\ain_repo\x18\x05 \x01(\bR\x06inRepo\"D\n" +
 	"\x14SetupProjectResponse\x12,\n" +
 	"\x04file\x18\x01 \x01(\v2\x18.codingowl.v1.ConfigFileR\x04file\"9\n" +
 	"\n" +

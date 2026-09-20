@@ -65,21 +65,31 @@ A Project that already has a configuration file is left alone.`,
 				}
 				path = abs
 			}
-			return withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
-				return projectSetup(ctx, env, c, named, path)
-			})
+			return projectSetup(cmd, env, named, path)
 		},
 	}
 }
 
-func projectSetup(ctx context.Context, env Env, c *client.Client, named, path string) error {
-	accounts, err := c.ListAccounts(ctx)
-	if err != nil {
+// projectSetup asks the two questions and writes the answer. The daemon is
+// called twice, on either side of the asking, rather than once around it: the
+// call deadline is there so a wedged daemon cannot hold the command forever,
+// and a person reading a list and choosing from it is not a wedged daemon.
+// That is why `owl account add` and `owl providers add` read from the terminal
+// outside withDaemon too.
+func projectSetup(cmd *cobra.Command, env Env, named, path string) error {
+	var accounts []client.Account
+	if err := withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
+		var err error
+		accounts, err = c.ListAccounts(ctx)
+		return err
+	}); err != nil {
 		return err
 	}
 	if len(accounts) == 0 {
 		return errors.New("there is no account for this project's jobs to run on; owl account add <name> makes one")
 	}
+
+	// Nothing is waiting on the daemon while this is answered.
 	ask := newAsker(env)
 	account, err := pickAccount(env, ask, accounts)
 	if err != nil {
@@ -89,8 +99,13 @@ func projectSetup(ctx context.Context, env Env, c *client.Client, named, path st
 	if err != nil {
 		return err
 	}
-	file, err := c.SetupProject(ctx, named, path, env.workingDir(), account, inRepo)
-	if err != nil {
+
+	var file client.ConfigFile
+	if err := withDaemon(cmd, env, func(ctx context.Context, c *client.Client) error {
+		var err error
+		file, err = c.SetupProject(ctx, named, path, env.workingDir(), account, inRepo)
+		return err
+	}); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintf(env.Stdout, "\nwrote %s\n", terminalSafe(file.Path))
