@@ -120,13 +120,21 @@ func (c cell) luma() float64 { return 0.2126*c.r + 0.7152*c.g + 0.0722*c.b }
 // smudge.
 func spread(img image.Image, side int) float64 {
 	cells := coarse(img, side)
-	var sum, sq float64
+	var sum float64
 	for _, c := range cells {
 		sum += c.luma()
-		sq += c.luma() * c.luma()
 	}
 	mean := sum / float64(len(cells))
-	return math.Sqrt(sq/float64(len(cells)) - mean*mean)
+	// Summed as deviations from the mean rather than as E[x^2] - mean^2: the
+	// second form can cancel to a small negative for a nearly flat picture,
+	// and a NaN would slip past the comparison that is meant to catch exactly
+	// that picture.
+	var sq float64
+	for _, c := range cells {
+		d := c.luma() - mean
+		sq += d * d
+	}
+	return math.Sqrt(sq / float64(len(cells)))
 }
 
 // visibleLuma is the mean brightness of a picture and the share of it that is
@@ -161,9 +169,11 @@ func TestS1IconIsWhereWailsLooksForItAtTheMasterSize(t *testing.T) {
 
 	b := img.Bounds()
 
-	// Named rather than assumed: Go picks the decoder by content, so a file
-	// called appicon.png that is really a JPEG would decode here and be
-	// refused by wails build instead.
+	// Named rather than assumed. Today only image/png is registered in this
+	// package, so anything else fails to decode at all and readImage has
+	// already said so; this says which format it got, so that registering
+	// another decoder here some day cannot quietly let a JPEG named
+	// appicon.png through - which wails build would then refuse.
 	if format != "png" {
 		t.Errorf("%s decodes as %s, not png, which is what Wails takes", appIcon, format)
 	}
@@ -285,7 +295,8 @@ func TestS6BuildNotesSayHowTheIconWasMade(t *testing.T) {
 			logoSource, notes)
 	}
 	// A command, so the icon can be remade rather than guessed at. sips is
-	// macOS's own, which is the platform this app is built on (ADR-0002).
+	// macOS's own, and the desktop app is a macOS app built with Wails
+	// (ADR-0009), so it needs nothing installed.
 	if !strings.Contains(notes, "sips") {
 		t.Errorf("cmd/owl-desktop/build/README.md gives no command that derives the icon from the logo:\n%s", notes)
 	}
