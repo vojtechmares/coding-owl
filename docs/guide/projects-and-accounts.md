@@ -29,6 +29,46 @@ are rebased onto it at the start of every Run, and the Project's configuration
 and its Verification checks are read from it - never from a Job's worktree, so
 an Agent cannot weaken the checks that judge it.
 
+## Giving a Project an Account
+
+A Project that names no Account cannot run a single Job, and a freshly
+registered one names none. `owl project add` says so and points here:
+
+```
+owl project setup api
+```
+
+It asks two things. Which Account the Project's Jobs run on - it lists the ones
+you have registered - and where the configuration file should go:
+
+- **in the repository**, as `.coding-owl.yaml`, which is committed and travels
+  with the repository to every machine that clones it;
+- **in Owl's configuration home**, at `~/.config/coding-owl/<name>/config.yaml`,
+  which is local to this machine and is never committed.
+
+Then it writes those two settings and nothing else. The choice matters more
+than it looks: the configuration home file is read from disk, so it is in force
+the moment it is written, while an in-repo file is read from the Project's base
+branch. Writing `.coding-owl.yaml` into your working tree changes nothing until
+you commit it, and setup says so rather than committing on your behalf.
+
+The Project may be named by name, or by any path inside it, or left out
+entirely when you are already in its directory:
+
+```
+owl project setup                # the project you are standing in
+owl project setup ~/code/my-app  # or one named by path
+```
+
+A Project that already has a configuration file anywhere in the discovery
+order is left alone: what else that file carries is yours, and setup is not the
+thing to merge into it.
+
+Everything else a configuration file can carry - the checks that judge a Run,
+what an Agent may do, the Skills it reads - is in the
+[guide](../../README.md#configuration). Setup points you at it and suggests
+handing that part to a coding agent.
+
 ## Seeing what is registered
 
 ```

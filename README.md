@@ -280,6 +280,7 @@ Owl honours the XDG variables on both macOS and Linux:
 | Command | What it does |
 | --- | --- |
 | `owl project add\|list\|show\|rename\|move\|remove` | Register repositories as Projects |
+| `owl project setup [project]` | Give a Project the Account its Jobs run on |
 | `owl account add\|list\|remove\|exec` | Manage the subscriptions Owl runs work on |
 | `owl account instructions show\|set\|edit` | The standing instructions every Run on an Account reads |
 | `owl add <prompt>` | Queue a Job, planned first unless `--no-plan` |

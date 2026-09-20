@@ -21,6 +21,9 @@ service ProjectService {
   rpc RenameProject(RenameProjectRequest) returns (RenameProjectResponse) {}
   // RemoveProject deregisters a Project.
   rpc RemoveProject(RemoveProjectRequest) returns (RemoveProjectResponse) {}
+  // SetupProject writes a Project's first configuration file: the Account its
+  // Jobs run on, and nothing else. A Project that already has one is refused.
+  rpc SetupProject(SetupProjectRequest) returns (SetupProjectResponse) {}
 }
 
 // Project is a registered git repository.
@@ -103,4 +106,31 @@ message RemoveProjectResponse {
   // JobsRemoved is how many Jobs went with the Project, queued or not, since
   // a Job whose Project is gone has nowhere to run.
   int32 jobs_removed = 1;
+}
+
+message SetupProjectRequest {
+  // Project names the Project, or a path inside one. Empty means the Project
+  // WorkingDir is in.
+  string project = 1;
+  // WorkingDir is an absolute path to the directory the caller ran in.
+  string working_dir = 2;
+  // Account is the Account this Project's Jobs will run on (ADR-0023).
+  string account = 3;
+  // InRepo asks for `.coding-owl.yaml` in the repository, which is committed
+  // and read from the base branch, rather than the config-home fallback,
+  // which is read from disk (ADR-0014).
+  bool in_repo = 4;
+}
+
+message SetupProjectResponse {
+  ConfigFile file = 1;
+}
+
+// ConfigFile is a configuration file on disk, and whether it is one a Run
+// reads from the base branch rather than from where it was written.
+message ConfigFile {
+  string path = 1;
+  // InRepo is true for a file in the Project's repository, which does nothing
+  // until it is committed (ADR-0014).
+  bool in_repo = 2;
 }

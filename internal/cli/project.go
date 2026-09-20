@@ -23,6 +23,7 @@ func newProjectCmd(env Env) *cobra.Command {
 	}
 	cmd.AddCommand(
 		newProjectAddCmd(env),
+		newProjectSetupCmd(env),
 		newProjectListCmd(env),
 		newProjectShowCmd(env),
 		newProjectMoveCmd(env),
@@ -64,6 +65,7 @@ Project's configuration directory.`,
 					return err
 				}
 				_, _ = fmt.Fprintf(env.Stdout, "registered %s at %s (base branch %s)\n", p.Name, p.Path, p.BaseBranch)
+				sayIfUnconfigured(ctx, env, c, p.Name)
 				return nil
 			})
 		},
@@ -205,4 +207,22 @@ or not, since a Job whose Project is gone has nowhere to run.`,
 			})
 		},
 	}
+}
+
+// sayIfUnconfigured points a newly registered Project at owl project setup
+// when it carries no configuration file anywhere in ADR-0014's order. A
+// Project that names no Account cannot run a single Job (ADR-0023), and
+// nothing else was going to say so.
+//
+// It is said after the registration rather than instead of it: the Project is
+// registered either way, and a daemon that cannot answer this is not a reason
+// to report a failure for work that succeeded.
+func sayIfUnconfigured(ctx context.Context, env Env, c *client.Client, name string) {
+	d, err := c.GetProject(ctx, name)
+	if err != nil || d.Config.Source != "" {
+		return
+	}
+	_, _ = fmt.Fprintf(env.Stdout,
+		"no configuration file was found for it, so it names no account and cannot run yet;\n"+
+			"run \"owl project setup %s\" to give it one\n", name)
 }
