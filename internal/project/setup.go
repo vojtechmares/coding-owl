@@ -22,6 +22,7 @@ import (
 
 	accountpkg "github.com/vojtechmares/coding-owl/internal/account"
 	"github.com/vojtechmares/coding-owl/internal/config"
+	"github.com/vojtechmares/coding-owl/internal/store"
 )
 
 // inRepoSetupCandidate is the file `owl project setup` writes in a
@@ -109,8 +110,16 @@ func (s *Service) Setup(ctx context.Context, req SetupRequest) (ConfigFile, erro
 func (s *Service) resolveSetupProject(ctx context.Context, req SetupRequest) (string, error) {
 	given := strings.TrimSpace(req.Project)
 	if given != "" {
-		if p, err := s.store.GetProject(ctx, given); err == nil {
+		// Only "there is no such Project" falls through to reading it as a
+		// path. A cancelled request or a store that could not be read is not
+		// an argument that turned out to be a path, and saying so would send
+		// the reader looking for the wrong mistake.
+		p, err := s.store.GetProject(ctx, given)
+		if err == nil {
 			return p.Name, nil
+		}
+		if !errors.Is(err, store.ErrNotFound) {
+			return "", err
 		}
 	}
 	// The caller's own absolute form of the argument, because a relative path
