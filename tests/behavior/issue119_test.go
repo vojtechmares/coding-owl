@@ -31,13 +31,19 @@ garbageCollection:
 
 // waitingFor reports whether a report names the Job as having waited for a
 // decision. The heading is only there when something is unfinished, which is
-// why this reads the whole report rather than the section.
+// why this reads the whole report rather than the section, and both halves
+// have to be on the one line: with more than one thing unfinished, a Job named
+// on one line and a wait described on another say nothing about each other.
 func waitingFor(report, job string) bool {
 	if !strings.Contains(report, "unfinished work:") {
 		return false
 	}
-	return strings.Contains(report, "job "+job+" ") &&
-		strings.Contains(report, "waiting for a decision")
+	for _, ln := range strings.Split(report, "\n") {
+		if strings.Contains(ln, "job "+job+" ") && strings.Contains(ln, "waiting for a decision") {
+			return true
+		}
+	}
+	return false
 }
 
 // strayWorktree leaves a worktree belonging to no Job where garbage collection
