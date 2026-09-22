@@ -48,6 +48,11 @@
   --color-security: var(--color-violet-700);
   --color-security-bg: var(--color-violet-50);
 
+  /* The archive notice above the navbar, orange like GitHub's. */
+  --color-archived: var(--color-orange-900);
+  --color-archived-bg: var(--color-orange-50);
+  --color-archived-edge: var(--color-orange-200);
+
   --radius-panel: 6px;
   --radius-control: 4px;
 }

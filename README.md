@@ -2,6 +2,12 @@
   <img src="docs/assets/coding-owl-logo.png" alt="Coding Owl" width="320">
 </p>
 
+> [!IMPORTANT]
+> **Coding Owl is archived.** It did not fulfill its core loop. After careful
+> evaluation, rather than pivoting or refactoring it, I am building something
+> new from scratch with the lessons learned.
+> [Why Coding Owl is archived](ARCHIVED.md).
+
 # Coding Owl
 
 Coding Owl runs coding agents on your machine while it is otherwise idle, so
