@@ -12,10 +12,13 @@ export const REPO_ROOT = path.resolve(process.cwd(), '..');
 
 /**
  * Splits a leading `# Title` off a Markdown document, after dropping any raw
- * HTML block ahead of it (the README's centred logo).
+ * HTML block ahead of it (the README's centred logo) and any GitHub alert
+ * (the README's archive notice, which the site shows above its navbar).
  */
 function splitTitle(source: string): { title: string | undefined; body: string } {
-  const text = source.replace(/^\s*<p\b[\s\S]*?<\/p>\s*/, '');
+  const text = source
+    .replace(/^\s*<p\b[\s\S]*?<\/p>\s*/, '')
+    .replace(/^\s*> \[![A-Z]+\]\n(?:>.*\n)*\s*/, '');
   const match = text.match(/^\s*#\s+(.+?)\s*\n([\s\S]*)$/);
   if (!match) return { title: undefined, body: text.trim() };
   return { title: match[1], body: match[2].trim() };

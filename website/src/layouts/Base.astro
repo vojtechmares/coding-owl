@@ -97,6 +97,16 @@ const graph = schemaGraph({
     <script is:inline src="https://cdn.usefathom.com/script.js" data-site="UTHZXRYR" defer></script>
   </head>
   <body class="flex min-h-screen flex-col">
+    <div class="border-b border-archived-edge bg-archived-bg text-archived" role="note">
+      <p class="mx-auto w-full max-w-5xl px-6 py-3 text-sm leading-6 sm:px-10">
+        <strong class="font-semibold">Coding Owl is archived.</strong>{' '}
+        It did not fulfill its core loop, so rather than pivoting or refactoring it, I am building something new
+        from scratch with the lessons learned.{' '}
+        <a href={`${REPO}/blob/main/ARCHIVED.md`} class="font-medium text-archived underline" rel="noopener">
+          Why Coding Owl is archived
+        </a>
+      </p>
+    </div>
     <Nav />
     <main class="mx-auto w-full max-w-5xl flex-1 px-6 pb-24 sm:px-10">
       <slot />
